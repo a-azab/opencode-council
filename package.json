@@ -13,5 +13,8 @@
     "agent",
     "command",
     "PLAN.md"
-  ]
+  ],
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
 }

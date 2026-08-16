@@ -1,6 +1,10 @@
-import { readdirSync, readFileSync, existsSync } from "node:fs"
+import { readdirSync, readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join, basename } from "node:path"
+import { execFileSync } from "node:child_process"
+import { z } from "zod"
+import { runReview } from "./engine.ts"
+import { renderReport, renderSummary } from "./report.ts"
 
 const PKG = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -48,8 +52,67 @@ const AGENT_DEFAULTS = {
   permission: { edit: "deny", bash: "deny" } as Record<string, string>,
 }
 
-export const CouncilPlugin = async () => ({
+function gitDiff(cwd: string, base: string) {
+  const run = (args: string[]) => {
+    try {
+      return execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+    } catch {
+      return ""
+    }
+  }
+  const diff = run(["diff", base])
+  return {
+    diff,
+    files: run(["diff", "--name-only", base]).split("\n").filter(Boolean),
+    changedLines: diff.split("\n").filter((l) => /^[+-][^+-]/.test(l)).length,
+  }
+}
+
+export const CouncilPlugin = async (input: any) => ({
+  tool: {
+    council: {
+      description:
+        "Multi-model code review: fans out across role x model, verifies every finding with " +
+        "independent skeptics that did not raise it, and aggregates deterministically. " +
+        "Use for a real review; use /check for a fast inline pass.",
+      args: {
+        base: z.string().default("HEAD").describe("git ref to diff against (HEAD, main, a sha)"),
+      },
+      async execute(args: { base?: string }, context: any) {
+        const t0 = Date.now()
+        const cwd = context?.directory ?? input?.directory ?? process.cwd()
+        const base = args?.base ?? "HEAD"
+        const { diff, files, changedLines } = gitDiff(cwd, base)
+        if (!diff.trim()) return `Nothing to review — no diff against ${base}.`
+
+        const user = process.env.OPENCODE_SERVER_USERNAME
+        const pass = process.env.OPENCODE_SERVER_PASSWORD
+        const review = await runReview(
+          {
+            serverUrl: String(input?.serverUrl ?? "http://127.0.0.1:4096"),
+            auth: user && pass ? "Basic " + Buffer.from(`${user}:${pass}`).toString("base64") : undefined,
+          },
+          { diff, files, changedLines },
+        )
+
+        const dir = join(cwd, "council-artifacts", new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19))
+        mkdirSync(dir, { recursive: true })
+        const reportPath = join(dir, "report.md")
+        writeFileSync(reportPath, renderReport(review, { files, ms: Date.now() - t0 }))
+        writeFileSync(join(dir, "findings.json"), JSON.stringify(review, null, 2))
+        return renderSummary(review, reportPath)
+      },
+    },
+  },
+
   config: async (config: any) => {
+    // Keep council() out of task-tool subagents. Sessions the engine creates itself carry
+    // their own deny list (engine.ts) because self-created children inherit nothing.
+    config.experimental ??= {}
+    config.experimental.primary_tools = [
+      ...new Set([...(config.experimental.primary_tools ?? []), "council"]),
+    ]
+
     config.command ??= {}
     for (const { name, data, body } of readMarkdownDir("command")) {
       config.command[name] = {
