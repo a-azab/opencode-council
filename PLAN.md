@@ -413,6 +413,17 @@ and model-named (`council-fable`); new ones are `mode: all` and role-named
 
 Measured 2026-08-16 against opencode 1.18.13. **Verdict: GO.**
 
+### Fix-loop findings (measured 2026-08-16, Phase 4c)
+
+| finding | consequence |
+|---|---|
+| Asking a model for a **unified diff** produced `corrupt patch at line 12` and `no valid patches in input` on 2 of 5 attempts | The fixer now returns the **full new file** and `git diff --no-index` computes the patch. Hunk arithmetic is mechanical; there is no reason to make a model do it. Verified: clean single-line patch, `git apply --check` PASS. |
+| A patch that git rejected was returned with `state: "ok"` | `runFix` now validates with `git apply --check` before returning. A patch git will not take is not a patch, however confident the model was — reporting it as success just moves the failure onto the human. |
+| `confident: false` correctly escalated the SQL-injection fix | Working as designed. The placeholder syntax depends on a driver the fixer cannot see, so declining is the right answer. |
+| A full run took ~10 minutes | Rounds are sequential and each is bounded by its slowest member, so worst case ≈ 4 × per-node timeout. Default dropped 180s → 90s (~4× the slowest measured model). |
+
+### Spike results
+
 | Q | Result |
 |---|---|
 | **Q1** `config.agent[id]` | **CONFIRMED.** `spike-probe (subagent)` appeared in `opencode agent list` only with the plugin loaded. `config.command[name]` likewise. Prompt is honored end-to-end (agent replied `REGISTERED`). |
