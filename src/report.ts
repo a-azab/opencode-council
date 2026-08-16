@@ -64,6 +64,21 @@ export function renderReport(review: Review, meta: { files: string[]; ms: number
     lines.push("")
   }
 
+  // The loop must be auditable. "Converged" is a computed claim, so show what computed it
+  // and what actually moved - otherwise it is indistinguishable from a model asserting it.
+  lines.push("## Convergence", "")
+  lines.push(`Stopped after ${review.debate.length} debate round(s): ${review.convergence}.`, "")
+  for (const r of review.debate) {
+    const changed = r.revisions.filter((v) => v.changed)
+    lines.push(
+      `- **Round ${r.round}** — ${r.revisions.length} re-judgements, ${changed.length} changed position` +
+        (changed.length
+          ? ": " + changed.map((c) => `${c.model}→${c.tier}`).join(", ")
+          : " (positions held)"),
+    )
+  }
+  lines.push("")
+
   lines.push("## Participation", "")
   lines.push("| role | model | state | ms | findings |", "|---|---|---|---|---|")
   for (const n of nodes)
