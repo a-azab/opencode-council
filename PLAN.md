@@ -61,6 +61,8 @@ future session doesn't reopen it.
 | D7 | **nemotron via opencode Zen free tier** | User choice. Needs `opencode auth login`. Free tier + fan-out ⇒ `serial` flag required. |
 | D8 | **qwen via `opencode-go/qwen3.8-max`** | `nvidia/*` has no credentials. |
 | D9 | **`git init` `/root/.config/opencode` before deleting anything there** | It is not under version control. No undo exists today. |
+| D10 | **No SDK dependency — plain `fetch` against the injected `serverUrl`** | Sidesteps the v1/v2 client split entirely (the v1 client can't carry `format`). Proven in the Phase 0 spike. Zero deps, no build step, no version trap. |
+| D11 | **No text-JSON fallback for models that can't do structured output** | 11 models work natively. A second parse path for 2 models is complexity for marginal diversity. A model either passes the smoke test or is not in the roster. |
 
 ### Explicitly NOT porting
 
@@ -147,13 +149,19 @@ its own design.)
 
 Hard-won. Do not rediscover these.
 
-1. **The plugin's injected `client` is v1 and silently drops `format`.** No error — the
-   field is discarded and you get unstructured text. Build a v2 client from the injected
-   `serverUrl`:
+1. **Do not use an SDK client at all — use `fetch` against the injected `serverUrl`.**
+   The plugin's injected `client` is v1, whose `SessionPromptData` type has no `format`
+   field, so structured output is unavailable (or silently dropped) through it. Rather
+   than pull in a second SDK version and inherit the v1/v2 split, issue plain HTTP —
+   proven working in the Phase 0 spike:
    ```ts
-   import { createOpencodeClient } from "@opencode-ai/sdk/v2"
-   const v2 = createOpencodeClient({ baseUrl: input.serverUrl.toString() })
+   await fetch(`${serverUrl}session/${id}/message`, {
+     method: "POST",
+     headers: { "content-type": "application/json", authorization: basicAuth },
+     body: JSON.stringify({ model: { providerID, modelID }, agent, parts, format }),
+   })
    ```
+   Zero dependencies, no version trap, no build step. (**D10**)
 2. **`session.create({parentID})` bypasses `subagent_depth` AND the task tool's
    auto-deny.** Those denies are injected *by the task tool*, not inherent to child
    sessions. A self-created worker inherits **no** deny rules — `council()` can recurse
@@ -191,37 +199,73 @@ Hard-won. Do not rediscover these.
 12. Do **not** build on the v2 plugin API (`define({id, setup})`). It exists and is more
     capable, but every call site in the binary is an internal plugin and it is unconfirmed
     whether an external package can export one.
+13. **`opencode run --agent <name>` silently falls back to `build` if the agent is
+    `mode: subagent`.** It prints a warning and **exits 0** — so you would get a review
+    from the wrong agent and never know. Role agents must be `mode: all`. (Measured; this
+    only affects the CLI path, but the silent-success failure mode is the dangerous part.)
+14. **`format` lives on the legacy `POST /session/{id}/message`**, *not* on
+    `POST /api/session/{id}/prompt` — the `/api/` v2 prompt body is
+    `{delivery, id, prompt, resume}` and has no `format`. Easy to get backwards.
+15. **`models.json`'s `structured_output` flag is unreliable in both directions.**
+    `deepseek-v4-pro` declares `true` and fails 100%; `mimo`/`minimax` declare `null` and
+    work. Never trust the catalogue — smoke-test.
+16. **Catalogue presence ≠ availability.** Five `opencode/*-free` models are listed in
+    `models.json` but return `ProviderModelNotFoundError` at runtime. The error surfaces
+    as an opaque HTTP 500 `UnknownError` with a `ref`; the real cause is only in
+    `~/.local/share/opencode/log/opencode.log`. Grep the ref.
+17. **The local server requires basic auth** — `OPENCODE_SERVER_USERNAME` /
+    `OPENCODE_SERVER_PASSWORD` from the environment. Unauthenticated requests get a bare
+    `401` with no body.
+18. **`Promise.all` joins on the slowest node.** A round costs its slowest member, so
+    per-node `AbortSignal.timeout` is what bounds a round, not the average. Use
+    `allSettled` so one timeout doesn't discard the other ten results.
 
 ---
 
 ## 5. Roster
 
-`structured` and `serial` are set by the Phase 0 spike — values below are the hypothesis,
-not measured.
+**Measured 2026-08-16.** Every model below is confirmed to produce schema-valid structured
+output. `ms` is the observed latency on a trivial structured task — use it to set timeouts,
+not as a quality signal.
 
 ```
-slug        model                                  roles                structured  serial
-opus5       anthropic/claude-opus-5                reviewer,security         ?
-fable       anthropic/claude-fable-5               security,skeptic          ?
-gpt55       openai/gpt-5.5                         product,reviewer          ?
-glm52       zai-coding-plan/glm-5.2                reviewer,systems          ?
-deepseek    deepseek/deepseek-v4-pro               pragmatist,systems        ?
-kimik3      kimi-for-coding/k3                     code                      ?
-gemini36    google/gemini-3.6-flash                breadth,docs              ?
-qwen38      opencode-go/qwen3.8-max                systems,reviewer          ?
-grok45      opencode-go/grok-4.5                   reviewer,skeptic          ?
-mimo        opencode-go/mimo-v2.5-pro              reviewer,skeptic          ?
-minimax     opencode-go/minimax-m3                 reviewer,skeptic          ?
-nemosuper   opencode/nemotron-3-super-free         reviewer,systems          ?        yes
-nemolight   opencode/nemotron-3.5-lightning-free   skeptic                   ?        yes
+slug        model                                  roles                 ms
+opus5       anthropic/claude-opus-5                reviewer,security      4263
+fable       anthropic/claude-fable-5               security,skeptic       6704
+gpt55       openai/gpt-5.5                         product,reviewer       4369
+glm52       zai-coding-plan/glm-5.2                systems,reviewer       8403
+kimik3      kimi-for-coding/k3                     code                  21151
+gemini36    google/gemini-3.6-flash                breadth,docs           9028
+grok45      opencode-go/grok-4.5                   systems,skeptic        7146
+mimo        opencode-go/mimo-v2.5-pro              pragmatist,skeptic     7027
+minimax     opencode-go/minimax-m3                 reviewer,skeptic       4532
+nemoultra   opencode/nemotron-3-ultra-free         reviewer,systems       7307   FREE
+nemolight   opencode/nemotron-3.5-lightning-free   skeptic,qa             4672   FREE
 ```
+
+11 models, all roles covered. `fixer` takes no roster slot — by design the *finder* fixes,
+so the fixer agent runs on whichever model raised the finding.
 
 **Model diversity earns its keep in the skeptic pool.** Three votes from one model are
-correlated and near-worthless; three from different models are real evidence. Grok, MiMo,
-MiniMax and nemolight exist in this roster primarily to be cheap independent verifiers.
+correlated and near-worthless; three from different models are real evidence. Fable, Grok,
+MiMo, MiniMax and nemolight exist here primarily as cheap independent verifiers — and two
+of them are free.
 
-Also available on credentials already held, if more diversity is wanted later:
-`opencode-go/{glm-5.3, gpt-5.6-luna, kimi-k3, hy3, qwen3.7-max}`.
+`kimik3` at 21s is 2.3× slower than anything else. Set the per-node timeout off it, or
+drop it to a role that isn't on the critical path.
+
+### Excluded, with cause — all deterministic, each reproduced 2×
+
+| model | cause | remedy |
+|---|---|---|
+| `deepseek/deepseek-v4-pro`, `deepseek-v4-flash` | `400 Thinking mode does not support this tool_choice` | none found. `variant: none` does **not** suppress it despite `reasoning_options: [{type:"toggle"}]` in the catalogue. Provider-level incompatibility with forced tool calls. |
+| `opencode-go/deepseek-v4-pro` | `403` — China-hosted, needs explicit opt-in | **user action**: opt in at `opencode.ai/workspace/.../go`, then re-probe |
+| `opencode-go/qwen3.8-max`, `qwen3.7-max` | timeout — 240s, 150s, 120s, all exceeded | none found. Provider-side; other `opencode-go` models return in 4–7s. |
+| `opencode/{nemotron-3-super,glm-5,kimi-k2.5,minimax-m3,qwen3.6-plus}-free` | `Model not found` | none — catalogued but not served |
+
+**No text-JSON fallback will be built.** Adding a second parse path to accommodate two
+models, when eleven work natively, is complexity for marginal diversity. One code path.
+If deepseek is wanted back, the opt-in above is the cheaper fix.
 
 ### Role → agent file
 
@@ -248,17 +292,16 @@ model-identity paragraphs, keep the expertise sections.
 
 ## 6. Phases
 
-### Phase 0 — spike (GO/NO-GO) ⬅ current
+### Phase 0 — spike — **DONE, GO** (2026-08-16)
 
-- [ ] `git init` `/root/.config/opencode`, commit baseline (D9)
-- [ ] **Q1** Does `config.agent[id] = {...}` register an agent?
-      *Fallback if no: pass the role prompt as `system:` at prompt time — works
-      regardless and is simpler.*
-- [ ] **Q2** Does a v2 client built from `serverUrl` round-trip
-      `format` → `info.structured` from inside a plugin tool?
-- [ ] **Q3** Which of the 13 models produce structured output? → sets `structured` flag
-- [ ] **Q4** Free-tier 429 ceiling for `opencode/*` → sets `serial` flag
-- [ ] Record results in §5 and §7, GO/NO-GO
+- [x] `git init` `/root/.config/opencode`, commit baseline (D9) — 19 files, commit `0c02c55`
+- [x] **Q1** `config.agent[id]` registers an agent — CONFIRMED, incl. role×model
+- [x] **Q2** `format` → `info.structured` — CONFIRMED
+- [x] **Q3** structured-output support — 11/13, causes identified
+- [x] **Q4** free-tier ceiling — 6/6 concurrent, no 429
+- [x] Results recorded in §5 and §7
+
+Spike artefacts in `/tmp/opencode/spike-{q1,fmt}/` (throwaway, not part of the package).
 
 ### Phase 1 — `/check` (ships alone, zero dependencies)
 - [ ] `command/check.md` — 6 lenses inline, no subagents, max 5 issues,
@@ -303,14 +346,23 @@ It *was* the plugin. Folded into Phase 2.
 
 ## 7. Spike results
 
-*Filled in by Phase 0. Empty until measured — do not populate with assumptions.*
+Measured 2026-08-16 against opencode 1.18.13. **Verdict: GO.**
 
-| Q | Result | Date |
-|---|---|---|
-| Q1 `config.agent[id]` | | |
-| Q2 v2 `format` round-trip | | |
-| Q3 structured-output support | | |
-| Q4 free-tier ceiling | | |
+| Q | Result |
+|---|---|
+| **Q1** `config.agent[id]` | **CONFIRMED.** `spike-probe (subagent)` appeared in `opencode agent list` only with the plugin loaded. `config.command[name]` likewise. Prompt is honored end-to-end (agent replied `REGISTERED`). |
+| **Q1b** role × model | **CONFIRMED.** `opencode run --agent spike-probe -m google/gemini-3.6-flash` → header `> spike-probe · gemini-3.6-flash`. Role from the agent, model from the flag. |
+| **Q2** `format` round-trip | **CONFIRMED.** `format:{type:"json_schema"}` → `info.structured`, 4.5s. **On `POST /session/{id}/message`, not `/api/session/{id}/prompt`.** |
+| **Q3** structured output | **11 of 13.** Two deterministic failures with identified causes — see §5. |
+| **Q4** free-tier ceiling | **6/6 concurrent, no 429.** 5.2–9.5s under burst vs 4.7s solo. `serial` flag **dropped**. |
+
+### Consequences
+
+- `serial` column: **deleted** — not needed at realistic concurrency.
+- `structured` column: **deleted** — a model either works or is not in the roster (§5).
+- Role agents must be **`mode: all`**, not `subagent` (gotcha 13).
+- `deepseek` and `qwen` are out; their roles reassigned to `glm52`/`grok45` (systems) and
+  `mimo` (pragmatist).
 
 ---
 
