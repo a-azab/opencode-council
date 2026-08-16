@@ -303,12 +303,21 @@ model-identity paragraphs, keep the expertise sections.
 
 Spike artefacts in `/tmp/opencode/spike-{q1,fmt}/` (throwaway, not part of the package).
 
-> **Status 2026-08-16:** Phases 1, 2 and 3 are done and verified. Phase 4a (fan-out →
-> verify → decide → report) is done and proven end-to-end against a planted-bug fixture.
-> Remaining: 4b debate loop, 4c fix loop, 4d command wiring, then cleanup.
+> **Status 2026-08-16: Phases 0–4 complete and verified. 34 tests passing.**
 >
-> Verified end-to-end: 6/6 nodes, 19 raw findings → 6 after dedupe and skeptic
-> verification, 74s. Both planted bugs found, plus two the fixture author did not intend.
+> Measured end-to-end against a planted-bug fixture:
+>
+> | run | result |
+> |---|---|
+> | review, no debate | 6/6 nodes, 19 raw findings → 6 kept, 74s |
+> | review, with debate loop | 6/6 nodes, 19 raw → 4 kept, 212s |
+> | fix loop | patch produced, `confident:false`, escalated — as designed |
+> | `/check` | 5 findings, all 3 planted bugs + 1 unintended |
+>
+> **Debate costs ~3× wall time.** That is the honest price of deliberation, and why the
+> loop fires only when reviewers actually disagree.
+>
+> **Cleanup is deliberately NOT done.** See §6 Cleanup for why.
 
 ### Phase 1 — `/check` — **DONE**
 
@@ -374,11 +383,29 @@ re-verify cycle. `council-fixer` and `PATCH_SCHEMA` exist and are unused.
 ### Phase 5 — deleted
 It *was* the plugin. Folded into Phase 2.
 
-### Cleanup (after Phase 4 proves out)
+### Cleanup — NOT DONE, and deliberately so
+
 - [ ] Delete the `agent` block from `~/.config/opencode/opencode.json`
 - [ ] Delete `command/council-{review,plan,task,independent}.md`
 - [ ] Delete `agent/council-*.md` (migrated into this repo)
-- [ ] Existing `council-artifacts/` in target repos keeps working
+
+**Why this is still pending.** The old council is the user's working system, with 3.4M of
+real artefacts behind it, and it has not yet been superseded *in their hands* — the plugin
+needs an opencode restart to become active, which has not happened. Deleting a working
+system on the strength of a fixture test, before its replacement has been used once on
+real work, is the wrong order regardless of how green the tests are.
+
+Preconditions before deleting:
+1. opencode restarted, plugin confirmed loaded.
+2. `/check` and `council()` each run against real work at least once.
+3. The old `council-review` confirmed no longer needed.
+
+Everything is recoverable either way — `/root/.config/opencode` is a git repo as of commit
+`0c02c55`, which exists precisely so this decision is reversible.
+
+Note: the two systems currently coexist without conflict. Old agents are `mode: subagent`
+and model-named (`council-fable`); new ones are `mode: all` and role-named
+(`council-security`). No name collides.
 
 ---
 
