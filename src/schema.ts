@@ -48,6 +48,22 @@ export const VERDICT_SCHEMA = {
   additionalProperties: false,
 } as const
 
+/**
+ * A debate reply revises one judgement; it does not re-emit the finding. Keeping this
+ * narrow is what stops a debate round from silently inventing new findings, which would
+ * make convergence impossible to reach.
+ */
+export const DEBATE_SCHEMA = {
+  type: "object",
+  properties: {
+    tier: { type: "string", enum: ["BLOCKER", "SUGGESTION", "NIT", "WITHDRAW"] },
+    reason: { type: "string", description: "what in the other positions moved you, or why it did not" },
+    changed_mind: { type: "boolean" },
+  },
+  required: ["tier", "reason", "changed_mind"],
+  additionalProperties: false,
+} as const
+
 export const PATCH_SCHEMA = {
   type: "object",
   properties: {

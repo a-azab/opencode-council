@@ -36,7 +36,7 @@ export type Group = {
   reports: Report[]
 }
 
-const TIER_RANK: Record<Tier, number> = { BLOCKER: 3, SUGGESTION: 2, NIT: 1 }
+export const TIER_RANK: Record<Tier, number> = { BLOCKER: 3, SUGGESTION: 2, NIT: 1 }
 
 /**
  * Two findings are the same issue if they name the same file and category and land within
@@ -137,6 +137,40 @@ function highestPerModel(g: Group): Map<string, Tier> {
     if (!seen || TIER_RANK[r.tier] > TIER_RANK[seen]) best.set(r.model, r.tier)
   }
   return best
+}
+
+export type Revision = {
+  key: string
+  model: string
+  tier: Tier | "WITHDRAW"
+  /** the debater's stated reasoning - carried for the report, not used in the fold */
+  reason?: string
+  changed?: boolean
+}
+
+/**
+ * Fold debate replies back into the groups. Pure, so the loop around it stays testable
+ * without a model in the way.
+ *
+ * A WITHDRAW removes that reporter's vote; a group whose every reporter withdrew is gone.
+ * The representative tier is always recomputed as the highest surviving one, so a group
+ * cannot keep a tier that nobody still argues for.
+ */
+export function applyRevisions(groups: Group[], revisions: Revision[]): Group[] {
+  const out: Group[] = []
+  for (const g of groups) {
+    let reports = g.reports
+    for (const r of revisions.filter((r) => r.key === g.key)) {
+      reports =
+        r.tier === "WITHDRAW"
+          ? reports.filter((x) => x.model !== r.model)
+          : reports.map((x) => (x.model === r.model ? { ...x, tier: r.tier as Tier } : x))
+    }
+    if (reports.length === 0) continue
+    const top = reports.reduce((a, b) => (TIER_RANK[b.tier] > TIER_RANK[a.tier] ? b : a)).tier
+    out.push({ ...g, reports, finding: { ...g.finding, tier: top } })
+  }
+  return out
 }
 
 /** Stable signature of the current tier assignment, used to detect a fixed point. */

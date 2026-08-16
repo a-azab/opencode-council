@@ -3,8 +3,8 @@ import { fileURLToPath } from "node:url"
 import { dirname, join, basename } from "node:path"
 import { execFileSync } from "node:child_process"
 import { z } from "zod"
-import { runReview } from "./engine.ts"
-import { renderReport, renderSummary } from "./report.ts"
+import { runReview, runFix } from "./engine.ts"
+import { renderReport, renderSummary, renderPatches } from "./report.ts"
 
 const PKG = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -72,30 +72,57 @@ export const CouncilPlugin = async (input: any) => ({
   tool: {
     council: {
       description:
-        "Multi-model code review: fans out across role x model, verifies every finding with " +
-        "independent skeptics that did not raise it, and aggregates deterministically. " +
-        "Use for a real review; use /check for a fast inline pass.",
+        "Multi-model code review: fans out across role x model, debates disputed findings " +
+        "to a computed fixed point, verifies each one with independent skeptics that did " +
+        "not raise it, and aggregates deterministically. mode:'fix' turns the last " +
+        "review's findings into patches for you to review. Use /check for a fast pass.",
       args: {
+        mode: z
+          .enum(["review", "fix"])
+          .default("review")
+          .describe("review = the full graph; fix = propose patches for the last review's findings"),
         base: z.string().default("HEAD").describe("git ref to diff against (HEAD, main, a sha)"),
       },
-      async execute(args: { base?: string }, context: any) {
+      async execute(args: { mode?: "review" | "fix"; base?: string }, context: any) {
         const t0 = Date.now()
         const cwd = context?.directory ?? input?.directory ?? process.cwd()
         const base = args?.base ?? "HEAD"
         const { diff, files, changedLines } = gitDiff(cwd, base)
-        if (!diff.trim()) return `Nothing to review — no diff against ${base}.`
+        if (!diff.trim()) return `Nothing to do - no diff against ${base}.`
 
         const user = process.env.OPENCODE_SERVER_USERNAME
         const pass = process.env.OPENCODE_SERVER_PASSWORD
-        const review = await runReview(
-          {
-            serverUrl: String(input?.serverUrl ?? "http://127.0.0.1:4096"),
-            auth: user && pass ? "Basic " + Buffer.from(`${user}:${pass}`).toString("base64") : undefined,
-          },
-          { diff, files, changedLines },
-        )
+        const ctx = {
+          serverUrl: String(input?.serverUrl ?? "http://127.0.0.1:4096"),
+          auth: user && pass ? "Basic " + Buffer.from(`${user}:${pass}`).toString("base64") : undefined,
+        }
+        const root = join(cwd, "council-artifacts")
 
-        const dir = join(cwd, "council-artifacts", new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19))
+        if (args?.mode === "fix") {
+          const prev = existsSync(root)
+            ? readdirSync(root)
+                .filter((d) => existsSync(join(root, d, "findings.json")))
+                .sort()
+                .pop()
+            : undefined
+          if (!prev) return "No previous review found. Run council() first."
+          const dir = join(root, prev)
+          const kept = JSON.parse(readFileSync(join(dir, "findings.json"), "utf8")).kept ?? []
+          if (!kept.length) return `Nothing to fix - the last review kept no findings (${dir}).`
+
+          const patches = await runFix(ctx, { findings: kept, diff })
+          const out = join(dir, "patches.md")
+          writeFileSync(out, renderPatches(patches))
+          const ready = patches.filter((p) => p.state === "ok" && p.confident && p.patch.trim()).length
+          const stuck = patches.length - ready
+          return [
+            `${ready} patch(es) ready, ${stuck} need a decision. NOTHING HAS BEEN APPLIED.`,
+            `Review then apply what you accept: ${out}`,
+          ].join("\n")
+        }
+
+        const review = await runReview(ctx, { diff, files, changedLines })
+        const dir = join(root, new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19))
         mkdirSync(dir, { recursive: true })
         const reportPath = join(dir, "report.md")
         writeFileSync(reportPath, renderReport(review, { files, ms: Date.now() - t0 }))

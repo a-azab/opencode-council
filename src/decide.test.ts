@@ -9,6 +9,7 @@ import {
   dedupe,
   disputes,
   converged,
+  applyRevisions,
   signature,
   type Finding,
   type Verdict,
@@ -170,4 +171,52 @@ test("not converged while disputes remain and tiers are still moving", () => {
     f({ line: 10, tier: "NIT", model: "b" }),
   ])
   assert.equal(converged(prev, cur, 1, 3).done, false)
+})
+
+// --- applyRevisions (the debate fold) -----------------------------------------
+
+const twoReports = () =>
+  dedupe([
+    f({ line: 10, tier: "BLOCKER", model: "a" }),
+    f({ line: 10, tier: "NIT", model: "b" }),
+  ])
+
+test("a revision updates that reporter's tier and nobody else's", () => {
+  const [g] = applyRevisions(twoReports(), [{ key: twoReports()[0].key, model: "b", tier: "BLOCKER" }])
+  assert.deepEqual(
+    g.reports.map((r) => [r.model, r.tier]).sort(),
+    [["a", "BLOCKER"], ["b", "BLOCKER"]],
+  )
+})
+
+test("WITHDRAW removes only that reporter", () => {
+  const groups = twoReports()
+  const [g] = applyRevisions(groups, [{ key: groups[0].key, model: "a", tier: "WITHDRAW" }])
+  assert.equal(g.reports.length, 1)
+  assert.equal(g.reports[0].model, "b")
+})
+
+test("a group whose every reporter withdraws disappears", () => {
+  const groups = twoReports()
+  const out = applyRevisions(groups, [
+    { key: groups[0].key, model: "a", tier: "WITHDRAW" },
+    { key: groups[0].key, model: "b", tier: "WITHDRAW" },
+  ])
+  assert.equal(out.length, 0)
+})
+
+test("the representative tier cannot outlive the argument for it", () => {
+  // 'a' raised BLOCKER and now withdraws; the group must fall to what 'b' still argues
+  const groups = twoReports()
+  assert.equal(groups[0].finding.tier, "BLOCKER")
+  const [g] = applyRevisions(groups, [{ key: groups[0].key, model: "a", tier: "WITHDRAW" }])
+  assert.equal(g.finding.tier, "NIT")
+})
+
+test("an oscillating debate still terminates via the signature check", () => {
+  // two rounds that swap tiers back and forth would never clear disputes on their own
+  const roundA = twoReports()
+  const roundB = applyRevisions(roundA, [{ key: roundA[0].key, model: "b", tier: "NIT" }])
+  assert.equal(signature(roundA), signature(roundB)) // nothing actually moved
+  assert.equal(converged(roundA, roundB, 1, 99).done, true)
 })

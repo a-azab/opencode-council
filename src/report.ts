@@ -90,3 +90,44 @@ export function renderSummary(review: Review, reportPath: string): string {
     .filter(Boolean)
     .join("\n")
 }
+
+/** Patch artefacts. Nothing here is applied - the human is the only writer (D5). */
+export function renderPatches(patches: import("./engine.ts").Patch[]): string {
+  const ok = patches.filter((p) => p.state === "ok" && p.confident && p.patch.trim())
+  const escalated = patches.filter((p) => p.state === "ok" && (!p.confident || !p.patch.trim()))
+  const failed = patches.filter((p) => p.state !== "ok")
+
+  const lines = [
+    `# Proposed patches`,
+    "",
+    `${ok.length} ready · ${escalated.length} need a decision · ${failed.length} failed`,
+    "",
+    "Nothing has been applied. Review each hunk, then apply what you accept.",
+    "",
+  ]
+
+  for (const p of ok) {
+    lines.push(`## ${p.finding.file}:${p.finding.line} — ${p.finding.issue}`, "")
+    lines.push(`${p.explanation}`, "", "```diff", p.patch.trim(), "```", "")
+  }
+
+  if (escalated.length) {
+    lines.push("## Needs your decision", "")
+    lines.push(
+      "The fixer was not confident about these. That is the designed outcome when the right",
+      "fix depends on intent it was not told, or when two reasonable fixes exist and the",
+      "choice is not the model's to make.",
+      "",
+    )
+    for (const p of escalated)
+      lines.push(`- \`${p.finding.file}:${p.finding.line}\` — ${p.finding.issue}`, `  ${p.explanation || "(no patch produced)"}`)
+    lines.push("")
+  }
+
+  if (failed.length) {
+    lines.push("## Failed", "")
+    for (const p of failed)
+      lines.push(`- \`${p.finding.file}:${p.finding.line}\` — \`${p.state}\` ${(p.detail ?? "").slice(0, 80)}`)
+  }
+  return lines.join("\n")
+}
