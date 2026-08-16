@@ -118,9 +118,25 @@ export function dedupe(findings: Finding[]): Group[] {
   return groups
 }
 
-/** Groups whose reporters did not agree on a tier. This is the debate agenda. */
+/**
+ * Groups whose reporters did not agree on a tier. This is the debate agenda.
+ *
+ * A model that files two findings at the same spot lands twice in `reports`, at possibly
+ * different tiers. That is not a disagreement - it is one reviewer being thorough - so each
+ * model is counted once at its highest tier. Without this, a model gets dispatched to
+ * debate itself.
+ */
 export function disputes(groups: Group[]): Group[] {
-  return groups.filter((g) => new Set(g.reports.map((r) => r.tier)).size > 1)
+  return groups.filter((g) => new Set(highestPerModel(g).values()).size > 1)
+}
+
+function highestPerModel(g: Group): Map<string, Tier> {
+  const best = new Map<string, Tier>()
+  for (const r of g.reports) {
+    const seen = best.get(r.model)
+    if (!seen || TIER_RANK[r.tier] > TIER_RANK[seen]) best.set(r.model, r.tier)
+  }
+  return best
 }
 
 /** Stable signature of the current tier assignment, used to detect a fixed point. */

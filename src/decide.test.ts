@@ -121,6 +121,25 @@ test("a group is disputed only when reporters disagree on tier", () => {
   assert.equal(disputes(agree).length, 0)
 })
 
+test("a model filing two tiers at the same spot is not a dispute with itself", () => {
+  // Observed in the first end-to-end run: minimax reported auth.js:8 as both BLOCKER and
+  // SUGGESTION, which registered as a disagreement and would have dispatched minimax to
+  // debate its own finding.
+  const selfOnly = dedupe([
+    f({ line: 8, tier: "BLOCKER", model: "minimax" }),
+    f({ line: 8, tier: "SUGGESTION", model: "minimax" }),
+  ])
+  assert.equal(disputes(selfOnly).length, 0)
+
+  // but a genuine cross-model disagreement still registers, even alongside a self-double
+  const mixed = dedupe([
+    f({ line: 8, tier: "BLOCKER", model: "minimax" }),
+    f({ line: 8, tier: "SUGGESTION", model: "minimax" }),
+    f({ line: 8, tier: "NIT", model: "kimik3" }),
+  ])
+  assert.equal(disputes(mixed).length, 1)
+})
+
 // --- converged ----------------------------------------------------------------
 
 const disputed = () =>
