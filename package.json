@@ -6,7 +6,7 @@
   "main": "src/index.ts",
   "license": "MIT",
   "scripts": {
-    "test": "node --test src/"
+    "test": "node --test src/*.test.ts"
   },
   "files": [
     "src",
