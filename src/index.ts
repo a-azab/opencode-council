@@ -110,7 +110,7 @@ export const CouncilPlugin = async (input: any) => ({
           const kept = JSON.parse(readFileSync(join(dir, "findings.json"), "utf8")).kept ?? []
           if (!kept.length) return `Nothing to fix - the last review kept no findings (${dir}).`
 
-          const patches = await runFix(ctx, { findings: kept, diff })
+          const patches = await runFix(ctx, { findings: kept, diff, cwd })
           const out = join(dir, "patches.md")
           writeFileSync(out, renderPatches(patches))
           const ready = patches.filter((p) => p.state === "ok" && p.confident && p.patch.trim()).length

@@ -64,13 +64,26 @@ export const DEBATE_SCHEMA = {
   additionalProperties: false,
 } as const
 
+/**
+ * The fixer returns the FULL new file, not a diff.
+ *
+ * Measured: asking for a unified diff produced `corrupt patch at line 12` and `no valid
+ * patches in input` on 2 of 5 attempts, because hand-computing `@@` hunk arithmetic is
+ * something models are reliably bad at and there is no reason to make them try. We hold
+ * the old content, so the diff is ours to compute - mechanically, and correctly every time.
+ */
 export const PATCH_SCHEMA = {
   type: "object",
   properties: {
-    patch: { type: "string", description: "a unified diff applying cleanly with `git apply`" },
+    new_content: {
+      type: "string",
+      description:
+        "the complete new content of the file, from first line to last, with the fix applied " +
+        "and everything else byte-identical to what you were shown",
+    },
     explanation: { type: "string" },
-    confident: { type: "boolean", description: "false if you are guessing; the loop will escalate instead of applying" },
+    confident: { type: "boolean", description: "false if you are guessing; the loop escalates instead of applying" },
   },
-  required: ["patch", "explanation", "confident"],
+  required: ["new_content", "explanation", "confident"],
   additionalProperties: false,
 } as const
