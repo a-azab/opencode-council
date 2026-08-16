@@ -1,0 +1,17 @@
+{
+  "name": "opencode-council",
+  "version": "0.1.0",
+  "description": "Multi-model code workflow for opencode: role x model fan-out, deterministic aggregation, bounded convergence, and a closed fix loop.",
+  "type": "module",
+  "main": "src/index.ts",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test src/"
+  },
+  "files": [
+    "src",
+    "agent",
+    "command",
+    "PLAN.md"
+  ]
+}
