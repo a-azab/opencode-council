@@ -303,6 +303,13 @@ model-identity paragraphs, keep the expertise sections.
 
 Spike artefacts in `/tmp/opencode/spike-{q1,fmt}/` (throwaway, not part of the package).
 
+> **Status 2026-08-16:** Phases 1, 2 and 3 are done and verified. Phase 4a (fan-out →
+> verify → decide → report) is done and proven end-to-end against a planted-bug fixture.
+> Remaining: 4b debate loop, 4c fix loop, 4d command wiring, then cleanup.
+>
+> Verified end-to-end: 6/6 nodes, 19 raw findings → 6 after dedupe and skeptic
+> verification, 74s. Both planted bugs found, plus two the fixture author did not intend.
+
 ### Phase 1 — `/check` (ships alone, zero dependencies)
 - [ ] `command/check.md` — 6 lenses inline, no subagents, max 5 issues,
       BLOCKER/SUGGESTION only, never asks a question, never moves HEAD
