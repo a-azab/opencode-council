@@ -310,7 +310,38 @@ Spike artefacts in `/tmp/opencode/spike-{q1,fmt}/` (throwaway, not part of the p
 > Verified end-to-end: 6/6 nodes, 19 raw findings → 6 after dedupe and skeptic
 > verification, 74s. Both planted bugs found, plus two the fixture author did not intend.
 
-### Phase 1 — `/check` (ships alone, zero dependencies)
+### Phase 1 — `/check` — **DONE**
+
+Verified against a fixture with planted bugs: found all three plus an undefined
+reference left in by accident, capped at 5, correct tiers, asked nothing.
+
+### Phase 2 — plugin skeleton — **DONE**
+
+`config.agent` / `config.command` registration verified in a fresh process (12 role agents
+show as `mode: all`; `check` present in `GET /command`). `council()` tool registered with a
+zod arg schema. Recursion guarded twice: `experimental.primary_tools` for task-tool
+children, and an explicit deny list on every session the engine creates itself.
+
+### Phase 3 — deterministic core + roster — **DONE**
+
+`decide.ts` (29 tests), `roster.ts` (11 measured members, routing, selection), 12 role
+agents migrated. Two bugs the tests caught that review would not have:
+`MODELS_PER_ROLE.security = 3` while only two members carried the role, and a model
+disputing itself.
+
+### Phase 4a — fan-out, verify, aggregate, report — **DONE**
+
+End-to-end on the fixture: 6/6 nodes ok, 19 raw findings → 6 after dedupe and skeptic
+verification, 73.8s. Report names every node that failed and marks the verdict provisional
+when coverage is incomplete.
+
+### Phase 4b/4c — debate loop, fix loop — **NOT STARTED**
+
+The disputes list that drives the debate round is computed and rendering correctly; the
+loop that consumes it is not built. Same for the patch → gate → `git apply` → scoped
+re-verify cycle. `council-fixer` and `PATCH_SCHEMA` exist and are unused.
+
+### (original Phase 1 spec, for reference)
 - [ ] `command/check.md` — 6 lenses inline, no subagents, max 5 issues,
       BLOCKER/SUGGESTION only, never asks a question, never moves HEAD
 - [ ] Consistency contract in-file: every difference from `/council-review` must derive
