@@ -372,7 +372,33 @@ It *was* the plugin. Folded into Phase 2.
 
 ## Remaining work
 
-Everything below is genuinely not built. Verified against the source, not from memory.
+**All features are built. Only cleanup remains, and it is blocked on use rather than code.**
+
+### Phase 4c — fix loop — **DONE** (was PARTIAL)
+
+The loop closes. A patch is re-checked against the patched content by a model that did not
+write it; on rejection the verifier's reason becomes the next attempt's instruction, and
+after two attempts it escalates. Measured: `VERIFIED: true`, verifier `minimax` on a fix by
+`gpt55`, with a code-grounded reason.
+
+Three outcomes are kept distinct and tested — `verified`, `produced but not verified` (the
+check could not run), and `still unresolved after retries`. Collapsing them is how the
+project's central claim would become silently false.
+
+Not built, deliberately: running the project's test suite against the patch. That needs a
+scratch worktree with dependencies installed and a test command we would have to guess at.
+The human is applying the patch anyway.
+
+### Phase 4d — `/council-plan` — **DONE**
+
+Five lanes propose, every model scores every proposal except its own, `tally()` picks the
+winner by mean, and ties escalate to the human rather than to a tiebreaker model. Measured:
+3/4 proposals (one timed out and was reported dropped), 5 cross-scores, **0 self-scores
+requested**, winner at 18.00/20.
+
+---
+
+### Historical — the items below were the open list, now closed.
 
 ### 1. Close the fix loop (LOOP 2) — the largest gap
 
