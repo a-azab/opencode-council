@@ -344,44 +344,61 @@ End-to-end on the fixture: 6/6 nodes ok, 19 raw findings → 6 after dedupe and 
 verification, 73.8s. Report names every node that failed and marks the verdict provisional
 when coverage is incomplete.
 
-### Phase 4b/4c — debate loop, fix loop — **NOT STARTED**
+### Phase 4b — debate loop — **DONE**
 
-The disputes list that drives the debate round is computed and rendering correctly; the
-loop that consumes it is not built. Same for the patch → gate → `git apply` → scoped
-re-verify cycle. `council-fixer` and `PATCH_SCHEMA` exist and are unused.
+`debateRound` + `applyRevisions`, bounded twice: by `maxRounds` and by the computed fixed
+point. Measured on the fixture: 1 round, 6 re-judgements, 0 changed position, stopped on
+"no tier changed since last round". Debate costs ~3× wall time, which is why it fires only
+when reviewers actually disagree.
 
-### (original Phase 1 spec, for reference)
-- [ ] `command/check.md` — 6 lenses inline, no subagents, max 5 issues,
-      BLOCKER/SUGGESTION only, never asks a question, never moves HEAD
-- [ ] Consistency contract in-file: every difference from `/council-review` must derive
-      from exactly two facts — check dispatches no subagents, and check is fired
-      repeatedly while writing code
+### Phase 4c — fix loop — **PARTIAL**
 
-### Phase 2 — plugin skeleton
-- [ ] `package.json` pinning `@opencode-ai/{plugin,sdk}@1.18.13`
-- [ ] `src/index.ts` — `config` hook registering agents + commands + skills; `tool` hook
-- [ ] v2 client construction from `serverUrl` (gotcha 1)
-- [ ] `council()` returns a compact verdict; report written to `council-artifacts/<slug>/`
-- [ ] Recursion guard: `experimental.primary_tools: ["council"]` **and** replicated deny
-      in self-created child sessions (gotcha 2)
-- [ ] Install via `"plugin": ["/root/code/opencode-council"]`, verify it loads
+Done: patch generation, `git apply --check` validation, `confident:false` escalation.
+Measured — a clean single-line patch, `git apply --check` PASS.
 
-### Phase 3 — pure functions first, then prompts
-- [ ] `src/decide.ts` — `decide` · `dedupe` · `disputes` · `converged`. No I/O.
-- [ ] `src/decide.test.ts` — asserts over fixture votes, `node --test`, no framework.
-      **This is the one test**: `decide()` is the deterministic core everything rests on.
-- [ ] 12 role prompts in `agent/`, migrated per §5
+The fixer returns **full file content** and `git diff --no-index` computes the patch.
+Asking models for unified diffs failed 2 of 5 times on hunk arithmetic; the model supplies
+content, git supplies the diff.
 
-### Phase 4 — the graph
-- [ ] route (globs → roles → nodes; ≤2 models/role, 3 for security)
-- [ ] fan-out over child sessions, per-model `AbortSignal.timeout`, error tagging
-- [ ] verify → decide → disputes → debate → computed convergence (LOOP 1)
-- [ ] report template
-- [ ] human gate → patch artefact → `git apply` → scoped re-verify → test command (LOOP 2)
-- [ ] `/council-plan` proposal-scoring vote
+**Not done — the loop does not close.** After a human applies a patch, nothing re-verifies
+that the finding is actually resolved, that a model other than the fixer agrees, or that
+the project's tests still pass. Today it is: review → patches → human. The promised
+`apply → scoped re-verify → converge or escalate (max 2 attempts)` half does not exist.
 
 ### Phase 5 — deleted
 It *was* the plugin. Folded into Phase 2.
+
+---
+
+## Remaining work
+
+Everything below is genuinely not built. Verified against the source, not from memory.
+
+### 1. Close the fix loop (LOOP 2) — the largest gap
+
+Today: `review → patches → human`. The design promised `apply → re-verify → converge or
+escalate`. Missing pieces:
+
+- [ ] Re-verify a finding against the **new** code after the patch is applied, scoped to
+      the changed hunks rather than re-reviewing the whole diff
+- [ ] The verifier must not be the model that wrote the fix (the same
+      no-self-verification rule the skeptic pool already enforces)
+- [ ] Run the project's test command; a patch that breaks tests is not a fix
+- [ ] Bound at 2 attempts per finding, then escalate to the human
+
+This is what makes the project's central claim true — that it verifies fixes, which
+neither source system does. Until it lands, that claim is half-earned.
+
+### 2. `/council-plan` — the planning vote
+
+- [ ] Every model proposes; every model scores every proposal **except its own**
+- [ ] Arithmetic tally; ties escalate to the human, never to a tiebreaker model
+- [ ] `command/council-plan.md`
+
+Nothing exists for this — no command, no scoring, no tally. It is the D3 principle applied
+where there is no diff to compute against.
+
+### 3. Cleanup — see below. Deliberately blocked on real-world use, not on code.
 
 ### Cleanup — NOT DONE, and deliberately so
 
