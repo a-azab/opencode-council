@@ -108,14 +108,21 @@ export function renderSummary(review: Review, reportPath: string): string {
 
 /** Patch artefacts. Nothing here is applied - the human is the only writer (D5). */
 export function renderPatches(patches: import("./engine.ts").Patch[]): string {
-  const ok = patches.filter((p) => p.state === "ok" && p.confident && p.patch.trim())
-  const escalated = patches.filter((p) => p.state === "ok" && (!p.confident || !p.patch.trim()))
-  const failed = patches.filter((p) => p.state !== "ok")
+  const usable = (p: (typeof patches)[number]) =>
+    p.state === "ok" && p.confident && p.patch.trim()
+  // "verified" and "we did not manage to verify" are different facts and must not share a
+  // heading - the whole point of the fix loop is that a patch nobody checked is not done.
+  const ok = patches.filter((p) => usable(p) && p.verified)
+  const unverified = patches.filter((p) => usable(p) && !p.verified)
+  const escalated = patches.filter((p) => p.state === "ok" && !usable(p))
+  const unresolved = patches.filter((p) => p.state === "unresolved")
+  const failed = patches.filter((p) => p.state !== "ok" && p.state !== "unresolved")
 
   const lines = [
     `# Proposed patches`,
     "",
-    `${ok.length} ready · ${escalated.length} need a decision · ${failed.length} failed`,
+    `${ok.length} verified · ${unverified.length} unverified · ${escalated.length} need a decision · ` +
+      `${unresolved.length} unresolved · ${failed.length} failed`,
     "",
     "Nothing has been applied. Review each hunk, then apply what you accept.",
     "",
@@ -123,7 +130,51 @@ export function renderPatches(patches: import("./engine.ts").Patch[]): string {
 
   for (const p of ok) {
     lines.push(`## ${p.finding.file}:${p.finding.line} — ${p.finding.issue}`, "")
-    lines.push(`${p.explanation}`, "", "```diff", p.patch.trim(), "```", "")
+    lines.push(
+      `${p.explanation}`,
+      "",
+      `<sub>fixed by ${p.model} · confirmed resolved by ${p.verifier}` +
+        `${p.attempts > 1 ? ` on attempt ${p.attempts}` : ""} — ${p.verifyReason ?? ""}</sub>`,
+      "",
+      "```diff",
+      p.patch.trim(),
+      "```",
+      "",
+    )
+  }
+
+  if (unverified.length) {
+    lines.push("## Produced, but not verified", "")
+    lines.push(
+      "These patches apply cleanly, but the independent check did not run. Treat them as",
+      "unreviewed - the fixer's own confidence is not evidence.",
+      "",
+    )
+    for (const p of unverified) {
+      lines.push(`### ${p.finding.file}:${p.finding.line} — ${p.finding.issue}`, "")
+      lines.push(`${p.explanation}`, `<sub>${p.detail ?? "verifier unavailable"}</sub>`, "", "```diff", p.patch.trim(), "```", "")
+    }
+  }
+
+  if (unresolved.length) {
+    lines.push("## Still unresolved after retries", "")
+    lines.push(
+      "A patch was written and re-checked, and an independent reviewer still sees the",
+      "original problem. The last attempt is shown so you can judge how close it got.",
+      "",
+    )
+    for (const p of unresolved) {
+      lines.push(
+        `### ${p.finding.file}:${p.finding.line} — ${p.finding.issue}`,
+        "",
+        `**${p.verifier} rejected it:** ${p.verifyReason ?? "(no reason given)"}`,
+        "",
+        "```diff",
+        p.patch.trim(),
+        "```",
+        "",
+      )
+    }
   }
 
   if (escalated.length) {

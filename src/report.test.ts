@@ -1,0 +1,69 @@
+import { test } from "node:test"
+import assert from "node:assert/strict"
+import { renderPatches } from "./report.ts"
+import type { Patch } from "./engine.ts"
+import type { Finding } from "./decide.ts"
+
+const finding: Finding = {
+  tier: "BLOCKER",
+  category: "security",
+  file: "a.ts",
+  line: 3,
+  issue: "sql injection",
+  why: "w",
+  fix: "x",
+  confidence: "high",
+  model: "gpt55",
+  role: "security",
+}
+
+const patch = (over: Partial<Patch> = {}): Patch => ({
+  finding,
+  patch: "diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n-old\n+new",
+  explanation: "e",
+  confident: true,
+  model: "openai/gpt-5.5",
+  state: "ok",
+  verified: true,
+  verifier: "mimo",
+  attempts: 1,
+  ...over,
+})
+
+// The central claim of the fix loop is that a patch nobody independently checked is not
+// done. If these ever collapse into one bucket, that claim is silently false.
+test("an unverified patch is never presented as verified", () => {
+  const out = renderPatches([patch({ verified: false, detail: "verifier unavailable" })])
+  assert.match(out, /0 verified/)
+  assert.match(out, /1 unverified/)
+  assert.match(out, /Produced, but not verified/)
+})
+
+test("a verified patch is presented as ready, with its verifier named", () => {
+  const out = renderPatches([patch()])
+  assert.match(out, /1 verified/)
+  assert.match(out, /0 unverified/)
+  assert.match(out, /confirmed resolved by mimo/)
+  assert.doesNotMatch(out, /Produced, but not verified/)
+})
+
+test("a patch still rejected after retries is reported unresolved, not ready", () => {
+  const out = renderPatches([
+    patch({ state: "unresolved", confident: false, verified: false, attempts: 2, verifyReason: "still interpolates" }),
+  ])
+  assert.match(out, /0 verified/)
+  assert.match(out, /1 unresolved/)
+  assert.match(out, /Still unresolved after retries/)
+  assert.match(out, /still interpolates/)
+})
+
+test("a low-confidence fixer result is escalated rather than offered", () => {
+  const out = renderPatches([patch({ confident: false })])
+  assert.match(out, /1 need a decision/)
+  assert.match(out, /Needs your decision/)
+})
+
+test("nothing is ever described as applied", () => {
+  const out = renderPatches([patch(), patch({ verified: false }), patch({ state: "failed" })])
+  assert.match(out, /Nothing has been applied/)
+})
