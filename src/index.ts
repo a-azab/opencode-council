@@ -3,8 +3,8 @@ import { fileURLToPath } from "node:url"
 import { dirname, join, basename } from "node:path"
 import { execFileSync } from "node:child_process"
 import { z } from "zod"
-import { runReview, runFix } from "./engine.ts"
-import { renderReport, renderSummary, renderPatches } from "./report.ts"
+import { runReview, runFix, runPlan } from "./engine.ts"
+import { renderReport, renderSummary, renderPatches, renderPlan } from "./report.ts"
 
 const PKG = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -68,66 +68,93 @@ function gitDiff(cwd: string, base: string) {
   }
 }
 
+function artifactDir(cwd: string, kind: string): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
+  const dir = join(cwd, "council-artifacts", `${stamp}-${kind}`)
+  mkdirSync(dir, { recursive: true })
+  return dir
+}
+
 export const CouncilPlugin = async (input: any) => ({
   tool: {
     council: {
       description:
-        "Multi-model code review: fans out across role x model, debates disputed findings " +
-        "to a computed fixed point, verifies each one with independent skeptics that did " +
-        "not raise it, and aggregates deterministically. mode:'fix' turns the last " +
-        "review's findings into patches for you to review. Use /check for a fast pass.",
+        "Multi-model code work: fans out across role x model, debates disputed findings to a " +
+        "computed fixed point, verifies with independent models, and aggregates " +
+        "deterministically. mode:'review' reviews a diff, mode:'fix' turns the last review's " +
+        "findings into independently-verified patches, mode:'plan' runs a proposal-and-score " +
+        "vote on a goal. Use /check for a fast inline pass instead.",
       args: {
         mode: z
-          .enum(["review", "fix"])
+          .enum(["review", "fix", "plan"])
           .default("review")
-          .describe("review = the full graph; fix = propose patches for the last review's findings"),
-        base: z.string().default("HEAD").describe("git ref to diff against (HEAD, main, a sha)"),
+          .describe("review = the graph; fix = verified patches; plan = proposal vote on a goal"),
+        base: z.string().default("HEAD").describe("git ref to diff against (review/fix only)"),
+        goal: z.string().default("").describe("what to plan (plan mode only)"),
       },
-      async execute(args: { mode?: "review" | "fix"; base?: string }, context: any) {
+      async execute(args: { mode?: "review" | "fix" | "plan"; base?: string; goal?: string }, context: any) {
         const t0 = Date.now()
         const cwd = context?.directory ?? input?.directory ?? process.cwd()
-        const base = args?.base ?? "HEAD"
-        const { diff, files, changedLines } = gitDiff(cwd, base)
-        if (!diff.trim()) return `Nothing to do - no diff against ${base}.`
-
         const user = process.env.OPENCODE_SERVER_USERNAME
         const pass = process.env.OPENCODE_SERVER_PASSWORD
         const ctx = {
           serverUrl: String(input?.serverUrl ?? "http://127.0.0.1:4096"),
           auth: user && pass ? "Basic " + Buffer.from(`${user}:${pass}`).toString("base64") : undefined,
         }
-        const root = join(cwd, "council-artifacts")
+
+        // Planning has no diff, so it must resolve before the diff guard below.
+        if (args?.mode === "plan") {
+          const goal = (args.goal ?? "").trim()
+          if (!goal) return "No goal given. `plan` needs one — five models guessing at different problems is not a vote."
+          const plan = await runPlan(ctx, { goal })
+          const dir = artifactDir(cwd, "plan")
+          const path = join(dir, "plan.md")
+          writeFileSync(path, renderPlan(plan))
+          writeFileSync(join(dir, "plan.json"), JSON.stringify(plan, null, 2))
+          const head = plan.winner
+            ? `winner: ${plan.winner.proposal} (${plan.winner.mean.toFixed(2)})`
+            : plan.tied.length > 1
+              ? `no winner — ${plan.tied.map((t) => t.proposal).join(" and ")} are within the tie margin, your call`
+              : "no usable proposals"
+          return [
+            `${plan.proposals.filter((p) => p.state === "ok").length} proposals · ${plan.scores.length} cross-scores`,
+            head,
+            plan.dropped.length ? `${plan.dropped.length} lane(s) missing — comparison is incomplete` : "",
+            ``,
+            `Full plan: ${path}`,
+          ]
+            .filter(Boolean)
+            .join("\n")
+        }
+
+        const base = args?.base ?? "HEAD"
+        const { diff, files, changedLines } = gitDiff(cwd, base)
+        if (!diff.trim()) return `Nothing to do — no diff against ${base}.`
+
+        const review = await runReview(ctx, { diff, files, changedLines })
 
         if (args?.mode === "fix") {
-          const prev = existsSync(root)
-            ? readdirSync(root)
-                .filter((d) => existsSync(join(root, d, "findings.json")))
-                .sort()
-                .pop()
-            : undefined
-          if (!prev) return "No previous review found. Run council() first."
-          const dir = join(root, prev)
-          const kept = JSON.parse(readFileSync(join(dir, "findings.json"), "utf8")).kept ?? []
-          if (!kept.length) return `Nothing to fix - the last review kept no findings (${dir}).`
-
-          const patches = await runFix(ctx, { findings: kept, diff, cwd })
-          const out = join(dir, "patches.md")
-          writeFileSync(out, renderPatches(patches))
-          const ready = patches.filter((p) => p.state === "ok" && p.confident && p.patch.trim()).length
-          const stuck = patches.length - ready
+          const patches = await runFix(ctx, { findings: review.kept, diff, cwd })
+          const dir = artifactDir(cwd, "fix")
+          const path = join(dir, "patches.md")
+          writeFileSync(path, renderPatches(patches))
+          writeFileSync(join(dir, "patches.json"), JSON.stringify(patches, null, 2))
+          const verified = patches.filter((p) => p.verified).length
+          const unresolved = patches.filter((p) => p.state === "unresolved").length
           return [
-            `${ready} patch(es) ready, ${stuck} need a decision. NOTHING HAS BEEN APPLIED.`,
-            `Review then apply what you accept: ${out}`,
+            `${verified}/${patches.length} patches independently verified` +
+              (unresolved ? ` · ${unresolved} still unresolved after retries` : ""),
+            `Nothing applied. Review and apply what you accept.`,
+            ``,
+            `Patches: ${path}`,
           ].join("\n")
         }
 
-        const review = await runReview(ctx, { diff, files, changedLines })
-        const dir = join(root, new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19))
-        mkdirSync(dir, { recursive: true })
-        const reportPath = join(dir, "report.md")
-        writeFileSync(reportPath, renderReport(review, { files, ms: Date.now() - t0 }))
+        const dir = artifactDir(cwd, "review")
+        const path = join(dir, "report.md")
+        writeFileSync(path, renderReport(review, { files, ms: Date.now() - t0 }))
         writeFileSync(join(dir, "findings.json"), JSON.stringify(review, null, 2))
-        return renderSummary(review, reportPath)
+        return renderSummary(review, path)
       },
     },
   },

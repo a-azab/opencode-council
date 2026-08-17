@@ -173,6 +173,59 @@ export function applyRevisions(groups: Group[], revisions: Revision[]): Group[] 
   return out
 }
 
+export type Score = {
+  /** slug of the model being scored */
+  proposal: string
+  /** slug of the model doing the scoring - never the same as `proposal` */
+  scorer: string
+  correctness: number
+  simplicity: number
+  risk: number
+  completeness: number
+  reason: string
+}
+
+export type Tally = {
+  proposal: string
+  total: number
+  scores: number
+  mean: number
+}
+
+/**
+ * Winner by arithmetic. Ties go to the human, never to a tiebreaker model (D3).
+ *
+ * `margin` exists because two proposals separated by a rounding error are not meaningfully
+ * ranked, and presenting one as the winner would be a false precision the numbers do not
+ * support.
+ */
+export const TIE_MARGIN = 0.25
+
+export function tally(scores: Score[], margin = TIE_MARGIN): {
+  ranked: Tally[]
+  winner: Tally | null
+  tied: Tally[]
+} {
+  const by = new Map<string, Tally>()
+  for (const s of scores) {
+    // A model scoring its own proposal is not evidence. Drop it rather than trust the
+    // caller - the same no-self-verification rule the skeptic pool enforces.
+    if (s.scorer === s.proposal) continue
+    const t = by.get(s.proposal) ?? { proposal: s.proposal, total: 0, scores: 0, mean: 0 }
+    t.total += s.correctness + s.simplicity + s.risk + s.completeness
+    t.scores += 1
+    by.set(s.proposal, t)
+  }
+  const ranked = [...by.values()]
+    .map((t) => ({ ...t, mean: t.scores ? t.total / t.scores : 0 }))
+    .sort((a, b) => b.mean - a.mean || a.proposal.localeCompare(b.proposal))
+
+  if (!ranked.length) return { ranked, winner: null, tied: [] }
+  const top = ranked[0].mean
+  const tied = ranked.filter((t) => top - t.mean <= margin)
+  return { ranked, winner: tied.length > 1 ? null : ranked[0], tied: tied.length > 1 ? tied : [] }
+}
+
 /** Stable signature of the current tier assignment, used to detect a fixed point. */
 export function signature(groups: Group[]): string {
   return groups

@@ -37,6 +37,39 @@ export const FINDINGS_SCHEMA = {
   additionalProperties: false,
 } as const
 
+export const PROPOSAL_SCHEMA = {
+  type: "object",
+  properties: {
+    summary: { type: "string", description: "the approach in one or two sentences" },
+    steps: {
+      type: "array",
+      items: { type: "string" },
+      description: "ordered, concrete steps a developer could follow",
+    },
+    risks: { type: "array", items: { type: "string" } },
+    tradeoff: { type: "string", description: "what this approach gives up" },
+  },
+  required: ["summary", "steps", "risks", "tradeoff"],
+  additionalProperties: false,
+} as const
+
+/**
+ * Scoring is per-criterion and integral so the tally is arithmetic. Free-form preference
+ * would put the decision back inside a model, which is the thing D3 forbids.
+ */
+export const SCORE_SCHEMA = {
+  type: "object",
+  properties: {
+    correctness: { type: "integer", minimum: 1, maximum: 5, description: "will it actually work?" },
+    simplicity: { type: "integer", minimum: 1, maximum: 5, description: "least machinery for the result" },
+    risk: { type: "integer", minimum: 1, maximum: 5, description: "5 = lowest risk" },
+    completeness: { type: "integer", minimum: 1, maximum: 5, description: "does it cover the whole goal?" },
+    reason: { type: "string", description: "one sentence, the deciding factor" },
+  },
+  required: ["correctness", "simplicity", "risk", "completeness", "reason"],
+  additionalProperties: false,
+} as const
+
 export const VERDICT_SCHEMA = {
   type: "object",
   properties: {

@@ -107,6 +107,79 @@ export function renderSummary(review: Review, reportPath: string): string {
 }
 
 /** Patch artefacts. Nothing here is applied - the human is the only writer (D5). */
+export function renderPlan(plan: import("./engine.ts").Plan): string {
+  const { proposals, ranked, winner, tied, dropped, scores } = plan
+  const live = proposals.filter((p) => p.state === "ok")
+  const meanOf = (slug: string) => ranked.find((r) => r.proposal === slug)?.mean
+
+  const lines = [
+    `# Council plan`,
+    "",
+    `**Goal.** ${plan.goal}`,
+    "",
+    `${live.length} proposals · ${scores.length} cross-scores · ` +
+      (winner ? `winner: **${winner.proposal}**` : `**no winner — too close to call**`),
+    "",
+  ]
+
+  if (!winner && tied.length > 1) {
+    // A tie goes to the human. Asking a model to break it would put the decision back
+    // inside a model, which is the thing this design forbids (D3).
+    lines.push(
+      `## Your call`,
+      "",
+      `${tied.map((t) => `**${t.proposal}** (${t.mean.toFixed(2)})`).join(" and ")} scored within ` +
+        `${(0.25).toFixed(2)} of each other. That gap is smaller than these scores can`,
+      "resolve, so calling one the winner would be false precision. Both are below — pick on",
+      "grounds the rubric does not capture.",
+      "",
+    )
+  }
+
+  if (ranked.length) {
+    lines.push("## Ranking", "", "| proposal | role | mean | scores |", "|---|---|---|---|")
+    for (const r of ranked) {
+      const p = proposals.find((x) => x.slug === r.proposal)
+      lines.push(`| ${r.proposal}${winner?.proposal === r.proposal ? " ✅" : ""} | ${p?.role ?? "?"} | ${r.mean.toFixed(2)} | ${r.scores} |`)
+    }
+    lines.push("")
+  }
+
+  const order = [...live].sort((a, b) => (meanOf(b.slug) ?? 0) - (meanOf(a.slug) ?? 0))
+  for (const p of order) {
+    const m = meanOf(p.slug)
+    lines.push(`## ${p.role} — ${p.slug}${m !== undefined ? ` (${m.toFixed(2)})` : ""}`, "")
+    lines.push(p.summary, "")
+    if (p.steps.length) {
+      lines.push("**Steps**", "")
+      p.steps.forEach((s, i) => lines.push(`${i + 1}. ${s}`))
+      lines.push("")
+    }
+    if (p.risks.length) {
+      lines.push("**Risks**", "")
+      p.risks.forEach((r) => lines.push(`- ${r}`))
+      lines.push("")
+    }
+    lines.push(`**Gives up.** ${p.tradeoff}`, "")
+    const against = scores.filter((s) => s.proposal === p.slug)
+    if (against.length) {
+      lines.push("<details><summary>how others scored it</summary>", "")
+      for (const s of against)
+        lines.push(`- **${s.scorer}** — correctness ${s.correctness}, simplicity ${s.simplicity}, risk ${s.risk}, completeness ${s.completeness}. ${s.reason}`)
+      lines.push("", "</details>", "")
+    }
+  }
+
+  if (dropped.length) {
+    lines.push("## Proposers that did not report", "")
+    for (const d of dropped)
+      lines.push(`- ${d.role} / ${d.slug} — \`${d.state}\` ${(d.detail ?? "").slice(0, 90)}`)
+    lines.push("", `> ${dropped.length} of ${proposals.length} lanes are missing from this comparison.`, "")
+  }
+
+  return lines.join("\n")
+}
+
 export function renderPatches(patches: import("./engine.ts").Patch[]): string {
   const usable = (p: (typeof patches)[number]) =>
     p.state === "ok" && p.confident && p.patch.trim()
