@@ -279,10 +279,11 @@ If deepseek is wanted back, the opt-in above is the cheaper fix.
 | breadth | `council-gemini.md` | cross-file relationships |
 | reviewer | `council-claude-opus.md` | generic deep review |
 | ~~moderator~~ | `council-glm.md` | **deleted** — D3 |
-| qa | new | |
-| docs | new | |
-| skeptic | new | verdict schema: `{real, confidence, reason}` |
-| fixer | new | emits a unified diff, never edits |
+| qa | new | assertion quality — would the test fail? |
+| docs | new | statements that have become untrue |
+| ops | new | containers, CI/CD, deploy safety, rollback |
+| skeptic | new | verdict schema: `{real, confidence, reason}`. Also verifies fixes. |
+| fixer | new | returns the corrected **file content**; git computes the diff. Never edits. |
 
 Migration is not a rename: each body currently says *"you are GLM 5.2 in a council of 8
 named models"*, and `council-glm.md` describes a roster that no longer exists. Strip the
