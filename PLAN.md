@@ -867,6 +867,42 @@ entirely — while all 82 tests still passed, because nothing tests tool registr
 only by loading the plugin and printing `Object.keys(tool)`. Structural edits to `index.ts`
 get exact-string edits and a load check, not offset arithmetic.
 
+#### First full end-to-end run — 2026-08-21
+
+Directive: *"add a /crew-status command that lists the live crew worktrees in this repo with
+their branch and age, so abandoned runs can be found and removed."* Run against a dedicated
+`opencode serve --port 4177` so the crew agents were registered.
+
+| | |
+|---|---|
+| intake | 2 items, both citing real line numbers (`src/index.ts` ~L126, ~L145, ~L156) |
+| item 1 | 1 attempt → `3f61401` |
+| item 2 | **2 acceptance rejections**, 1 escalation, then `1998af2` |
+| review | 1 finding: 0 blocker, 1 suggestion → correctly did not loop |
+| total | 1140s, `stoppedBy: complete` |
+| result | 129 insertions across 5 files, `listWorktrees`/`renderWorktrees` each defined **exactly once** despite the retries, tests added to both suites |
+
+**C8 paid for itself on the first run.** `npm test` passed on both rejected attempts. The
+acceptance judge still caught that the diff imported functions it believed were undefined —
+the check tests could not make. This is the "superficial verification" failure §6b names,
+caught in practice.
+
+**Two bugs the run exposed:**
+
+1. **The report lied.** `push` failed (no `origin`) and the output still said *"The branch
+   is pushed; open it yourself"*. Telling someone their work is on a remote when it is not
+   sends them looking somewhere empty. `RunResult` now carries `pushed` separately from
+   `prError`, and the test covers both push-failure and gh-failure — it previously only
+   covered the latter, which is exactly why this shipped.
+2. **The acceptance judge had a false-negative mode.** It saw only the item's own diff, so
+   when item 2 called a function item 1 had already committed, it reported that function
+   "is not defined anywhere in src/crew.ts" and rejected twice. Cost two attempts and an
+   escalation on a non-problem. The judge is now told which items already landed on the
+   branch and instructed not to call a symbol undefined merely because its definition is
+   not in this diff.
+
+Neither was reachable by reasoning about the code. Both needed a real run.
+
 #### PAUSE — run it on something real before Phase 4.
 
 #### Phase 4 — tracker seam — **TODO**

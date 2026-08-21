@@ -294,6 +294,7 @@ const run = (over: Partial<RunResult> = {}): RunResult => ({
   worktree: "/w",
   outcomes: [],
   cycles: [],
+  pushed: false,
   stoppedBy: "complete",
   seconds: 10,
   ...over,
@@ -330,10 +331,25 @@ test("every stop reason is explained, none left as a bare enum", () => {
   }
 })
 
-test("a failed PR is reported as a degraded success, not a lost run", () => {
-  const out = renderRun(run({ outcomes: [done("one")], prError: "gh pr create failed: no upstream" }), CFG3)
-  assert.match(out, /branch is pushed/, "the work is not lost and the report must say so")
-  assert.match(out, /no upstream/, "must carry the real reason")
+test("a failed PR distinguishes 'pushed but no PR' from 'never pushed'", () => {
+  // Observed on the first real end-to-end run: the push failed (no origin) and the report
+  // still said "The branch is pushed". Telling someone their work is on a remote when it
+  // is not sends them looking somewhere empty — the one lie in this report that costs
+  // real time.
+  const ghFailed = renderRun(
+    run({ outcomes: [done("one")], pushed: true, prError: "gh pr create failed: 422" }),
+    CFG3,
+  )
+  assert.match(ghFailed, /branch \*\*is\*\* pushed/)
+  assert.match(ghFailed, /422/, "must carry the real reason")
+
+  const pushFailed = renderRun(
+    run({ outcomes: [done("one")], pushed: false, prError: "push failed: 'origin' does not appear to be a git repository" }),
+    CFG3,
+  )
+  assert.match(pushFailed, /\*\*not\*\* pushed/)
+  assert.ok(!/branch \*\*is\*\* pushed/.test(pushFailed), "must not claim a failed push succeeded")
+  assert.match(pushFailed, /worktree/, "must still say where the work actually is")
 })
 
 test("the report always says where the work is and that the tree was untouched", () => {

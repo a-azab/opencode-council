@@ -713,10 +713,27 @@ export const MAX_RUN_SECONDS = 60 * 60
  */
 async function checkAcceptance(
   ctx: Ctx,
-  input: { item: WorkItem; diff: string; exclude: string[] },
+  input: { item: WorkItem; diff: string; exclude: string[]; landed: string[] },
 ): Promise<{ met: boolean; reason: string; judge?: string }> {
   const judge = skepticPool(input.exclude, 1)[0]
   if (!judge) return { met: true, reason: "no independent judge available; accepted on the checks alone" }
+
+  /*
+   * Without this the judge sees an incremental diff with no idea what preceded it.
+   * Measured on the first real run: item 2 added a caller for a function item 1 had
+   * already committed, and the judge — seeing only item 2's diff — reported the function
+   * "is not defined anywhere in src/crew.ts" and rejected the item twice. Two wasted
+   * attempts and an escalation for a non-problem.
+   */
+  const context = input.landed.length
+    ? `Earlier items on this branch are ALREADY COMMITTED and are not shown in the diff below:
+${input.landed.map((t) => `  - ${t}`).join("\n")}
+
+So a symbol this diff uses may well be defined by one of those commits. Do not report
+something as undefined merely because its definition is not in this diff.
+
+`
+    : ""
 
   const v = await ask<{ real: boolean; confidence: string; reason: string }>(ctx, {
     model: judge.model,
@@ -732,6 +749,7 @@ async function checkAcceptance(
       "Judge the diff against the criteria, nothing else. Do not report style, scope, or",
       "anything the criteria do not ask for.",
       "",
+      context,
       `TITLE: ${input.item.title}`,
       `ACCEPTANCE: ${input.item.acceptance}`,
       "",
@@ -831,6 +849,8 @@ export async function runItem(
     instructions: string
     maxAttempts?: number
     maxEscalations?: number
+    /** titles of items already committed on this branch, so the judge is not blind to them */
+    landed?: string[]
     onStep?: (msg: string) => void
   },
 ): Promise<ItemOutcome> {
@@ -904,6 +924,7 @@ export async function runItem(
       item: input.item,
       diff: git(input.worktree, ["diff", "HEAD"]),
       exclude: wrote,
+      landed: input.landed ?? [],
     })
     last.judge = verdict.judge
     if (!verdict.met) {
@@ -935,6 +956,8 @@ export type RunResult = {
   cycles: { cycle: number; blockers: number; note: string }[]
   prUrl?: string
   prError?: string
+  /** whether the branch reached the remote, independent of whether a PR opened */
+  pushed: boolean
   seconds: number
   /** why the run ended - computed, never asserted by a model (C7) */
   stoppedBy: "complete" | "item-stuck" | "review-cycles" | "wall-clock"
@@ -1032,6 +1055,7 @@ export async function runExecute(
           worktree,
           cfg: input.cfg,
           instructions: input.instructions,
+          landed: outcomes.filter((o) => o.state === "done").map((o) => o.item.title),
           onStep: say,
         })
         outcomes.push(outcome)
@@ -1068,13 +1092,19 @@ export async function runExecute(
     const landed = outcomes.filter((o) => o.state === "done")
     let prUrl: string | undefined
     let prError: string | undefined
+    let pushed = false
     if (landed.length) {
       const pr = openPr(input.root, worktree, branch, input.cfg.base, input.directive, outcomes)
-      if (pr.ok) prUrl = pr.url
-      else prError = pr.error
+      if (pr.ok) {
+        prUrl = pr.url
+        pushed = true
+      } else {
+        prError = pr.error
+        pushed = pr.pushed
+      }
     }
 
-    return { branch, worktree, outcomes, cycles, prUrl, prError, stoppedBy, seconds: (Date.now() - t0) / 1000 }
+    return { branch, worktree, outcomes, cycles, prUrl, prError, pushed, stoppedBy, seconds: (Date.now() - t0) / 1000 }
   } catch (e: any) {
     // A crashed run with no commits leaves a directory git will later refuse to reuse the
     // branch name for. Commits are the deliverable, so those are kept.
@@ -1118,11 +1148,18 @@ function openPr(
   base: string,
   directive: string,
   outcomes: ItemOutcome[],
-): { ok: true; url: string } | { ok: false; error: string } {
+): { ok: true; url: string } | { ok: false; error: string; pushed: boolean } {
   try {
     git(worktree, ["push", "-u", "origin", branch])
   } catch (e: any) {
-    return { ok: false, error: `push failed: ${String(e?.stderr ?? e?.message ?? e).slice(0, 300)}` }
+    // Distinguishing this from a gh failure matters: telling someone their branch is
+    // pushed when it is not sends them looking on a remote that has nothing. Observed on
+    // the first real run, in a repo with no origin.
+    return {
+      ok: false,
+      pushed: false,
+      error: `push failed: ${String(e?.stderr ?? e?.message ?? e).slice(0, 300)}`,
+    }
   }
   try {
     const title = outcomes.length === 1 ? outcomes[0].item.title : directive.slice(0, 70)
@@ -1133,8 +1170,12 @@ function openPr(
     ).trim()
     return { ok: true, url }
   } catch (e: any) {
-    // The branch is pushed either way, so this is a degraded success, not a lost run.
-    return { ok: false, error: `gh pr create failed: ${String(e?.stderr ?? e?.message ?? e).slice(0, 300)}` }
+    // The branch IS pushed here, so this is a degraded success, not a lost run.
+    return {
+      ok: false,
+      pushed: true,
+      error: `gh pr create failed: ${String(e?.stderr ?? e?.message ?? e).slice(0, 300)}`,
+    }
   }
 }
 
@@ -1177,7 +1218,13 @@ export function renderRun(r: RunResult, cfg: CrewConfig): string {
 
   out.push("", `Branch \`${r.branch}\` → \`${cfg.base}\``)
   if (r.prUrl) out.push(`PR: ${r.prUrl}`)
-  else if (r.prError) out.push(`PR not opened — ${r.prError}`, `The branch is pushed; open it yourself if you want one.`)
+  else if (r.prError)
+    out.push(
+      `PR not opened — ${r.prError}`,
+      r.pushed
+        ? "The branch **is** pushed; open the PR yourself if you want one."
+        : "The branch was **not** pushed — it exists only in the worktree below. Nothing is lost, but it is not on the remote.",
+    )
   out.push(
     "",
     `Your working tree was never touched. The work is in \`${r.worktree}\`:`,
