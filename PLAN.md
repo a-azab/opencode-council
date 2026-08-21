@@ -505,6 +505,110 @@ anything, so they are inert rather than shadowing. They can go whenever.
 
 Everything is recoverable — `/root/.config/opencode` is a git repo as of commit `0c02c55`.
 
+## 6b. Industry-standard gap analysis (researched 2026-08-21)
+
+Primary sources fetched and quoted; full research brief in the commit that added this
+section. Verdicts are the literature's, not mine.
+
+### What the evidence VALIDATES in the current design
+
+| design choice | evidence |
+|---|---|
+| Test execution as the work loop's arbiter | **STRONG.** Huang et al. §6: "the code executor serves as the perfect verifier." Kamoi TACL: self-correction "works well in tasks that can use reliable external feedback." Chen Self-Debugging: +12% with unit tests vs +2–3% without. |
+| A *different* model verifies a fix | **STRONG.** Panickssery et al.: linear correlation between self-recognition and self-preference bias. A model grading its own work is measurably biased. |
+| Hard iteration caps everywhere | **STRONG.** MAST (1642 traces): ~19% of all multi-agent failures are stopping-condition failures — 12.4% "unaware of stopping conditions" + 6.2% "premature termination." |
+| Multi-level verification (tests **and** an independent model) | **STRONG.** MAST Insight 3: adding objective verification gave **+15.6%** on the same model. Their warning is exactly our design target: "many existing verifiers perform only superficial checks... such as checking if the code compiles." |
+| Single worker for code construction, not a swarm | **STRONG.** Anthropic's own caveat: "most coding tasks involve fewer truly parallelizable tasks than research." Cognition: "running multiple agents in collaboration only results in fragile systems." MAST: 41–86.7% failure rates across 7 frameworks. |
+| Parallel multi-model for *read-only review* | **SUPPORTED.** This is the case that works — breadth-first retrieval with compression back to one result. |
+| No graph framework | **SUPPORTED by four independent parties**, two of whom ship graph frameworks. Pydantic: "Don't use a nail gun unless you need a nail gun." Anthropic: frameworks "obscure the underlying prompts and responses." Microsoft: "If you can write a function to handle the task, do that instead." |
+
+### What the evidence CONTRADICTS — the debate loop
+
+Huang et al. (ICLR 2024) re-ran multi-agent debate with the original authors' prompts on the
+**full** GSM8K set instead of a 100-example subset:
+
+| method | responses | GSM8K |
+|---|---|---|
+| Self-consistency | 3 | 82.5 |
+| **Debate round 1** | **6** | **83.2** |
+| Self-consistency | 6 | **85.3** |
+| **Debate round 2** | **9** | **83.0** |
+| Self-consistency | 9 | **88.2** |
+
+> "The observed improvement is evidently **not attributed to 'self-correction', but rather
+> to 'self-consistency'.**"
+
+At matched budget debate loses, and **round 2 is worse than round 1** — precisely the range
+`DEFAULT_MAX_ROUNDS = 2` operates in.
+
+**Our own measurement already agreed and I did not notice.** PLAN §6 records the debate run
+as *"1 round, 6 re-judgements, **0 changed position**"* while wall time went 74s → 212s. The
+loop tripled cost and changed nothing. That is the literature's result reproduced locally.
+
+### What is MISSING that every surveyed system has
+
+| gap | consequence today | precedent |
+|---|---|---|
+| **No retries.** `ratelimited` is classified, `isRetryable` and `Retry-After` arrive in the payload, and all three are ignored | one transient 429 permanently kills a node and silently narrows coverage | LangGraph `RetryPolicy`, Temporal, Restate — universal |
+| **No persistence** | a crash loses a 3-minute, ~20-call run entirely | Anthropic session log, Temporal Event History, LangGraph checkpointer — universal |
+| **No resume** | same | 12-factor Factor 6; universal |
+| **No budget cap** | unbounded spend; a large diff × 5 modes × retries has no ceiling | Anthropic scales budget by task complexity explicitly |
+| **Uniform budgets** | wastes money on trivial diffs, under-serves hard ones | Snell et al.: effectiveness "critically varies depending on the difficulty of the prompt" |
+
+---
+
+## 6c. Upgrade plan — ordered by (evidence × cheapness)
+
+### P0-A — Retry with backoff  *(small, strong precedent, fixes an observed failure)*
+
+- [ ] `RetryPolicy` as data on a call: `max_attempts`, `initial_interval`, `backoff_factor`,
+      `max_interval`, `jitter`
+- [ ] Retry `ratelimited` (honour `Retry-After`) and 5xx; **never** retry `autherror`,
+      `malformed`, or a structured-output refusal — those are deterministic
+- [ ] Copy LangGraph's `default_retry_on` exclusion list rather than deriving one
+
+Measured motivation: across real runs we lost nodes to `ratelimited` and one-off
+`No provider available` that a single retry would have recovered.
+
+### P0-B — Ablate the debate loop before keeping it  *(free)*
+
+- [ ] Run the same diff with `maxRounds: 0` and `maxRounds: 2`; compare findings and cost
+- [ ] Apply Huang §5's test to the debate prompt: fold its content into the R1 prompt and
+      see whether that closes the gap. This test alone invalidated Self-Refine's headline.
+- [ ] **Default to deleting it.** Evidence + our own 0-changed-positions measurement both
+      point the same way; keeping it needs a positive result, not an absent negative one.
+- [ ] If a consistency mechanism is wanted, spend that budget on **self-consistency**
+      (same node sampled N times, majority vote) — STRONG evidence, and the only pattern in
+      the brief independently replicated by a hostile party.
+
+### P1-A — Append-only event log + resume
+
+- [ ] One `runId`, one append-only log of every call and result; artifacts derive from it
+- [ ] `resume(runId)` re-enters after the last completed step
+- [ ] **ID-keyed resume, never positional.** LangGraph's index matching needs four rules and
+      an exponential-blowup warning to be safe; Anthropic's id-keyed map does not.
+- [ ] Store everything, transform on read — Anthropic: "It is difficult to know which tokens
+      the future turns will need."
+
+### P1-B — Budget ceiling
+- [ ] `maxCalls` / `maxSpend` per run, enforced in `ask()`, surfaced in the report
+- [ ] Refuse to start rather than stop halfway when the estimate exceeds the ceiling
+
+### P2 — Difficulty-scaled budgets
+- [ ] Scale node count and attempts by diff size and category, not uniformly (Snell)
+
+### Explicitly NOT building, with reasons
+
+| rejected | why |
+|---|---|
+| Graph-as-data / declarative topology | Nothing outside our runtime reads the topology. That is the deciding question, and until a visual builder or external validator exists the graph is dead weight that rots as models improve. You can add a graph over an event log later; you cannot remove one users depend on. |
+| BSP / superstep semantics | One system in the entire survey uses them. Buys deterministic parallel fan-in, costs a scheduler and a vocabulary. |
+| Deterministic code replay | Temporal's whole product. A partial implementation is worse than none because it *looks* like a guarantee. |
+| Delta-channel state optimization | Beta after two major versions, with a documented silent-corruption mode. |
+| Replacing the 3-skeptic vote with a single judge | Anthropic reverted from judge *ensembles* for **rubric scoring**. Ours is a **binary** real/not-real vote — that is self-consistency, which is the strongly-evidenced pattern. Different mechanism; not a defect. |
+
+---
+
 ## 7. Spike results
 
 Measured 2026-08-16 against opencode 1.18.13. **Verdict: GO.**

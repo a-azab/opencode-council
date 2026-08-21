@@ -45,6 +45,8 @@ export type Ctx = {
   auth?: string
   /** per-node wall clock. The slowest member sets the cost of a round (PLAN §4 gotcha 18). */
   timeoutMs?: number
+  /** transient-failure retry. Defaults to DEFAULT_RETRY. */
+  retry?: RetryPolicy
 }
 
 /**
@@ -79,13 +81,21 @@ function headers(ctx: Ctx) {
 }
 
 /** Map opencode's 8-member error union onto our node states (PLAN §4 gotcha 4). */
-function classify(error: any): { state: NodeState; detail: string } {
+function classify(error: any): {
+  state: NodeState
+  detail: string
+  error: any
+  /** provider-supplied Retry-After, seconds, when present */
+  retryAfter?: string
+} {
   const name = error?.name ?? "Unknown"
   const detail = error?.data?.message ?? JSON.stringify(error?.data ?? {}).slice(0, 200)
-  if (name === "ProviderAuthError") return { state: "autherror", detail }
-  if (name === "StructuredOutputError") return { state: "malformed", detail }
-  if (name === "APIError" && error?.data?.statusCode === 429) return { state: "ratelimited", detail }
-  return { state: "failed", detail: `${name}: ${detail}` }
+  const retryAfter = error?.data?.responseHeaders?.["retry-after"]
+  const base = { error, retryAfter }
+  if (name === "ProviderAuthError") return { state: "autherror", detail, ...base }
+  if (name === "StructuredOutputError") return { state: "malformed", detail, ...base }
+  if (name === "APIError" && error?.data?.statusCode === 429) return { state: "ratelimited", detail, ...base }
+  return { state: "failed", detail: `${name}: ${detail}`, ...base }
 }
 
 /**
@@ -93,7 +103,76 @@ function classify(error: any): { state: NodeState; detail: string } {
  * failure. Never throws for a model-side problem - those arrive as `info.error` on a 200
  * response, so `info.structured !== undefined` is the success test, not try/catch.
  */
+/**
+ * Retry policy, as data. Parameters and defaults follow LangGraph's `RetryPolicy`, which is
+ * the battle-tested shape across every durable-execution system surveyed.
+ */
+export type RetryPolicy = {
+  maxAttempts: number
+  initialInterval: number
+  backoffFactor: number
+  maxInterval: number
+  jitter: boolean
+}
+
+export const DEFAULT_RETRY: RetryPolicy = {
+  maxAttempts: 3,
+  initialInterval: 500,
+  backoffFactor: 2,
+  maxInterval: 30_000,
+  jitter: true,
+}
+
+/**
+ * Retry transient failures only.
+ *
+ * `autherror` and `malformed` are DETERMINISTIC - a bad key stays bad, and a model that
+ * cannot produce a forced tool call will not manage it on attempt three. Retrying them
+ * burns money and latency to reach the same answer. Rate limits, timeouts and 5xx are the
+ * opposite: the same request later usually succeeds, which is why every node we lost in
+ * real runs was lost to one of these.
+ */
+export function isRetryable(state: NodeState, error?: any): boolean {
+  if (state === "ratelimited" || state === "timeout") return true
+  if (state === "failed") {
+    const code = error?.data?.statusCode
+    if (error?.data?.isRetryable === true) return true
+    return typeof code === "number" && code >= 500
+  }
+  return false
+}
+
+/** Honour `Retry-After` when the provider sends one; otherwise exponential backoff. */
+function backoffMs(attempt: number, p: RetryPolicy, retryAfter?: string): number {
+  const server = Number(retryAfter)
+  if (Number.isFinite(server) && server > 0) return Math.min(server * 1000, p.maxInterval)
+  const raw = p.initialInterval * p.backoffFactor ** (attempt - 1)
+  const capped = Math.min(raw, p.maxInterval)
+  return p.jitter ? capped * (0.5 + Math.random() / 2) : capped
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** Retrying wrapper. The single-attempt logic lives in askOnce. */
 export async function ask<T>(
+  ctx: Ctx,
+  opts: { model: string; agent?: string; text: string; schema?: unknown },
+): Promise<{ ok: true; value: T; ms: number } | { ok: false; state: NodeState; detail: string; ms: number }> {
+  const policy = ctx.retry ?? DEFAULT_RETRY
+  const t0 = Date.now()
+  let last: { ok: false; state: NodeState; detail: string; ms: number } | null = null
+
+  for (let attempt = 1; attempt <= policy.maxAttempts; attempt++) {
+    const r = await askOnce<T>(ctx, opts)
+    if (r.ok) return { ...r, ms: Date.now() - t0 }
+    last = r
+    if (attempt === policy.maxAttempts || !isRetryable(r.state, (r as any).error)) break
+    await sleep(backoffMs(attempt, policy, (r as any).retryAfter))
+  }
+  return { ...(last as any), ms: Date.now() - t0 }
+}
+
+async function askOnce<T>(
   ctx: Ctx,
   opts: { model: string; agent?: string; text: string; schema?: unknown },
 ): Promise<{ ok: true; value: T; ms: number } | { ok: false; state: NodeState; detail: string; ms: number }> {
