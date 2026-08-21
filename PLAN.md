@@ -318,7 +318,7 @@ Spike artefacts in `/tmp/opencode/spike-{q1,fmt}/` (throwaway, not part of the p
 > **Debate costs ~3× wall time.** That is the honest price of deliberation, and why the
 > loop fires only when reviewers actually disagree.
 >
-> **Cleanup is deliberately NOT done.** See §6 Cleanup for why.
+> **Cleanup of the old commands is DONE** (2026-08-16). See §6.
 
 ### Phase 1 — `/check` — **DONE**
 
@@ -435,53 +435,44 @@ neither source system does. Until it lands, that claim is half-earned.
 Nothing exists for this — no command, no scoring, no tally. It is the D3 principle applied
 where there is no diff to compute against.
 
-### 3. Cleanup — see below. Deliberately blocked on real-world use, not on code.
+### 3. Cleanup — commands DONE; the inert model-named agents remain. See §6.
 
-### ⚠ Two old commands have no successor — do NOT delete them
+### Migration off the old commands — **DONE** (2026-08-16)
 
-Measured in a fresh process: the plugin wins name collisions, so `council-review` and
-`council-plan` now resolve to the plugin and the old files of those names are **silently
-shadowed** — still on disk, never executed, and editing them does nothing.
+| old command | outcome |
+|---|---|
+| `council-review.md` | deleted — plugin registers the same name and wins the collision, so it was already dead |
+| `council-plan.md` | deleted — same |
+| `council-task.md` | **deleted on the user's call** — `council-fix` covers the need |
+| `council-independent.md` | **ported to `mode:"independent"`**, verified 11/11 before deleting |
+| `workflow.md` | untouched — not part of this project |
 
-But two of the original four were never ported and have no equivalent:
+`/root/.config/opencode/command/` now contains only `workflow.md`. Everything else is
+recoverable from commit `0c02c55`.
 
-| old command | what it does | closest thing here | gap |
-|---|---|---|---|
-| `council-task` | general task execution — every model produces an artefact, one debate round, one consolidated result | `council-fix` | `council-fix` only handles *findings from a review*. There is no general "do this task with the council". |
-| `council-independent` | N models work alone; no moderator, no debate, **no synthesis** — you read the raw takes | nothing | The engine always dedupes and verifies. There is no path to unsynthesized perspectives. |
+All four deleted files carried the same defects: rosters naming `deepseek` and
+`qwen3.8-max` (both fail every call), the `prune` substring match that silently drops any
+response quoting `"timeout"` or `"error:"`, and writing `.run-model.sh` into whatever repo
+they ran in.
 
-`council-independent` is cheap to add if wanted — it is `fanout()` with the aggregation
-skipped. `council-task` is a real feature, not a mode flag.
+**Lesson from the port.** `mode:"independent"` first forced a one-field JSON schema purely
+to reuse the existing `ask()` path — and 3 of 11 models returned `StructuredOutputError`
+on a field they filled fine as prose. Structured output is a *forced tool call*; demanding
+one to carry free text costs models that cannot do it, for no benefit. Making the schema
+optional took coverage 7/11 → 11/11. **The fix was deleting the ceremony, not working
+around it.**
 
-**Until one of those is resolved, the cleanup below must not delete
-`command/council-task.md` or `command/council-independent.md`.** Deleting them would be
-losing functionality while calling it tidying.
+### Cleanup — **DONE** (2026-08-16)
 
-### Cleanup — NOT DONE, and deliberately so
-
+- [x] Delete `command/council-{review,plan,task,independent}.md` — see the migration table above
 - [ ] Delete the `agent` block from `~/.config/opencode/opencode.json`
-- [ ] Delete `command/council-{review,plan,task,independent}.md`
-- [ ] Delete `agent/council-*.md` (migrated into this repo)
+- [ ] Delete `agent/council-*.md` (the model-named originals, migrated into this repo)
 
-**Why this is still pending.** The old council is the user's working system, with 3.4M of
-real artefacts behind it, and it has not yet been superseded *in their hands* — the plugin
-needs an opencode restart to become active, which has not happened. Deleting a working
-system on the strength of a fixture test, before its replacement has been used once on
-real work, is the wrong order regardless of how green the tests are.
+The two remaining items are lower risk than the commands were: the old model-named agents
+(`council-fable`, `council-glm`, …) are `mode: subagent` and no longer referenced by
+anything, so they are inert rather than shadowing. They can go whenever.
 
-Preconditions before deleting:
-1. opencode restarted, plugin confirmed loaded.
-2. `/check` and `council()` each run against real work at least once.
-3. The old `council-review` confirmed no longer needed.
-
-Everything is recoverable either way — `/root/.config/opencode` is a git repo as of commit
-`0c02c55`, which exists precisely so this decision is reversible.
-
-Note: the two systems currently coexist without conflict. Old agents are `mode: subagent`
-and model-named (`council-fable`); new ones are `mode: all` and role-named
-(`council-security`). No name collides.
-
----
+Everything is recoverable — `/root/.config/opencode` is a git repo as of commit `0c02c55`.
 
 ## 7. Spike results
 

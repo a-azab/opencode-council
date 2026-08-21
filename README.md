@@ -95,6 +95,7 @@ The commands are thin wrappers over one tool:
 | `council({ mode: "review", base: "HEAD" })` | the full graph (default) |
 | `council({ mode: "fix" })` | patches for the last review's findings |
 | `council({ mode: "plan", goal: "..." })` | propose and vote on an approach |
+| `council({ mode: "independent", goal: "..." })` | every model answers alone, nothing merged |
 
 `goal` is required for `mode: "plan"` and ignored otherwise. `base` accepts any git ref.
 
@@ -127,6 +128,24 @@ Results are sorted into four buckets that never merge:
 
 The distinction matters: a patch nobody checked is not done, and presenting it beside a
 verified one would make the guarantee meaningless.
+
+### `/council-independent` — the raw takes, unmerged
+
+```
+/council-independent what's the biggest risk of an in-memory rate limiter?
+```
+
+Every model in the roster answers **alone**. No routing, no dedupe, no debate, no
+verification, no synthesis. One file per model in
+`council-artifacts/<timestamp>-independent/`, plus an index.
+
+This is deliberately the only mode that does **not** aggregate. Everything else here exists
+to turn many opinions into one answer; aggregation is lossy by design, and sometimes what
+you want is to read the disagreement yourself before any machinery decides what mattered.
+
+It is also the only mode that sends **no schema** — the output is prose for a human, and
+forcing a tool call to carry free text costs models that can't do it for no benefit
+(measured: 7/11 with a one-field schema, 11/11 without).
 
 ### `/council-plan` — pick an approach by vote
 
