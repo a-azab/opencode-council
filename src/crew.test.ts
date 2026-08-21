@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -16,8 +16,14 @@ import {
   missingIgnores,
   proposeInit,
   applyInit,
+  commitMessage,
+  runVerify,
+  installIfDepsChanged,
+  openWorktree,
+  closeWorktree,
   CREW_IGNORES,
   type CrewConfig,
+  type WorkItem,
 } from "./crew.ts"
 
 const CFG: CrewConfig = {
@@ -84,11 +90,17 @@ test("resolveScope reports a non-repo instead of throwing", () => {
   assert.deepEqual(resolveScope("/"), { kind: "notrepo" })
 })
 
-test("resolveScope finds this repo from a subdirectory", () => {
-  const scope = resolveScope(new URL(".", import.meta.url).pathname)
+test("resolveScope finds the enclosing repo from a subdirectory", () => {
+  // Asserted against git's own answer rather than a directory name. The name check that
+  // was here failed inside a worktree (`.worktrees/probe`) — which is exactly where the
+  // crew runs its own tests, so it would have failed on every run.
+  const here = new URL(".", import.meta.url).pathname
+  const scope = resolveScope(here)
   assert.equal(scope.kind, "ok")
   if (scope.kind !== "ok") return
-  assert.ok(scope.root.endsWith("opencode-council"), scope.root)
+  const expected = execFileSync("git", ["rev-parse", "--show-toplevel"], { cwd: here, encoding: "utf8" }).trim()
+  assert.equal(scope.root, expected)
+  assert.ok(existsSync(join(scope.root, "package.json")))
   assert.ok(Array.isArray(scope.dirty))
 })
 
@@ -187,6 +199,64 @@ test("applyInit preserves prose the user wrote in AGENTS.md", () => {
     assert.ok(after.includes("Never commit to main. Money is integers."))
     assert.equal(after.match(/```crew/g)?.length, 1)
     assert.deepEqual(parseCrewBlock(after), { verify: ["npm run ci"], base: "develop", lanes: ["qa"] })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------- phase 2
+
+const item = (over: Partial<WorkItem> = {}): WorkItem => ({
+  title: "add rate limiting",
+  detail: "",
+  files: ["apps/partner-service/src/auth/guard.ts"],
+  acceptance: "6 failed attempts in 60s returns 429",
+  ...over,
+})
+
+test("commit scope comes from the item's directory, not its filename", () => {
+  assert.equal(commitMessage(item()), "feat(auth): add rate limiting")
+  // A root file has no component to name; `feat(README): ...` would read as though README
+  // were one.
+  assert.equal(commitMessage(item({ files: ["README.md"] })), "feat: add rate limiting")
+  assert.equal(commitMessage(item({ files: [] })), "feat: add rate limiting")
+})
+
+test("an already-conventional title is not double-prefixed", () => {
+  assert.equal(commitMessage(item({ title: "fix(auth): stop the leak" })), "feat(auth): stop the leak")
+})
+
+test("runVerify runs every command and names the one that broke", () => {
+  assert.deepEqual(runVerify(tmpdir(), ["true", "true"]), { ok: true, output: "all 2 check(s) passed" })
+
+  const r = runVerify(tmpdir(), ["true", "echo boom >&2; false", "echo never"])
+  assert.equal(r.ok, false)
+  assert.match(r.output, /echo boom/, "must name the failing command, not just fail")
+  assert.match(r.output, /boom/, "must carry the command's own output as feedback")
+  assert.ok(!r.output.includes("never"), "must stop at the first failure")
+})
+
+test("dependency install only fires when a manifest actually changed", () => {
+  // The symlinked node_modules is a known, commented ceiling: an item that changes
+  // dependencies verifies against the parent's versions and can pass for the wrong reason.
+  // This guard is the thing that keeps that from being silent.
+  assert.equal(installIfDepsChanged("/nonexistent", ["src/a.ts", "docs/b.md"]), null)
+  assert.equal(installIfDepsChanged("/nonexistent", ["apps/api/src/deep/package.json"]), null,
+    "no lockfile present means nothing to install")
+})
+
+test("a worktree is created on its own branch and removed cleanly", () => {
+  const dir = scratchRepo()
+  try {
+    const { path, branch } = openWorktree(dir, "test-run")
+    assert.equal(branch, "crew/test-run")
+    assert.ok(existsSync(path), "worktree directory must exist")
+    assert.equal(
+      execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: path, encoding: "utf8" }).trim(),
+      "crew/test-run",
+    )
+    closeWorktree(dir, path)
+    assert.ok(!existsSync(path), "worktree must be gone after close")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

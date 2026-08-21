@@ -4,8 +4,8 @@
 // This file is Phase 1a: everything `/crew init` needs to work out what a repo is and
 // write that down. No model calls live here - it is deliberately all deterministic, which
 // is why it is the part that gets tests.
-import { execFileSync } from "node:child_process"
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs"
+import { execFileSync, execSync } from "node:child_process"
+import { existsSync, readFileSync, statSync, writeFileSync, symlinkSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { selectRoles, bySlug, type Role } from "./roster.ts"
 import { ask, type Ctx, type NodeState } from "./engine.ts"
@@ -586,6 +586,425 @@ export async function runIntake(
     instructionBytes: Buffer.byteLength(input.instructions),
     calls,
   }
+}
+
+// ------------------------------------------------------------------ worktree
+
+/**
+ * A worktree for this run, under `.worktrees/` and excluded per-clone by init.
+ *
+ * `prune` first because a crashed run leaves the directory behind and git then refuses to
+ * reuse the branch name. Pruning is git's own cleanup for exactly this, and it costs
+ * nothing when there is nothing to clean.
+ */
+export function openWorktree(root: string, slug: string): { path: string; branch: string } {
+  git(root, ["worktree", "prune"])
+  const branch = `crew/${slug}`
+  const path = join(root, ".worktrees", slug)
+  git(root, ["worktree", "add", "-b", branch, path, "HEAD"])
+
+  // ponytail: symlink node_modules rather than install. A real install is minutes per run
+  // and often impossible offline. The ceiling is real and known: an item that CHANGES
+  // dependencies will verify against the parent's versions and can pass wrongly. runCrew
+  // detects a manifest change and installs for real in that case.
+  const deps = join(root, "node_modules")
+  if (existsSync(deps) && !existsSync(join(path, "node_modules"))) {
+    try {
+      symlinkSync(deps, join(path, "node_modules"), "dir")
+    } catch {
+      /* best effort */
+    }
+  }
+  return { path, branch }
+}
+
+export function closeWorktree(root: string, path: string) {
+  try {
+    git(root, ["worktree", "remove", path, "--force"])
+  } catch {
+    /* leave it for the human rather than escalate a cleanup failure */
+  }
+}
+
+/**
+ * `node_modules` is a symlink we created, not work. Measured: without this exclusion it
+ * shows up as untracked in the worktree, `git add -A` stages the symlink into the commit,
+ * and the no-change guard counts it as a real edit - so a worker that changed nothing
+ * looks like one that did.
+ */
+const NOT_WORK = ":(exclude)node_modules"
+
+/** Real changes in the worktree, symlinked deps excluded. */
+export function worktreeChanges(worktree: string): string[] {
+  return git(worktree, ["status", "--porcelain", "--", ".", NOT_WORK])
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean)
+}
+
+const MANIFESTS = /(^|\/)(package\.json|go\.mod|Cargo\.toml|pyproject\.toml|Gemfile|pom\.xml)$/
+
+/**
+ * A dependency change invalidates the symlinked node_modules, so the check that follows
+ * would run against the parent's versions and could pass for the wrong reason. Slow, but
+ * only when an item actually touches a manifest.
+ */
+export function installIfDepsChanged(worktree: string, files: string[]): string | null {
+  if (!files.some((f) => MANIFESTS.test(f))) return null
+  for (const [marker, cmd] of [
+    ["package-lock.json", "npm ci --silent || npm install --silent"],
+    ["pnpm-lock.yaml", "pnpm install --silent"],
+    ["yarn.lock", "yarn install --silent"],
+  ] as const) {
+    if (existsSync(join(worktree, marker))) {
+      try {
+        rmSync(join(worktree, "node_modules"), { force: true }) // drop the symlink, not the target
+      } catch {
+        /* not a symlink, or absent */
+      }
+      const r = runVerify(worktree, [cmd])
+      return r.ok ? `installed via ${marker}` : `install failed: ${r.output.slice(-400)}`
+    }
+  }
+  return null
+}
+
+// ------------------------------------------------------------------ execute
+
+/** Never fed to a model. Reading them is pointless and putting them in a prompt is worse. */
+const SECRETS = ["**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/id_rsa*", "**/*.p12", "**/*.keystore"]
+
+export type ItemOutcome = {
+  item: WorkItem
+  state: "done" | "failed-check" | "no-change" | "model-failed"
+  attempts: number
+  /** last verify output, kept whether it passed or failed - a pass is evidence too */
+  checkOutput?: string
+  commit?: string
+  detail?: string
+}
+
+const implementPrompt = (item: WorkItem, cfg: CrewConfig, instructions: string, feedback?: string) =>
+  `${instructions}
+
+You are in a git worktree created for this run. Everything you do stays here.
+
+<work-item>
+TITLE: ${item.title}
+DETAIL: ${item.detail}
+DONE WHEN: ${item.acceptance}
+LIKELY FILES: ${item.files.join(", ") || "(not predicted — find them)"}
+</work-item>
+
+${
+  feedback
+    ? `<previous-attempt-failed>
+The project's own check failed after your last attempt:
+
+${feedback.slice(-3000)}
+
+Fix the cause, not the symptom. Do not restate what you tried.
+</previous-attempt-failed>
+`
+    : ""
+}
+Read what you need, make the change, and run \`${cfg.verify.join(" && ")}\` yourself to
+check your work before you finish. Do not commit — the run commits once the check passes.
+
+Do not read or open ${SECRETS.join(", ")}. They contain credentials and are not relevant to
+any work item.
+
+When you are done, reply with a one-line summary of what you changed.`
+
+/**
+ * One item, in the worktree, until the project's own check passes or attempts run out.
+ *
+ * The worker is agentic rather than content-emitting: its session is pinned to the
+ * worktree, so it reads, greps, edits and runs tests directly. That is both more capable
+ * than marshalling whole files through a schema and less code - but it is only safe
+ * because of the directory pin, so that argument does not travel to any other caller.
+ *
+ * The verify command is re-run here afterwards regardless of what the worker claims. A
+ * model reporting its own success is not evidence; the project's check is.
+ */
+export async function runItem(
+  ctx: Ctx,
+  input: {
+    item: WorkItem
+    worktree: string
+    cfg: CrewConfig
+    instructions: string
+    maxAttempts?: number
+    onStep?: (msg: string) => void
+  },
+): Promise<ItemOutcome> {
+  const maxAttempts = input.maxAttempts ?? 2
+  const say = input.onStep ?? (() => {})
+  let feedback: string | undefined
+  let last: ItemOutcome = { item: input.item, state: "model-failed", attempts: 0 }
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    last.attempts = attempt
+    say(`  attempt ${attempt}/${maxAttempts}: implementing`)
+
+    let answered = false
+    for (const slug of INTAKE_MODELS) {
+      const member = bySlug(slug)
+      if (!member) continue
+      const r = await ask<string>(ctx, {
+        model: member.model,
+        agent: "crew-dev",
+        text: implementPrompt(input.item, input.cfg, input.instructions, feedback),
+        directory: input.worktree,
+        allow: ["edit", "bash"],
+      })
+      if (r.ok) {
+        answered = true
+        break
+      }
+      last = { ...last, state: "model-failed", detail: `${member.model}: ${r.detail}` }
+      if (r.state === "autherror") return last
+    }
+    if (!answered) return last
+
+    // Did anything actually change? A worker that read the code, decided it was already
+    // done, and returned a confident summary is indistinguishable from one that worked -
+    // except in the diff. Committing nothing and calling it done is the worst outcome.
+    const changed = worktreeChanges(input.worktree)
+    if (!changed.length) {
+      say("  no files changed")
+      return { ...last, state: "no-change", detail: "the worker reported success but changed nothing" }
+    }
+
+    say(`  running: ${input.cfg.verify.join(" && ")}`)
+    const check = runVerify(input.worktree, input.cfg.verify)
+    last.checkOutput = check.output
+    if (!check.ok) {
+      say(`  check failed`)
+      feedback = check.output
+      last.state = "failed-check"
+      continue
+    }
+
+    git(input.worktree, ["add", "-A", "--", ".", NOT_WORK])
+    git(input.worktree, [
+      "-c", "user.name=crew", "-c", "user.email=crew@local",
+      "commit", "-m", commitMessage(input.item),
+    ])
+    const commit = git(input.worktree, ["rev-parse", "--short", "HEAD"])
+    say(`  committed ${commit}`)
+    return { ...last, state: "done", commit }
+  }
+
+  return last
+}
+
+export type RunResult = {
+  branch: string
+  worktree: string
+  outcomes: ItemOutcome[]
+  prUrl?: string
+  prError?: string
+  seconds: number
+}
+
+/**
+ * Every item, in order, in one worktree, one commit each.
+ *
+ * Sequential by design (C2). The evidence in §6b is unambiguous that parallel agents
+ * constructing code is where multi-agent systems fail, and items here share a worktree and
+ * build on each other's commits - so there is not even a theoretical win to chase.
+ */
+export async function runExecute(
+  ctx: Ctx,
+  input: {
+    root: string
+    items: WorkItem[]
+    cfg: CrewConfig
+    instructions: string
+    directive: string
+    onStep?: (msg: string) => void
+    maxSeconds?: number
+  },
+): Promise<RunResult> {
+  const say = input.onStep ?? (() => {})
+  const t0 = Date.now()
+  const maxSeconds = input.maxSeconds ?? 60 * 60
+  const slug = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
+  const { path: worktree, branch } = openWorktree(input.root, slug)
+  const outcomes: ItemOutcome[] = []
+
+  try {
+    for (const [i, item] of input.items.entries()) {
+      const elapsed = (Date.now() - t0) / 1000
+      if (elapsed > maxSeconds) {
+        // Stop with a report rather than push on. §6b: ~19% of multi-agent failures are
+        // missing stopping conditions, and a run that never ends is indistinguishable from
+        // one that is working.
+        say(`wall clock ${Math.round(elapsed)}s exceeded ${maxSeconds}s — stopping`)
+        outcomes.push({
+          item,
+          state: "model-failed",
+          attempts: 0,
+          detail: `not attempted — run exceeded its ${maxSeconds}s budget`,
+        })
+        break
+      }
+
+      say(`[${i + 1}/${input.items.length}] ${item.title}`)
+      const note = installIfDepsChanged(worktree, item.files)
+      if (note) say(`  ${note}`)
+
+      const outcome = await runItem(ctx, {
+        item,
+        worktree,
+        cfg: input.cfg,
+        instructions: input.instructions,
+        onStep: say,
+      })
+      outcomes.push(outcome)
+      if (outcome.state !== "done") {
+        say(`  stopped: ${outcome.state}`)
+        break
+      }
+    }
+
+    const landed = outcomes.filter((o) => o.state === "done")
+    let prUrl: string | undefined
+    let prError: string | undefined
+    if (landed.length) {
+      const pr = openPr(input.root, worktree, branch, input.cfg.base, input.directive, outcomes)
+      if (pr.ok) prUrl = pr.url
+      else prError = pr.error
+    }
+
+    return { branch, worktree, outcomes, prUrl, prError, seconds: (Date.now() - t0) / 1000 }
+  } catch (e: any) {
+    // A crashed run with no commits leaves a directory git will later refuse to reuse the
+    // branch name for. Commits are the deliverable, so those are kept.
+    if (!outcomes.some((o) => o.state === "done")) closeWorktree(input.root, worktree)
+    throw e
+  }
+}
+
+function prBody(directive: string, outcomes: ItemOutcome[]): string {
+  const mark = (o: ItemOutcome) => (o.state === "done" ? "x" : " ")
+  const unresolved = outcomes.filter((o) => o.state !== "done")
+  return [
+    `**Directive:** ${directive}`,
+    "",
+    "## Items",
+    ...outcomes.map((o) => `- [${mark(o)}] ${o.item.title}${o.commit ? ` (\`${o.commit}\`)` : ""}`),
+    "",
+    "## Done when",
+    ...outcomes.filter((o) => o.state === "done").map((o) => `- **${o.item.title}** — ${o.item.acceptance}`),
+    ...(unresolved.length
+      ? [
+          "",
+          "## Not done",
+          "",
+          "These did not land. The branch stops where it stops — nothing here pretends otherwise.",
+          "",
+          ...unresolved.map((o) => `- **${o.item.title}** — ${o.state}${o.detail ? `: ${o.detail}` : ""}`),
+        ]
+      : []),
+    "",
+    "---",
+    "Opened by the crew. Every commit passed the project's own verify command in an isolated",
+    "worktree; that is a claim about the local checks, not about CI.",
+  ].join("\n")
+}
+
+function openPr(
+  root: string,
+  worktree: string,
+  branch: string,
+  base: string,
+  directive: string,
+  outcomes: ItemOutcome[],
+): { ok: true; url: string } | { ok: false; error: string } {
+  try {
+    git(worktree, ["push", "-u", "origin", branch])
+  } catch (e: any) {
+    return { ok: false, error: `push failed: ${String(e?.stderr ?? e?.message ?? e).slice(0, 300)}` }
+  }
+  try {
+    const title = outcomes.length === 1 ? outcomes[0].item.title : directive.slice(0, 70)
+    const url = execFileSync(
+      "gh",
+      ["pr", "create", "--base", base, "--head", branch, "--title", title, "--body", prBody(directive, outcomes)],
+      { cwd: root, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+    ).trim()
+    return { ok: true, url }
+  } catch (e: any) {
+    // The branch is pushed either way, so this is a degraded success, not a lost run.
+    return { ok: false, error: `gh pr create failed: ${String(e?.stderr ?? e?.message ?? e).slice(0, 300)}` }
+  }
+}
+
+/** What the human reads when the run stops, whatever the reason it stopped. */
+export function renderRun(r: RunResult, cfg: CrewConfig): string {
+  const done = r.outcomes.filter((o) => o.state === "done")
+  const stuck = r.outcomes.filter((o) => o.state !== "done")
+  const out: string[] = [
+    done.length === r.outcomes.length && done.length
+      ? `**Done** — ${done.length}/${r.outcomes.length} item(s), ${Math.round(r.seconds)}s.`
+      : `**Incomplete** — ${done.length}/${r.outcomes.length} item(s) landed, ${Math.round(r.seconds)}s.`,
+    "",
+  ]
+
+  for (const o of r.outcomes)
+    out.push(
+      o.state === "done"
+        ? `- ✓ ${o.item.title} — \`${o.commit}\` (${o.attempts} attempt${o.attempts === 1 ? "" : "s"})`
+        : `- ✗ ${o.item.title} — ${o.state}${o.detail ? `: ${o.detail}` : ""}`,
+    )
+
+  if (stuck.length) {
+    const last = stuck.find((o) => o.checkOutput)
+    out.push("", "The run stopped rather than build on a broken base.")
+    if (last?.checkOutput) out.push("", "```", last.checkOutput.slice(-1500), "```")
+  }
+
+  out.push("", `Branch \`${r.branch}\` → \`${cfg.base}\``)
+  if (r.prUrl) out.push(`PR: ${r.prUrl}`)
+  else if (r.prError) out.push(`PR not opened — ${r.prError}`, `The branch is pushed; open it yourself if you want one.`)
+  out.push(
+    "",
+    `Your working tree was never touched. The work is in \`${r.worktree}\`:`,
+    `  git diff ${cfg.base}...${r.branch}`,
+    `  git worktree remove ${r.worktree}   # when finished`,
+  )
+  return out.join("\n")
+}
+
+/** All commands, in order, first failure wins. Output carries which one broke. */
+export function runVerify(cwd: string, commands: string[]): { ok: boolean; output: string } {
+  for (const command of commands) {
+    try {
+      execSync(command, { cwd, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], timeout: 20 * 60_000 })
+    } catch (e: any) {
+      const out = `${e?.stdout ?? ""}\n${e?.stderr ?? ""}`.trim() || String(e?.message ?? e)
+      return { ok: false, output: `$ ${command}\n${out}`.slice(-8000) }
+    }
+  }
+  return { ok: true, output: `all ${commands.length} check(s) passed` }
+}
+
+/**
+ * Conventional-commit shaped, because most repos here are.
+ *
+ * ponytail: the scope is derived from the item's first path rather than sampled from
+ * `git log`. Sampling would be a model call per run to reproduce a convention that is
+ * already obvious from the diff. Revisit if a repo turns up where this reads wrong.
+ */
+export function commitMessage(item: WorkItem): string {
+  const parts = (item.files[0] ?? "").split("/").filter(Boolean)
+  // A file at the repo root has no meaningful scope: `feat(README): ...` reads as though
+  // README were a component. Bare `feat:` is correct there.
+  const scope = parts.length > 1 ? parts[parts.length - 2] : undefined
+  const title = item.title.replace(/^\w+(\([^)]*\))?:\s*/, "")
+  return scope ? `feat(${scope}): ${title}` : `feat: ${title}`
 }
 
 /**

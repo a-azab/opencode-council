@@ -153,10 +153,33 @@ function backoffMs(attempt: number, p: RetryPolicy, retryAfter?: string): number
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+export type AskOpts = {
+  model: string
+  agent?: string
+  text: string
+  schema?: unknown
+  /**
+   * Pin the session to this directory. Everything the agent does - reads, edits, bash -
+   * happens here rather than in the server's own directory.
+   *
+   * This is the only reason a crew worker can be given tools at all. Verified 2026-08-21:
+   * a session created with `?directory=<worktree>` reports that path from `pwd` and the
+   * worktree's branch from `git rev-parse`. Without it, granting `edit` would let a worker
+   * modify the user's actual checkout, which is the exact catastrophe the worktree exists
+   * to prevent.
+   */
+  directory?: string
+  /**
+   * Tools the agent may use. Omitted means the safe default: analysis only, no edit, no
+   * bash - which is what every read-only council lane wants and must keep.
+   */
+  allow?: ("edit" | "bash")[]
+}
+
 /** Retrying wrapper. The single-attempt logic lives in askOnce. */
 export async function ask<T>(
   ctx: Ctx,
-  opts: { model: string; agent?: string; text: string; schema?: unknown },
+  opts: AskOpts,
 ): Promise<{ ok: true; value: T; ms: number } | { ok: false; state: NodeState; detail: string; ms: number }> {
   const policy = ctx.retry ?? DEFAULT_RETRY
   const t0 = Date.now()
@@ -174,14 +197,15 @@ export async function ask<T>(
 
 async function askOnce<T>(
   ctx: Ctx,
-  opts: { model: string; agent?: string; text: string; schema?: unknown },
+  opts: AskOpts,
 ): Promise<{ ok: true; value: T; ms: number } | { ok: false; state: NodeState; detail: string; ms: number }> {
   const t0 = Date.now()
   const base = ctx.serverUrl.replace(/\/$/, "")
   const [providerID, ...rest] = opts.model.split("/")
   const modelID = rest.join("/")
+  const qs = opts.directory ? `?directory=${encodeURIComponent(opts.directory)}` : ""
   try {
-    const s = await fetch(`${base}/session`, {
+    const s = await fetch(`${base}/session${qs}`, {
       method: "POST",
       headers: headers(ctx),
       body: JSON.stringify({
@@ -189,10 +213,16 @@ async function askOnce<T>(
         // A session created directly inherits NO deny rules - those are injected by the
         // task tool, not by session creation (PLAN §4 gotcha 2). Without this a council
         // worker can call council() and recurse. Deny explicitly.
+        //
+        // `edit` and `bash` are denied unless the caller opts in, and a caller may only
+        // sensibly opt in together with `directory` - otherwise the grant applies to the
+        // user's own checkout. runExecute is the only caller that does.
         permission: [
           { permission: "council", pattern: "*", action: "deny" },
+          { permission: "crew", pattern: "*", action: "deny" },
           { permission: "task", pattern: "*", action: "deny" },
-          { permission: "edit", pattern: "*", action: "deny" },
+          ...(opts.allow?.includes("edit") ? [] : [{ permission: "edit", pattern: "*", action: "deny" }]),
+          ...(opts.allow?.includes("bash") ? [] : [{ permission: "bash", pattern: "*", action: "deny" }]),
         ],
       }),
     })
@@ -200,7 +230,7 @@ async function askOnce<T>(
     if (!session?.id)
       return { ok: false, state: "failed", detail: `session create: ${JSON.stringify(session).slice(0, 160)}`, ms: Date.now() - t0 }
 
-    const r = await fetch(`${base}/session/${session.id}/message`, {
+    const r = await fetch(`${base}/session/${session.id}/message${qs}`, {
       method: "POST",
       headers: headers(ctx),
       signal: AbortSignal.timeout(ctx.timeoutMs ?? DEFAULT_TIMEOUT_MS),

@@ -14,6 +14,8 @@ import {
   readInstructions,
   runIntake,
   renderGate,
+  runExecute,
+  renderRun,
   type CrewConfig,
 } from "./crew.ts"
 import { type Role } from "./roster.ts"
@@ -62,7 +64,21 @@ const AGENT_DEFAULTS = {
   mode: "all" as const,
   // Council roles analyse and propose patches as text. They never touch the workspace;
   // the only writer is `git apply`, run by the human after the gate. (D5)
+  //
+  // The crew implementer is the one exception and it opts in explicitly via `tools:` in
+  // its frontmatter. That is safe only because its session is pinned to a worktree
+  // (`directory` on AskOpts) - the grant applies there, never to the user's checkout.
+  // Deny stays the default so a new agent file is read-only unless it says otherwise.
   permission: { edit: "deny", bash: "deny" } as Record<string, string>,
+}
+
+/** `tools: edit, bash` in an agent file's frontmatter, as a permission map. */
+function permissionsFor(tools?: string): Record<string, string> {
+  const granted = new Set((tools ?? "").split(",").map((t) => t.trim()).filter(Boolean))
+  return {
+    edit: granted.has("edit") ? "allow" : "deny",
+    bash: granted.has("bash") ? "allow" : "deny",
+  }
 }
 
 function gitDiff(cwd: string, base: string) {
@@ -108,10 +124,10 @@ export const CouncilPlugin = async (input: any) => ({
         "you confirm. Run init once per repo before anything else.",
       args: {
         mode: z
-          .enum(["init", "plan"])
+          .enum(["init", "plan", "run"])
           .default("plan")
           .describe(
-            "init = detect and record this repo's crew config; plan = intake a directive into an ordered work item list and stop at the approval gate",
+            "init = detect and record this repo's crew config; plan = intake a directive into an ordered work item list and stop at the approval gate; run = execute the last approved plan in an isolated worktree and open a PR",
           ),
         directive: z.string().default("").describe("what you want built or changed (plan only)"),
         write: z
@@ -141,12 +157,40 @@ export const CouncilPlugin = async (input: any) => ({
         if (scope.kind === "notrepo")
           return `${cwd} is not a git repository. The crew's scope is the repo you are standing in, so there is nothing to configure here.`
 
-        if (args?.mode === "plan") {
-          const directive = (args.directive ?? "").trim()
-          if (!directive) return "No directive given. `plan` needs one — say what you want built or changed."
-
+        if (args?.mode === "plan" || args?.mode === "run") {
           const cfg = readCrewConfig(scope.root)
           if (!cfg) return `This repo has no crew config yet. Run \`/crew-init\` first.`
+
+          if (args.mode === "run") {
+            // Execute the plan the human actually read. Re-running intake here would
+            // produce a DIFFERENT list - intake is nondeterministic - so what they approved
+            // and what gets built would not correspond. Same reason `fix` replays the last
+            // review instead of running a fresh one.
+            const root = join(cwd, "council-artifacts")
+            const prev = existsSync(root)
+              ? readdirSync(root)
+                  .filter((d) => existsSync(join(root, d, "plan.json")))
+                  .sort()
+                  .pop()
+              : undefined
+            if (!prev) return "No approved plan found. Run `/crew <directive>` first and approve the plan."
+            const saved = JSON.parse(readFileSync(join(root, prev, "plan.json"), "utf8"))
+            if (!saved.items?.length) return `The last plan (${prev}) had no items — nothing to run.`
+
+            const result = await runExecute(ctxFor(input), {
+              root: scope.root,
+              items: saved.items,
+              cfg,
+              instructions: readInstructions(scope.root).text,
+              directive: saved.directive ?? "",
+            })
+            const dir = artifactDir(cwd, "crew-run")
+            writeFileSync(join(dir, "run.json"), JSON.stringify(result, null, 2))
+            return renderRun(result, cfg)
+          }
+
+          const directive = (args.directive ?? "").trim()
+          if (!directive) return "No directive given. `plan` needs one — say what you want built or changed."
 
           // A worktree branches from HEAD, so uncommitted work is invisible to the crew: it
           // would plan against a repo state that is not the one on your screen, and its PR
@@ -170,6 +214,8 @@ export const CouncilPlugin = async (input: any) => ({
             directive,
             instructions: instructions.text,
           })
+          const dir = artifactDir(cwd, "crew-plan")
+          writeFileSync(join(dir, "plan.json"), JSON.stringify({ directive, ...intake }, null, 2))
           return renderGate(intake, cfg, scope)
         }
 
@@ -401,6 +447,7 @@ export const CouncilPlugin = async (input: any) => ({
         ...AGENT_DEFAULTS,
         description: data.description ?? `council role: ${name}`,
         prompt: body,
+        ...(data.tools ? { permission: permissionsFor(data.tools) } : {}),
       }
     }
   },
