@@ -3,8 +3,8 @@ import { fileURLToPath } from "node:url"
 import { dirname, join, basename } from "node:path"
 import { execFileSync } from "node:child_process"
 import { z } from "zod"
-import { runReview, runFix, runPlan } from "./engine.ts"
-import { renderReport, renderSummary, renderPatches, renderPlan } from "./report.ts"
+import { runReview, runFix, runPlan, runIndependent } from "./engine.ts"
+import { renderReport, renderSummary, renderPatches, renderPlan, renderTakesIndex } from "./report.ts"
 
 const PKG = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -86,13 +86,16 @@ export const CouncilPlugin = async (input: any) => ({
         "vote on a goal. Use /check for a fast inline pass instead.",
       args: {
         mode: z
-          .enum(["review", "fix", "plan"])
+          .enum(["review", "fix", "plan", "independent"])
           .default("review")
           .describe("review = the graph; fix = verified patches; plan = proposal vote on a goal"),
         base: z.string().default("HEAD").describe("git ref to diff against (review/fix only)"),
         goal: z.string().default("").describe("what to plan (plan mode only)"),
       },
-      async execute(args: { mode?: "review" | "fix" | "plan"; base?: string; goal?: string }, context: any) {
+      async execute(
+        args: { mode?: "review" | "fix" | "plan" | "independent"; base?: string; goal?: string },
+        context: any,
+      ) {
         const t0 = Date.now()
         const cwd = context?.directory ?? input?.directory ?? process.cwd()
         const user = process.env.OPENCODE_SERVER_USERNAME
@@ -125,6 +128,24 @@ export const CouncilPlugin = async (input: any) => ({
           ]
             .filter(Boolean)
             .join("\n")
+        }
+
+        // Independent mode answers a task, not a diff, so it runs before the diff guard.
+        if (args?.mode === "independent") {
+          if (!args?.goal?.trim())
+            return "mode:'independent' needs a `goal` — what should each model answer?"
+          const takes = await runIndependent(ctx, { task: args.goal })
+          const dir = artifactDir(cwd, "independent")
+          for (const t of takes.filter((x) => x.state === "ok"))
+            writeFileSync(join(dir, `${t.slug}.md`), `# ${t.slug} (${t.model})\n\n${t.response}\n`)
+          const index = join(dir, "index.md")
+          writeFileSync(index, renderTakesIndex(takes, args.goal))
+          const ok = takes.filter((t) => t.state === "ok").length
+          return [
+            `${ok}/${takes.length} models answered independently. Nothing was merged.`,
+            `Takes: ${dir}`,
+            `Index: ${index}`,
+          ].join("\n")
         }
 
         const base = args?.base ?? "HEAD"

@@ -180,6 +180,34 @@ export function renderPlan(plan: import("./engine.ts").Plan): string {
   return lines.join("\n")
 }
 
+/**
+ * An index, not a synthesis. Each take is written to its own file and this only points at
+ * them - the mode exists so a human reads the disagreement directly, so summarising here
+ * would defeat it.
+ */
+export function renderTakesIndex(takes: import("./engine.ts").Take[], task: string): string {
+  const ok = takes.filter((t) => t.state === "ok")
+  const failed = takes.filter((t) => t.state !== "ok")
+  const lines = [
+    "# Independent takes",
+    "",
+    `**Task.** ${task}`,
+    "",
+    `${ok.length} of ${takes.length} models answered. Each take is a separate file, deliberately`,
+    "not merged — read them yourself.",
+    "",
+    "| model | words | file |",
+    "|---|---|---|",
+  ]
+  for (const t of ok)
+    lines.push(`| ${t.slug} | ${t.response.trim().split(/\s+/).length} | \`${t.slug}.md\` |`)
+  if (failed.length) {
+    lines.push("", "## Did not answer", "")
+    for (const t of failed) lines.push(`- \`${t.slug}\` — ${t.state}${t.detail ? `: ${t.detail.slice(0, 90)}` : ""}`)
+  }
+  return lines.join("\n")
+}
+
 export function renderPatches(patches: import("./engine.ts").Patch[]): string {
   const usable = (p: (typeof patches)[number]) =>
     p.state === "ok" && p.confident && p.patch.trim()
