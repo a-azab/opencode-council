@@ -37,6 +37,33 @@ export type WorkResult = {
 
 export const MAX_WORK_ATTEMPTS = 2
 
+/**
+ * Models to drive the work loop, in order of preference.
+ *
+ * A list rather than a single pick because hardcoding one model makes it a single point of
+ * failure - the same mistake as the moderator this project removed from the review path.
+ * Measured: with `opus5` hardcoded, one unreachable provider failed the entire run at
+ * decomposition, before any work was attempted.
+ */
+export const WORKERS = ["opus5", "gpt55", "glm52", "kimik3", "minimax"] as const
+
+/** First model that actually answers wins. Falls through the roster instead of failing. */
+async function askAny<T>(
+  ctx: Ctx,
+  slugs: readonly string[],
+  opts: { agent?: string; text: string; schema: unknown },
+): Promise<{ ok: true; value: T; slug: string } | { ok: false; state: NodeState; detail: string }> {
+  let last = { ok: false as const, state: "failed" as NodeState, detail: "no candidate models" }
+  for (const slug of slugs) {
+    const m = bySlug(slug)
+    if (!m) continue
+    const r = await ask<T>(ctx, { model: m.model, ...opts })
+    if (r.ok) return { ok: true, value: r.value, slug }
+    last = { ok: false, state: r.state, detail: `${slug}: ${r.detail}` }
+  }
+  return last
+}
+
 // ---------------------------------------------------------------- done-predicate
 
 export type VerifyProbe =
@@ -180,14 +207,13 @@ export async function runWork(
 
   // 1. decompose. One model proposes; the project's own check is the arbiter of each item,
   // so this is a proposal rather than a decision (D3 is about outcomes, not suggestions).
-  const planner = bySlug("opus5") ?? ROSTER[0]
-  const d = await ask<{ items: WorkItem[] }>(ctx, {
-    model: planner.model,
+  const d = await askAny<{ items: WorkItem[] }>(ctx, WORKERS, {
     agent: "council-systems",
     text: decomposePrompt(input.goal, tree),
     schema: WORKITEMS_SCHEMA,
   })
   const items = d.ok ? (d.value.items ?? []) : []
+  const plannerSlug = d.ok ? d.slug : WORKERS[0]
 
   const { path: wt, branch } = createWorktree(input.cwd, slug)
   const results: ItemResult[] = []
@@ -216,9 +242,10 @@ export async function runWork(
         }
       }
 
-      const impl = await ask<{ files: { path: string; new_content: string }[]; explanation: string; confident: boolean }>(
+      const impl = await askAny<{ files: { path: string; new_content: string }[]; explanation: string; confident: boolean }>(
         ctx,
-        { model: planner.model, agent: "council-fixer", text: implementPrompt(item, contents, feedback), schema: IMPLEMENT_SCHEMA },
+        WORKERS,
+        { agent: "council-fixer", text: implementPrompt(item, contents, feedback), schema: IMPLEMENT_SCHEMA },
       )
       if (!impl.ok) {
         result = { ...result, state: impl.state, detail: impl.detail }
@@ -247,7 +274,9 @@ export async function runWork(
 
       // 3. green tests prove nothing broke; they do not prove the item was addressed.
       // A model that did not write it judges that separately.
-      const verifier = skepticPool([planner.slug], 1)[0]
+      // Exclude whoever actually wrote it — askAny may have fallen through to a different
+      // model than the planner, and self-verification is worth nothing.
+      const verifier = skepticPool([impl.slug, plannerSlug], 1)[0]
       if (!verifier) {
         result = { ...result, state: "unverified", detail: "no independent verifier available" }
         break

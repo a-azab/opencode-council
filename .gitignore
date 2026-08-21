@@ -2,3 +2,4 @@ node_modules/
 *.log
 .spike/
 council-artifacts/
+.worktrees/
