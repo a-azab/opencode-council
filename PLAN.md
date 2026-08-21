@@ -903,6 +903,20 @@ caught in practice.
 
 Neither was reachable by reasoning about the code. Both needed a real run.
 
+**The branch was reviewed and merged.** The code holds up: `git worktree list --porcelain`
+parsed properly, filtered to `crew/` branches so a user's own worktrees cannot appear in a
+list whose purpose is deletion, pruned registrations skipped, and age taken from the
+directory's birthtime rather than the HEAD commit date — with that reasoning written down,
+because it is the non-obvious part (a fresh run in a stale repo would otherwise report days
+of age and read as abandoned).
+
+It also fixed a latent bug nobody asked it to: the `crew` tool's `execute` arg type still
+read `"init" | "plan"` and was already missing `"run"`. The CTO lane spotted it while
+reading `index.ts` for item 2 and the implementer corrected it in passing.
+
+`/crew-status` therefore exists because the crew built it, and its first output was the
+worktree the crew itself had been running in.
+
 #### PAUSE — run it on something real before Phase 4.
 
 #### Phase 4 — tracker seam — **TODO**
