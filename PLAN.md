@@ -383,7 +383,38 @@ It *was* the plugin. Folded into Phase 2.
 | `/council-review` | `council({ mode: "review", base })` — the full graph |
 | `/council-fix` | `council({ mode: "fix" })` — verified patches, applies nothing |
 | `/council-plan` | `council({ mode: "plan", goal })` — cross-scored vote |
+| `/council-independent` | `council({ mode: "independent", goal })` — every model alone, unmerged |
+| `/council-work` | `council({ mode: "work", goal, verify })` — implement until the project's own check passes |
 | 12 role agents | `council-{security,systems,code,pragmatist,product,breadth,reviewer,docs,qa,ops,skeptic,fixer}` |
+
+### The work loop (`mode: "work"`) — measured 2026-08-21
+
+The only mode that writes code. Decompose → implement → **run the project's test command** →
+independent verify → retry with the failure as feedback → escalate after 2.
+
+Three properties it exists to guarantee:
+
+1. **The done-predicate is objective.** The test command decides, not a model. A loop whose
+   stopping condition is an opinion either stops early and claims success or never stops.
+2. **It asks rather than guesses.** If the verify command can't be determined unambiguously,
+   the tool returns a question. A command that passes trivially would report finished work
+   that never happened — the worst failure available to this mode.
+3. **It writes only inside a throwaway worktree** on its own branch. A bad run costs a
+   deleted directory, not a recovery.
+
+Green tests prove nothing broke; they don't prove the item was *done*. So a model that did
+not implement it judges that separately, and both must pass.
+
+**Verified end-to-end on this repo:** goal decomposed, implemented on attempt 1,
+`npm test` green at 47 tests, confirmed by `minimax` (not the implementer), main tree
+untouched. The implementation reused the existing `TIER_RANK` constant rather than
+duplicating the mapping.
+
+**Bug this surfaced:** `runWork` originally hardcoded `opus5` as planner *and* implementer,
+so one unreachable provider killed the whole run at decomposition — the same
+single-point-of-failure removed from the review path. Now `askAny()` falls through an
+ordered worker list. The cost is that fallback is sequential, so an unreachable first
+candidate burns its full timeout; order `WORKERS` by reliability.
 
 ### Phase 4c — fix loop — **DONE** (was PARTIAL)
 

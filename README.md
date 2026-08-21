@@ -96,6 +96,7 @@ The commands are thin wrappers over one tool:
 | `council({ mode: "fix" })` | patches for the last review's findings |
 | `council({ mode: "plan", goal: "..." })` | propose and vote on an approach |
 | `council({ mode: "independent", goal: "..." })` | every model answers alone, nothing merged |
+| `council({ mode: "work", goal: "...", verify: "npm test" })` | implement it in an isolated worktree until the check passes |
 
 `goal` is required for `mode: "plan"` and ignored otherwise. `base` accepts any git ref.
 
@@ -128,6 +129,32 @@ Results are sorted into four buckets that never merge:
 
 The distinction matters: a patch nobody checked is not done, and presenting it beside a
 verified one would make the guarantee meaningless.
+
+### `/council-work` — implement it, until the project says it's done
+
+```
+/council-work add a --json flag to the export command
+```
+
+The only mode that **writes code**. It decomposes the goal into ordered items and, for each
+one, implements → runs your project's own check → has a *different* model confirm the item
+was actually addressed. Failure feeds the check output back and retries, twice, then stops.
+
+**The done-predicate is the point.** A loop that stops when a model says so has two failure
+modes — stop early and claim success, or never stop — and both are worse than not looping.
+So the test command decides, not a model.
+
+**It asks rather than guesses.** If it can't determine your check command unambiguously it
+comes back and asks. A verify command that passes trivially would make the loop report
+finished work that never happened; that is the worst failure available here, so it refuses
+to pick for you.
+
+Everything happens in `.worktrees/<slug>` on its own branch. **Your working tree is never
+touched** — a bad run costs `git worktree remove`, not a recovery. Review with
+`git diff council/<slug>` and merge what you want.
+
+It stops at the first item that doesn't complete, rather than piling work on a base already
+known to be broken.
 
 ### `/council-independent` — the raw takes, unmerged
 
