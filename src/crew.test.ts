@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync, realpathSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -22,6 +22,8 @@ import {
   openWorktree,
   worktreeChanges,
   closeWorktree,
+  listWorktrees,
+  renderWorktrees,
   renderRun,
   type ItemOutcome,
   type RunResult,
@@ -280,6 +282,36 @@ test("the symlinked node_modules counts as neither a change nor work to commit",
       try {
         execFileSync("git", ["branch", "-D", branch], { cwd: dir, stdio: "ignore" })
       } catch {}
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("listWorktrees returns the crew's own worktrees and never the repo's main one", () => {
+  const dir = scratchRepo()
+  try {
+    const alpha = openWorktree(dir, "alpha")
+    const beta = openWorktree(dir, "beta")
+    try {
+      const live = listWorktrees(dir)
+      assert.deepEqual(
+        live.map((w) => w.slug).sort(),
+        ["alpha", "beta"],
+        "exactly the two worktrees openWorktree made",
+      )
+      assert.deepEqual(live.map((w) => w.branch).sort(), ["crew/alpha", "crew/beta"])
+      for (const w of live) assert.ok(w.ageMs >= 0, `${w.slug} reported age ${w.ageMs}`)
+
+      // The list drives deletion, so the working tree the human is standing in must be absent.
+      const main = realpathSync(dir)
+      assert.ok(!live.some((w) => realpathSync(w.path) === main), `main worktree ${main} was listed`)
+
+      assert.match(renderWorktrees(live), /git worktree remove .*alpha --force/)
+      assert.match(renderWorktrees([]), /No live crew worktrees/)
+    } finally {
+      closeWorktree(dir, alpha.path)
+      closeWorktree(dir, beta.path)
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })
