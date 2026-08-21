@@ -22,6 +22,9 @@ import {
   openWorktree,
   worktreeChanges,
   closeWorktree,
+  renderRun,
+  type ItemOutcome,
+  type RunResult,
   CREW_IGNORES,
   type CrewConfig,
   type WorkItem,
@@ -281,6 +284,68 @@ test("the symlinked node_modules counts as neither a change nor work to commit",
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// ---------------------------------------------------------------- phase 3
+
+const CFG3: CrewConfig = { verify: ["npm test"], base: "master", lanes: ["reviewer"] }
+const run = (over: Partial<RunResult> = {}): RunResult => ({
+  branch: "crew/x",
+  worktree: "/w",
+  outcomes: [],
+  cycles: [],
+  stoppedBy: "complete",
+  seconds: 10,
+  ...over,
+})
+const done = (t: string): ItemOutcome => ({ item: item({ title: t }), state: "done", attempts: 1, commit: "abc" })
+
+test("a run is only 'Done' when nothing is outstanding", () => {
+  // The honesty property. Reporting a partial run as done is the single most damaging
+  // thing this can do: the human stops looking, and the gaps ship.
+  assert.match(renderRun(run({ outcomes: [done("one")] }), CFG3), /\*\*Done\*\*/)
+
+  for (const state of ["failed-check", "unmet", "no-change", "model-failed"] as const) {
+    const out = renderRun(
+      run({
+        outcomes: [done("one"), { item: item({ title: "two" }), state, attempts: 2 }],
+        stoppedBy: "item-stuck",
+      }),
+      CFG3,
+    )
+    assert.match(out, /\*\*Incomplete\*\* — 1\/2/, `state ${state} must not read as done`)
+    assert.ok(!out.includes("**Done**"), `state ${state} rendered as Done`)
+  }
+})
+
+test("an empty run is not 'Done' either", () => {
+  assert.match(renderRun(run(), CFG3), /\*\*Incomplete\*\*/)
+})
+
+test("every stop reason is explained, none left as a bare enum", () => {
+  for (const stoppedBy of ["complete", "item-stuck", "review-cycles", "wall-clock"] as const) {
+    const out = renderRun(run({ outcomes: [done("one")], stoppedBy }), CFG3)
+    assert.match(out, /Stopped because: \w[^.]+\./, `no explanation for ${stoppedBy}`)
+    assert.ok(!out.includes(`Stopped because: ${stoppedBy}.`), `${stoppedBy} leaked the raw enum`)
+  }
+})
+
+test("a failed PR is reported as a degraded success, not a lost run", () => {
+  const out = renderRun(run({ outcomes: [done("one")], prError: "gh pr create failed: no upstream" }), CFG3)
+  assert.match(out, /branch is pushed/, "the work is not lost and the report must say so")
+  assert.match(out, /no upstream/, "must carry the real reason")
+})
+
+test("the report always says where the work is and that the tree was untouched", () => {
+  const out = renderRun(run({ outcomes: [done("one")] }), CFG3)
+  assert.match(out, /working tree was never touched/)
+  assert.match(out, /git diff master\.\.\.crew\/x/)
+  assert.match(out, /git worktree remove \/w/)
+})
+
+test("the acceptance judge is named, so the judgement is attributable", () => {
+  const out = renderRun(run({ outcomes: [{ ...done("one"), judge: "fable" }] }), CFG3)
+  assert.match(out, /accepted by fable/)
 })
 
 test("a worktree is created on its own branch and removed cleanly", () => {

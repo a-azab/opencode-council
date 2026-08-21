@@ -837,13 +837,35 @@ ourselves afterwards: a model reporting on its own work is not evidence.
 - `commitMessage` produced `feat(README): …` for root files, reading as though README were
   a component.
 
-#### Phase 3 — the full loop — **TODO**
-- [ ] All items sequentially; escalation on failure (C5)
-- [ ] Council review + qa acceptance check (C8); gaps re-enter execute (C6)
-- [ ] Termination floors (C7) with a report on every exit path
-- [ ] Heartbeat per step with elapsed time; stall watchdog
-- [ ] Run summary: items done/failed, calls made, `AGENTS.md` token overhead, PR URL
-- [ ] **Delete `work` mode and `/council-work`**
+#### Phase 3 — the full loop — **DONE** (2026-08-21)
+- [x] All items sequentially; **escalation** on failure (C5) — after `MAX_ATTEMPTS` plain
+      retries, a lane that is not the implementer reads the failure and the work so far and
+      writes the brief for the next attempt. Escalating earlier would diagnose noise.
+- [x] **Acceptance check** (C8) — an independent judge reads the item's diff against its
+      criteria after the checks pass. Polarity inherited from the skeptic lane: `real: true`
+      means a genuine problem, i.e. not delivered. Judge is excluded from the models that
+      wrote the code — Panickssery et al. measure self-preference bias directly.
+- [x] **Review cycle** (C6) — council review of the branch; BLOCKERs become work items and
+      re-enter execute. Suggestions and nits go to the PR body for the human: looping on
+      taste spends the budget a real defect needs.
+- [x] Termination floors (C7): `MAX_ATTEMPTS=2`, `MAX_ESCALATIONS=3`, `MAX_REVIEW_CYCLES=3`,
+      `MAX_RUN_SECONDS=3600`. Every exit path emits a report, and `stoppedBy` is **computed**
+      — the report says *why* it stopped in prose, never a bare enum.
+- [x] Heartbeat per step via `onStep`
+- [x] **Deleted `work` mode**, `/council-work`, `src/work.ts` (332 lines), `renderWork`, and
+      `IMPLEMENT_SCHEMA`. Crew is a strict superset; two implement loops would mean
+      maintaining both and guessing which to run.
+
+The honesty property is now tested rather than asserted: a run with any outstanding item
+cannot render as `**Done**`, an empty run is not `Done` either, every `stoppedBy` is
+explained in prose, and a failed `gh pr create` reports the branch as pushed rather than
+the run as lost.
+
+**One self-inflicted breakage worth recording:** deleting the work block with index-based
+string slicing silently merged `council`'s args into `crew` and removed the `council` tool
+entirely — while all 82 tests still passed, because nothing tests tool registration. Caught
+only by loading the plugin and printing `Object.keys(tool)`. Structural edits to `index.ts`
+get exact-string edits and a load check, not offset arithmetic.
 
 #### PAUSE — run it on something real before Phase 4.
 

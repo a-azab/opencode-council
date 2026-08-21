@@ -96,9 +96,10 @@ The commands are thin wrappers over one tool:
 | `council({ mode: "fix" })` | patches for the last review's findings |
 | `council({ mode: "plan", goal: "..." })` | propose and vote on an approach |
 | `council({ mode: "independent", goal: "..." })` | every model answers alone, nothing merged |
-| `council({ mode: "work", goal: "...", verify: "npm test" })` | implement it in an isolated worktree until the check passes |
 
 `goal` is required for `mode: "plan"` and ignored otherwise. `base` accepts any git ref.
+
+To **build** something rather than judge it, use the `crew` tool — see below.
 
 ### `/council-fix` — patches, verified, behind your gate
 
@@ -130,31 +131,69 @@ Results are sorted into four buckets that never merge:
 The distinction matters: a patch nobody checked is not done, and presenting it beside a
 verified one would make the guarantee meaningless.
 
-### `/council-work` — implement it, until the project says it's done
+## The crew — a directive to a PR
+
+The council judges work. The **crew** does it.
 
 ```
-/council-work add a --json flag to the export command
+/crew-init                                    # once per repo
+/crew add a --json flag to the export command # plan it, and stop
+/crew-run                                     # build the plan you approved
 ```
 
-The only mode that **writes code**. It decomposes the goal into ordered items and, for each
-one, implements → runs your project's own check → has a *different* model confirm the item
-was actually addressed. Failure feeds the check output back and retries, twice, then stops.
+### `/crew-init` — hire for this repo
 
-**The done-predicate is the point.** A loop that stops when a model says so has two failure
-modes — stop early and claim success, or never stop — and both are worse than not looping.
-So the test command decides, not a model.
+Detects the stack, the command that proves the project still works, the branch PRs target,
+and which review lanes this repo needs. Proposes all of it, and **asks about what is
+genuinely ambiguous** rather than picking. On a monorepo it offers `nx affected` ahead of
+the whole-workspace command — running 900 files of tests to check a one-file change is how
+a run becomes an hour.
 
-**It asks rather than guesses.** If it can't determine your check command unambiguously it
-comes back and asks. A verify command that passes trivially would make the loop report
-finished work that never happened; that is the worst failure available here, so it refuses
-to pick for you.
+The answers land in a fenced `crew` block in your `AGENTS.md`. Editing it by hand is the
+intended way to change your mind; re-running init only ever rewrites that block, never
+prose you wrote.
 
-Everything happens in `.worktrees/<slug>` on its own branch. **Your working tree is never
-touched** — a bad run costs `git worktree remove`, not a recovery. Review with
-`git diff council/<slug>` and merge what you want.
+### `/crew <directive>` — intake, then a gate
 
-It stops at the first item that doesn't complete, rather than piling work on a base already
-known to be broken.
+Two lanes, in sequence, handing an artifact to each other:
+
+- **CPO** turns the directive into outcomes and *checkable* acceptance criteria. "Handles
+  errors" is not a criterion; "a duplicate submit returns the first result rather than
+  creating a second record" is.
+- **CTO** turns those into an ordered work item list, grounded in a
+  [graphify](https://github.com/Graphify-Labs/graphify) knowledge graph of your codebase —
+  real node locations and call edges, so `files` are cited rather than guessed.
+
+Then it **stops**. Nothing is written until you approve. If a lane failed to answer, the
+gate says so — a thin plan is never presented as a simple one.
+
+### `/crew-run` — build it
+
+Runs **the plan you approved**, not a fresh one. Re-planning here would build something
+other than what you read.
+
+Each item, in order, in a throwaway worktree: implement → run your check → have a model
+that *didn't write it* judge the diff against the item's acceptance criteria → commit.
+
+**Green tests are not evidence the item was delivered.** A suite that never covered rate
+limiting stays green whether or not you added it. That is why acceptance is judged
+separately, and by someone else.
+
+When an item gets stuck, the crew escalates instead of giving up: a lane that isn't the
+implementer reads the failure and writes the brief for the next attempt. When all items
+land, the council reviews the branch and any **blocker** becomes another item. Suggestions
+and nits go in the PR body — looping on taste spends the budget a real defect needs.
+
+Every loop has a floor: 2 attempts, 3 escalations, 3 review cycles, 60 minutes. Whichever
+trips first stops the run **and says so in prose**. A run that never ends is
+indistinguishable from one that is working.
+
+The worker gets `edit` and `bash` **pinned to the worktree** — it reads the surrounding
+code, greps callers, runs the failing test. Your own checkout is never touched; a bad run
+costs `git worktree remove`, not a recovery.
+
+An incomplete run reports as incomplete, in the terminal and in the PR body. That is
+enforced by tests, because it is the one lie that would matter.
 
 ### `/council-independent` — the raw takes, unmerged
 

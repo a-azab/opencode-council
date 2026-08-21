@@ -208,40 +208,6 @@ export function renderTakesIndex(takes: import("./engine.ts").Take[], task: stri
   return lines.join("\n")
 }
 
-export function renderWork(r: import("./work.ts").WorkResult): string {
-  const done = r.items.filter((i) => i.state === "done")
-  const lines = [
-    `# Work — ${r.done ? "DONE" : "INCOMPLETE"}`,
-    "",
-    `**Goal.** ${r.goal}`,
-    `**Done-predicate.** \`${r.verifyCommand}\` — this, not a model, decided whether each item stood.`,
-    `**Branch.** \`${r.branch}\` in \`${r.worktree}\`. Your working tree was never touched.`,
-    "",
-    `${done.length} of ${r.items.length} items completed.`,
-    "",
-  ]
-  for (const i of r.items) {
-    lines.push(`## ${i.state === "done" ? "✅" : "❌"} ${i.item.title}`, "")
-    lines.push(`**Done when.** ${i.item.acceptance}`)
-    lines.push(`**State.** \`${i.state}\` after ${i.attempts} attempt(s)`)
-    if (i.filesWritten.length) lines.push(`**Files.** ${i.filesWritten.map((f) => `\`${f}\``).join(", ")}`)
-    if (i.verifier) lines.push(`**Checked by.** ${i.verifier} — ${i.verifyReason ?? ""}`)
-    if (i.detail) lines.push(`**Note.** ${i.detail}`)
-    if (i.state === "failed-check" && i.checkOutput)
-      lines.push("", "```", i.checkOutput.slice(-1500).trim(), "```")
-    lines.push("")
-  }
-  if (!r.done)
-    lines.push(
-      "---",
-      "",
-      "Stopped at the first item that did not complete. Items are ordered and share one",
-      "worktree, so continuing would have piled work on a base already known to be broken.",
-      "",
-    )
-  return lines.join("\n")
-}
-
 export function renderPatches(patches: import("./engine.ts").Patch[]): string {
   const usable = (p: (typeof patches)[number]) =>
     p.state === "ok" && p.confident && p.patch.trim()

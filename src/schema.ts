@@ -67,27 +67,6 @@ export const WORKITEMS_SCHEMA = {
 } as const
 
 /** One work item's implementation: whole files, never diffs. Same reasoning as PATCH_SCHEMA. */
-export const IMPLEMENT_SCHEMA = {
-  type: "object",
-  properties: {
-    files: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          path: { type: "string" },
-          new_content: { type: "string", description: "the complete new file, first line to last" },
-        },
-        required: ["path", "new_content"],
-        additionalProperties: false,
-      },
-    },
-    explanation: { type: "string" },
-    confident: { type: "boolean", description: "false if guessing; the loop escalates instead of continuing" },
-  },
-  required: ["files", "explanation", "confident"],
-  additionalProperties: false,
-} as const
 
 export const PROPOSAL_SCHEMA = {
   type: "object",
