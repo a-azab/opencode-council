@@ -796,14 +796,46 @@ plausible guesses, and a guessed path costs a whole implementation round.
   detail, and stops walking the roster on `autherror` rather than turning one
   misconfiguration into five identical errors.
 
-#### Phase 2 — execute one item — **TODO**
-- [ ] `agent/crew-dev.md` with ponytail inline (C12)
-- [ ] Worktree per run, `git worktree prune` on start, cleanup on failure, keep on success
-- [ ] Implement → verify → commit, commit message matching the repo's sampled convention
-- [ ] Secret exclusion from implement prompts: `.env*`, `*.pem`, key material
-- [ ] `gh pr create`; PR body = directive, item table, verify results, unresolved gaps
-- [ ] Dependency change in an item's diff → real install in the worktree for that item
-      (the `node_modules` symlink in `work.ts` is explicitly wrong for this case)
+#### Phase 2 — execute — **DONE** (2026-08-21)
+- [x] `agent/crew-dev.md` with ponytail inline (C12), incl. the never-simplify-away list
+- [x] Worktree per run, `prune` on start, cleanup on failure, kept on success
+- [x] Implement → verify → commit per item; conventional commit scope from the item's path
+- [x] Secret exclusion named in the implement prompt
+- [x] `gh pr create`; PR body carries the directive, per-item status, and **what did not
+      land** — an incomplete run must not read as a complete one
+- [x] Manifest change in an item → real install before the check
+- [x] Wall-clock budget enforced between items
+
+**The worker is agentic, not content-emitting.** `POST /session` and
+`POST /session/{id}/message` accept a `?directory=` query parameter. Verified 2026-08-21: a
+session created against a worktree reports that path from `pwd` and the worktree's branch
+from `git rev-parse`. So `crew-dev` gets `edit`+`bash` **pinned to the worktree** and reads,
+greps and runs tests directly.
+
+This is both more capable than marshalling whole files through `IMPLEMENT_SCHEMA` and less
+code — but it is safe *only* because of the directory pin, so the argument does not
+generalise to any other caller. Read-only lanes keep `edit: deny, bash: deny`; the grant is
+opt-in per agent file via `tools:` frontmatter. We still re-run the verify command
+ourselves afterwards: a model reporting on its own work is not evidence.
+
+**Measured, first live execute (opencode-council):**
+
+| | |
+|---|---|
+| worker call | 38.0s, one attempt |
+| result | `src/crew.ts` edited, `npm test` passed, committed `feat(src): document humanBytes` |
+| **user's checkout** | **`git status` clean throughout** — the pin holds |
+
+**Three bugs found by running it, none of which reasoning had surfaced:**
+- A test asserted the repo root ends with `opencode-council`. That is false inside
+  `.worktrees/<slug>` — *which is where every crew run executes* — so it would have failed
+  on each one. Now asserted against `git rev-parse` output.
+- The symlinked `node_modules` showed as untracked in the worktree, so `git add -A` staged
+  the symlink into the commit **and** the no-change guard read it as real work — making a
+  worker that changed nothing indistinguishable from one that did. Both paths now use a
+  `:(exclude)node_modules` pathspec, with a regression test.
+- `commitMessage` produced `feat(README): …` for root files, reading as though README were
+  a component.
 
 #### Phase 3 — the full loop — **TODO**
 - [ ] All items sequentially; escalation on failure (C5)

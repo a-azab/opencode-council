@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -20,6 +20,7 @@ import {
   runVerify,
   installIfDepsChanged,
   openWorktree,
+  worktreeChanges,
   closeWorktree,
   CREW_IGNORES,
   type CrewConfig,
@@ -243,6 +244,43 @@ test("dependency install only fires when a manifest actually changed", () => {
   assert.equal(installIfDepsChanged("/nonexistent", ["src/a.ts", "docs/b.md"]), null)
   assert.equal(installIfDepsChanged("/nonexistent", ["apps/api/src/deep/package.json"]), null,
     "no lockfile present means nothing to install")
+})
+
+test("the symlinked node_modules counts as neither a change nor work to commit", () => {
+  // Measured before this guard existed: the symlink showed as untracked, `git add -A`
+  // committed it, and the no-change check read it as real work — so a worker that changed
+  // nothing was indistinguishable from one that did.
+  const dir = scratchRepo()
+  try {
+    // openWorktree only symlinks node_modules when the parent has one.
+    mkdirSync(join(dir, "node_modules"), { recursive: true })
+
+    const { path: wt, branch } = openWorktree(dir, "excl")
+    try {
+      assert.match(
+        execFileSync("git", ["status", "--porcelain"], { cwd: wt, encoding: "utf8" }),
+        /node_modules/,
+        "precondition: git does see the symlink",
+      )
+      assert.deepEqual(worktreeChanges(wt), [], "but the crew must not")
+
+      writeFileSync(join(wt, "real.txt"), "work\n")
+      assert.deepEqual(worktreeChanges(wt), ["?? real.txt"])
+
+      execFileSync("git", ["add", "-A", "--", ".", ":(exclude)node_modules"], { cwd: wt })
+      const staged = execFileSync("git", ["diff", "--cached", "--name-only"], { cwd: wt, encoding: "utf8" })
+        .split("\n")
+        .filter(Boolean)
+      assert.deepEqual(staged, ["real.txt"])
+    } finally {
+      closeWorktree(dir, wt)
+      try {
+        execFileSync("git", ["branch", "-D", branch], { cwd: dir, stdio: "ignore" })
+      } catch {}
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test("a worktree is created on its own branch and removed cleanly", () => {
