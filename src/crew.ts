@@ -7,7 +7,9 @@
 import { execFileSync } from "node:child_process"
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { selectRoles, type Role } from "./roster.ts"
+import { selectRoles, bySlug, type Role } from "./roster.ts"
+import { ask, type Ctx, type NodeState } from "./engine.ts"
+import { WORKITEMS_SCHEMA } from "./schema.ts"
 
 /**
  * What `/crew init` writes and every later phase reads.
@@ -272,6 +274,90 @@ export function missingIgnores(root: string): string[] {
   return CREW_IGNORES.filter((line) => !have.includes(line))
 }
 
+// ------------------------------------------------------------------ instructions
+
+/**
+ * The repo's own rules, prepended to every crew prompt (PLAN.md C11).
+ *
+ * Read here rather than relied upon from opencode's session injection: sessions the engine
+ * creates over the HTTP API may or may not load them, and "may or may not" is not a
+ * property you want on the file that says how this codebase must be written.
+ *
+ * ponytail: passed whole, not summarised. thiqwave-platform's AGENTS.md is 64KB (~16k
+ * tokens) so this is real overhead across a run - which is why the run summary reports it.
+ * Build a digest when a measurement says to, not before.
+ */
+export function readInstructions(root: string): { text: string; files: string[]; bytes: number } {
+  const parts: string[] = []
+  const files: string[] = []
+  for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+    const path = join(root, name)
+    if (!existsSync(path)) continue
+    files.push(name)
+    parts.push(`<instructions file="${name}">\n${readFileSync(path, "utf8")}\n</instructions>`)
+  }
+  const text = parts.join("\n\n")
+  return { text, files, bytes: Buffer.byteLength(text) }
+}
+
+// ------------------------------------------------------------------ graphify
+
+const GRAPH_BUDGET = 4000
+
+function graphify(root: string, args: string[]): string | null {
+  try {
+    return execFileSync("graphify", args, {
+      cwd: root,
+      encoding: "utf8",
+      stdio: ["pipe", "pipe", "pipe"],
+      // The query log is off for a reason: graphify's own docs disagree with themselves
+      // about whether it defaults on, and this runs against private codebases.
+      env: { ...process.env, GRAPHIFY_QUERY_LOG_DISABLE: "1" },
+      timeout: 60_000,
+    }).trim()
+  } catch {
+    return null
+  }
+}
+
+export const graphQuery = (root: string, question: string, budget = GRAPH_BUDGET) =>
+  graphify(root, ["query", question, "--budget", String(budget)])
+export const graphPath = (root: string, from: string, to: string) => graphify(root, ["path", from, to])
+export const graphExplain = (root: string, node: string) => graphify(root, ["explain", node])
+
+/**
+ * What the intake lanes get to see of the codebase.
+ *
+ * This is the answer to "the crew plans without reading the code". A persistent graph beats
+ * re-exploring every run: measured on thiqwave-platform, 903 files map in 13.6s with zero
+ * LLM calls, and a scoped query returns the relevant neighbourhood instead of a file tree.
+ *
+ * Degrades to an honest note. Planning with no graph is worse than planning with one, but
+ * planning against a *stale* graph is worse than both - it is confidently wrong - so a
+ * stale graph is reported as such rather than quietly used.
+ */
+export function graphContext(root: string, directive: string): string {
+  const state = graphState(root)
+  if (state.kind === "missing")
+    return "<graph>none — no knowledge graph for this repo. Say so in your risks; you are working from file paths alone.</graph>"
+
+  const stale =
+    state.kind === "stale"
+      ? `\n<warning>Graph built ${state.builtAt.toISOString()}, last commit ${state.lastCommitAt.toISOString()}. It may describe code that no longer exists. Treat node locations as hints, not facts.</warning>`
+      : ""
+
+  const scoped = graphQuery(root, directive)
+  if (scoped === null)
+    return `<graph>unavailable — the graphify command failed or is not installed.</graph>`
+
+  const report = join(root, "graphify-out", "GRAPH_REPORT.md")
+  const gods = existsSync(report)
+    ? (readFileSync(report, "utf8").match(/## God Nodes[\s\S]*?(?=\n## )/) ?? [""])[0].slice(0, 1500)
+    : ""
+
+  return `<graph>${stale}\n${gods}\n\n<scoped-to-directive>\n${scoped}\n</scoped-to-directive>\n</graph>`
+}
+
 // ------------------------------------------------------------------ init
 
 export type InitProposal = {
@@ -288,6 +374,15 @@ export type InitProposal = {
 }
 
 const AGENTS = "AGENTS.md"
+
+/** Config as recorded by init, or null when this repo has never been initialised. */
+export function readCrewConfig(root: string): CrewConfig | null {
+  const path = join(root, AGENTS)
+  if (!existsSync(path)) return null
+  const c = parseCrewBlock(readFileSync(path, "utf8"))
+  if (!c.verify?.length || !c.base || !c.lanes?.length) return null
+  return { verify: c.verify, base: c.base, lanes: c.lanes }
+}
 
 export function proposeInit(root: string, branch: string): InitProposal {
   const bases = detectBaseCandidates(root)
@@ -358,6 +453,192 @@ export function renderInitProposal(p: InitProposal): string {
  * Write the config. Only ever touches our own fence in AGENTS.md and the per-clone
  * exclude file - never the user's prose, never `.gitignore`.
  */
+// ------------------------------------------------------------------ intake
+
+/**
+ * Intake lane models, in order of preference, first to answer wins.
+ *
+ * A list rather than one pick for the same reason `WORKERS` is a list: hardcoding a single
+ * model makes it a single point of failure, and a run that dies at intake has produced
+ * nothing at all.
+ */
+export const INTAKE_MODELS = ["opus5", "gpt55", "glm52", "minimax", "kimik3"] as const
+
+export type WorkItem = { title: string; detail: string; files: string[]; acceptance: string }
+
+export type Intake = {
+  /** the CPO lane's outcomes, carried into the CTO prompt and shown at the gate */
+  outcomes: string
+  items: WorkItem[]
+  /**
+   * Lanes that could not be reached, and why.
+   *
+   * Carrying the reason is the point (PLAN.md §8): "no items" because every model was
+   * rate-limited and "no items" because the directive was incoherent look identical to the
+   * human otherwise, and they need opposite responses.
+   */
+  dropped: { lane: string; state: NodeState; detail: string }[]
+  instructionBytes: number
+  calls: number
+}
+
+const cpoPrompt = (directive: string, instructions: string) => `${instructions}
+
+<directive>
+${directive}
+</directive>
+
+You are the CPO lane. Turn this directive into outcomes, not tasks.
+
+State, in plain prose:
+- what a person can do after this ships that they cannot do now
+- the acceptance criteria: how a reviewer would know each outcome is genuinely delivered.
+  Be concrete and checkable. "Handles errors" is not a criterion. "A duplicate submit
+  returns the first result rather than creating a second record" is.
+- the states this must not forget: loading, empty, error, offline, partial, too-many
+- anything in the directive that is genuinely ambiguous. Do not resolve it by guessing —
+  name it, and say what you assumed so the human can correct it.
+
+Do not propose files, architecture, or an implementation. That is the next lane's job.`
+
+const ctoPrompt = (directive: string, outcomes: string, graph: string, instructions: string) =>
+  `${instructions}
+
+<directive>
+${directive}
+</directive>
+
+<outcomes-from-cpo>
+${outcomes}
+</outcomes-from-cpo>
+
+${graph}
+
+You are the CTO lane. Turn the outcomes into an ordered list of work items.
+
+The graph above is this codebase's actual structure — node locations, what calls what, and
+which concepts everything routes through. Use it. An item whose \`files\` contradict the
+graph is a guess, and a guess here costs an entire implementation round.
+
+Rules:
+- **Order matters.** Items run sequentially, each committed on top of the last. Put an item
+  after anything it depends on.
+- **\`files\` is a prediction, not a wish.** List the paths you expect to change, taken from
+  the graph where possible. If you cannot name them, the item is too vague to implement.
+- **\`acceptance\` is inherited from the CPO's criteria**, narrowed to this item. Something
+  independent will later read this item's diff and judge it against exactly this text, so
+  write it to be judged.
+- **Smallest set of items that delivers the outcomes.** Do not invent scaffolding,
+  migrations, abstractions or config that the directive did not ask for. An item you cannot
+  justify from the outcomes should not exist.
+- If an item touches a high-degree node from the graph, say so in \`detail\` — its blast
+  radius is the risk.`
+
+/**
+ * CPO then CTO, sequentially — an artifact handoff, not a debate.
+ *
+ * Sequential because the CTO's job is to structure what the CPO decided; running them in
+ * parallel would give two independent readings of the directive and no owner of the merge.
+ * This is MetaGPT's `Code = SOP(Team)` shape, which is the part of that design the evidence
+ * in §6b actually supports: roles producing artifacts for each other, not agents debating.
+ */
+export async function runIntake(
+  ctx: Ctx,
+  input: { root: string; directive: string; instructions: string },
+): Promise<Intake> {
+  const dropped: Intake["dropped"] = []
+  let calls = 0
+
+  const askAny = async <T>(agent: string, text: string, schema?: unknown): Promise<T | null> => {
+    let last = { state: "failed" as NodeState, detail: "no model in INTAKE_MODELS resolved" }
+    for (const slug of INTAKE_MODELS) {
+      const member = bySlug(slug)
+      if (!member) continue
+      calls++
+      const r = await ask<T>(ctx, { model: member.model, agent, text, schema })
+      if (r.ok) return r.value
+      last = { state: r.state, detail: `${member.model}: ${r.detail}` }
+      // An auth failure is the server rejecting us, not this model failing. Every other
+      // model will fail identically, so walking the rest of the roster just multiplies one
+      // misconfiguration into five identical errors and hides the real cause.
+      if (r.state === "autherror") break
+    }
+    dropped.push({ lane: agent, ...last })
+    return null
+  }
+
+  const cpo = await askAny<{ text: string }>("crew-cpo", cpoPrompt(input.directive, input.instructions))
+  // The CTO can still work from the raw directive, but the plan will be weaker and the
+  // gate must show that rather than present a confident-looking list.
+  const outcomes = cpo?.text ?? ""
+
+  const graph = graphContext(input.root, input.directive)
+  const plan = await askAny<{ items: WorkItem[] }>(
+    "crew-cto",
+    ctoPrompt(input.directive, outcomes || input.directive, graph, input.instructions),
+    WORKITEMS_SCHEMA,
+  )
+
+  return {
+    outcomes,
+    items: plan?.items ?? [],
+    dropped,
+    instructionBytes: Buffer.byteLength(input.instructions),
+    calls,
+  }
+}
+
+/**
+ * Instruction overhead is reported so it stays visible (C16 buys no spend cap, so the
+ * number is the only feedback). Rounding 195 bytes to "0KB" would report the opposite of
+ * the truth on a small repo, which is worse than not reporting it.
+ */
+const humanBytes = (n: number) => (n < 1024 ? `${n}B` : `${(n / 1024).toFixed(0)}KB`)
+
+/** The gate. Nothing has been written when this is shown (PLAN.md C3). */
+export function renderGate(intake: Intake, cfg: CrewConfig, scope: { root: string; branch: string }): string {
+  const out: string[] = []
+
+  if (intake.dropped.length) {
+    out.push(
+      `**${intake.dropped.map((d) => d.lane).join(", ")} did not answer.** The plan below is missing that lane's judgement — treat it as incomplete, not as simple.`,
+      "",
+    )
+    for (const d of intake.dropped) out.push(`- \`${d.lane}\` — ${d.state}: ${d.detail}`)
+    if (intake.dropped.some((d) => d.state === "autherror"))
+      out.push(
+        "",
+        "An auth error means the crew could not reach the opencode server, not that the work is hard.",
+        "Check `OPENCODE_SERVER_USERNAME` / `OPENCODE_SERVER_PASSWORD`.",
+      )
+    out.push("")
+  }
+
+  if (intake.outcomes) out.push("## Outcomes", "", intake.outcomes, "")
+
+  out.push(`## Plan — ${intake.items.length} item(s), run in order`, "")
+  if (!intake.items.length) out.push("_No items produced. Nothing to approve._", "")
+  intake.items.forEach((it, i) => {
+    out.push(
+      `**${i + 1}. ${it.title}**`,
+      `${it.detail}`,
+      `- files: ${it.files.length ? it.files.map((f) => `\`${f}\``).join(", ") : "_none predicted — this item may be too vague to implement_"}`,
+      `- done when: ${it.acceptance}`,
+      "",
+    )
+  })
+
+  out.push(
+    "---",
+    `Repo \`${scope.root}\` on \`${scope.branch}\` → PR into \`${cfg.base}\``,
+    `Verify: ${cfg.verify.map((v) => `\`${v}\``).join(" && ")}`,
+    `Intake cost: ${intake.calls} call(s), ${humanBytes(intake.instructionBytes)} of repo instructions per prompt`,
+    "",
+    "**Nothing has been written.** Approve to start, or tell me what to change.",
+  )
+  return out.join("\n")
+}
+
 export function applyInit(root: string, cfg: CrewConfig): string[] {
   const written: string[] = []
 

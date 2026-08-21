@@ -748,7 +748,7 @@ nothing during construction. One worker, one item, in order.
 
 ### 9.4 Phases
 
-#### Phase 1a — `/crew init` — **TODO**
+#### Phase 1a — `/crew init` — **DONE** (2026-08-21)
 - [ ] Scope resolution: git root, refuse non-repo, dirty check + stash offer (C9)
 - [ ] Detect stack (manifests + directory shape), verify command list **with path scopes**
       for monorepos, base branch (detect and **ask** — `origin/HEAD` often disagrees with
@@ -761,17 +761,40 @@ nothing during construction. One worker, one item, in order.
 - [ ] graphify staleness check: `graphify-out/graph.json` mtime vs `git log -1`; offer rebuild
 - [ ] Tests: detection, block parse/write round-trip, scope resolution
 
-#### Phase 1b — intake + gate — **TODO**
-- [ ] `Role` union gains `cpo`/`cto`; roster entries; excluded from `ROUTES` (they are not
-      file-triggered, they always run)
-- [ ] `agent/crew-cpo.md` (outcomes + acceptance criteria), `agent/crew-cto.md` (approach,
-      file impact, risk)
-- [ ] graphify helpers: `query --budget`, `path`, `explain` shelled out, results injected
-      into intake prompts. `GRAPHIFY_QUERY_LOG_DISABLE=1` always — this is a financial
-      codebase and the tool's own docs contradict themselves on whether logging defaults on
-- [ ] `WorkItem[]` structured output + schema
-- [ ] Gate: task list rendered, approve / redirect / abort
-- [ ] **Writes no code.** Terminates at the gate.
+#### Phase 1b — intake + gate — **DONE** (2026-08-21)
+- [x] ~~`Role` union gains `cpo`/`cto`~~ — **not needed.** Agent names are plain strings and
+      both lanes always run, so nothing routes to them. Touching the union would have been
+      work in service of nothing.
+- [x] `agent/crew-cpo.md` (outcomes + acceptance criteria), `agent/crew-cto.md` (ordered
+      items grounded in the graph)
+- [x] graphify helpers shelled out, `GRAPHIFY_QUERY_LOG_DISABLE=1` always
+- [x] `WorkItem[]` via the existing `WORKITEMS_SCHEMA`
+- [x] Gate renders; writes nothing
+- [x] CPO → CTO is **sequential**, an artifact handoff. Parallel would give two independent
+      readings of the directive and no owner of the merge.
+
+**Measured, first live run (opencode-council, "refuse to plan on a stale graph"):**
+
+| | |
+|---|---|
+| graph context | 12,749 chars in 0.4s |
+| intake | 162.7s, 2 calls (gpt55 → opus5) |
+| output | 5 items, **file paths and line numbers taken from the graph** (`src/crew.ts:L237`, `src/index.ts:L101`, `src/engine.ts:L783`) |
+| acceptance quality | judgeable — "the ask spy call count is zero", "renderCrewBlock's output is byte-identical" |
+
+The grounded line numbers are C13 paying off: without the graph these would have been
+plausible guesses, and a guessed path costs a whole implementation round.
+
+**Two bugs found by running it, both fixed:**
+- `ask()` called `.json()` before checking status. A 401 returns an empty body, so an auth
+  failure reported as `Unexpected end of JSON input` — a parser error for a missing
+  credential, which sends you looking in entirely the wrong place. Now reads text first and
+  classifies 401/403 as `autherror`.
+- `Intake.dropped` recorded *that* a lane failed but not *why* — the exact silent-fail §8
+  forbids. "No items because every model was rate-limited" and "no items because the
+  directive was incoherent" need opposite responses from the human. Now carries state and
+  detail, and stops walking the roster on `autherror` rather than turning one
+  misconfiguration into five identical errors.
 
 #### Phase 2 — execute one item — **TODO**
 - [ ] `agent/crew-dev.md` with ponytail inline (C12)
@@ -818,6 +841,11 @@ nothing during construction. One worker, one item, in order.
 
 ### 9.6 Open risks
 
+0. **New agent files need an opencode restart.** Measured 2026-08-21: `crew-cpo` returned
+   `http 500 UnknownError` from a server started before the file existed, while
+   `council-product` on the same model answered fine. The plugin's `config` hook runs at
+   server start, so an agent added mid-session does not exist as far as the server is
+   concerned — and the error says nothing about why. Restart after adding a lane.
 1. **Do engine-created sessions load `AGENTS.md` or plugin prompts?** C11 and C12 make this
    moot by inlining both — but if injection *does* work we are paying twice. Measure in
    Phase 1.

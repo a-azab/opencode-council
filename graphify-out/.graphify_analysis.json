@@ -1,0 +1,354 @@
+{
+  "communities": {
+    "0": [
+      "src_engine",
+      "src_engine_ask",
+      "src_engine_askonce",
+      "src_engine_backoffms",
+      "src_engine_classify",
+      "src_engine_computediff",
+      "src_engine_debateprompt",
+      "src_engine_debateround",
+      "src_engine_default_retry",
+      "src_engine_fanout",
+      "src_engine_fixone",
+      "src_engine_fixprompt",
+      "src_engine_headers",
+      "src_engine_isretryable",
+      "src_engine_noderesult",
+      "src_engine_patchapplies",
+      "src_engine_plan",
+      "src_engine_planning_roles",
+      "src_engine_proposal",
+      "src_engine_retrypolicy",
+      "src_engine_reviewprompt",
+      "src_engine_runfix",
+      "src_engine_runindependent",
+      "src_engine_skepticprompt",
+      "src_engine_sleep",
+      "src_engine_take",
+      "src_engine_timeoutfor",
+      "src_engine_verifyfixprompt",
+      "src_engine_verifygroup",
+      "src_retry_test",
+      "src_roster_skepticpool",
+      "src_schema",
+      "src_schema_categories",
+      "src_schema_debate_schema",
+      "src_schema_findings_schema",
+      "src_schema_patch_schema",
+      "src_schema_proposal_schema",
+      "src_schema_score_schema",
+      "src_schema_verdict_schema"
+    ],
+    "1": [
+      "src_crew",
+      "src_crew_applyinit",
+      "src_crew_cpoprompt",
+      "src_crew_crew_ignores",
+      "src_crew_crewconfig",
+      "src_crew_ctoprompt",
+      "src_crew_detectbasecandidates",
+      "src_crew_detectstack",
+      "src_crew_detectverifycandidates",
+      "src_crew_git",
+      "src_crew_graphcontext",
+      "src_crew_graphexplain",
+      "src_crew_graphify",
+      "src_crew_graphpath",
+      "src_crew_graphquery",
+      "src_crew_graphstate",
+      "src_crew_initproposal",
+      "src_crew_intake",
+      "src_crew_intake_models",
+      "src_crew_missingignores",
+      "src_crew_parsecrewblock",
+      "src_crew_proposeinit",
+      "src_crew_proposelanes",
+      "src_crew_readcrewconfig",
+      "src_crew_rendercrewblock",
+      "src_crew_resolvescope",
+      "src_crew_runintake",
+      "src_crew_scope",
+      "src_crew_test",
+      "src_crew_test_cfg",
+      "src_crew_test_scratchrepo",
+      "src_crew_upsertcrewblock",
+      "src_crew_verifycandidate",
+      "src_crew_workitem",
+      "src_roster_selectroles"
+    ],
+    "2": [
+      "src_decide",
+      "src_decide_applyoutcome",
+      "src_decide_applyrevisions",
+      "src_decide_confidence",
+      "src_decide_converged",
+      "src_decide_decide",
+      "src_decide_dedupe",
+      "src_decide_disputes",
+      "src_decide_downgrade",
+      "src_decide_group",
+      "src_decide_highestpermodel",
+      "src_decide_outcome",
+      "src_decide_report",
+      "src_decide_revision",
+      "src_decide_score",
+      "src_decide_signature",
+      "src_decide_tally",
+      "src_decide_test",
+      "src_decide_test_disputed",
+      "src_decide_test_f",
+      "src_decide_test_no",
+      "src_decide_test_tworeports",
+      "src_decide_test_yes",
+      "src_decide_tier",
+      "src_decide_tier_rank",
+      "src_decide_verdict",
+      "src_engine_runreview",
+      "src_tally_test",
+      "src_tally_test_s",
+      "src_work_detectverify"
+    ],
+    "3": [
+      "src_crew_readinstructions",
+      "src_crew_rendergate",
+      "src_crew_renderinitproposal",
+      "src_decide_finding",
+      "src_engine_patch",
+      "src_engine_review",
+      "src_index",
+      "src_index_agent_defaults",
+      "src_index_artifactdir",
+      "src_index_councilplugin",
+      "src_index_ctxfor",
+      "src_index_gitdiff",
+      "src_index_parsefrontmatter",
+      "src_index_pkg",
+      "src_index_readmarkdowndir",
+      "src_report",
+      "src_report_renderfinding",
+      "src_report_renderpatches",
+      "src_report_renderplan",
+      "src_report_renderreport",
+      "src_report_rendersummary",
+      "src_report_rendertakesindex",
+      "src_report_renderwork",
+      "src_report_test",
+      "src_report_test_finding",
+      "src_report_test_patch",
+      "src_report_tier_order"
+    ],
+    "4": [
+      "package",
+      "package_dependencies",
+      "package_dependencies_zod",
+      "package_description",
+      "package_files",
+      "package_license",
+      "package_main",
+      "package_name",
+      "package_scripts",
+      "package_scripts_test",
+      "package_type",
+      "package_version",
+      "ref_agent",
+      "ref_command",
+      "ref_plan_md",
+      "ref_readme_md",
+      "ref_src",
+      "zod"
+    ],
+    "5": [
+      "src_engine_ctx",
+      "src_engine_nodestate",
+      "src_schema_implement_schema",
+      "src_schema_workitems_schema",
+      "src_work",
+      "src_work_createworktree",
+      "src_work_decomposeprompt",
+      "src_work_git",
+      "src_work_implementprompt",
+      "src_work_itemresult",
+      "src_work_removeworktree",
+      "src_work_runcheck",
+      "src_work_runwork",
+      "src_work_verifyprobe",
+      "src_work_workers",
+      "src_work_workitem",
+      "src_work_workresult"
+    ],
+    "6": [
+      "src_engine_proposalprompt",
+      "src_engine_runplan",
+      "src_engine_scoreprompt",
+      "src_roster",
+      "src_roster_byslug",
+      "src_roster_member",
+      "src_roster_models_per_role",
+      "src_roster_node",
+      "src_roster_role",
+      "src_roster_roster",
+      "src_roster_routes",
+      "src_roster_selectnodes",
+      "src_roster_skeptics_per_tier",
+      "src_roster_test",
+      "src_work_askany"
+    ]
+  },
+  "cohesion": {
+    "0": 0.08771929824561403,
+    "1": 0.11596638655462185,
+    "2": 0.12413793103448276,
+    "3": 0.10541310541310542,
+    "4": 0.1111111111111111,
+    "5": 0.16911764705882354,
+    "6": 0.17142857142857143
+  },
+  "gods": [
+    {
+      "id": "src_engine_runreview",
+      "label": "runReview()",
+      "degree": 14
+    },
+    {
+      "id": "src_decide_test_f",
+      "label": "f()",
+      "degree": 10
+    },
+    {
+      "id": "src_crew_proposeinit",
+      "label": "proposeInit()",
+      "degree": 9
+    },
+    {
+      "id": "src_roster_byslug",
+      "label": "bySlug()",
+      "degree": 9
+    },
+    {
+      "id": "src_work_runwork",
+      "label": "runWork()",
+      "degree": 9
+    },
+    {
+      "id": "src_engine_ask",
+      "label": "ask()",
+      "degree": 8
+    },
+    {
+      "id": "src_engine_fixone",
+      "label": "fixOne()",
+      "degree": 8
+    },
+    {
+      "id": "src_decide_dedupe",
+      "label": "dedupe()",
+      "degree": 7
+    },
+    {
+      "id": "src_roster_skepticpool",
+      "label": "skepticPool()",
+      "degree": 7
+    },
+    {
+      "id": "package_files",
+      "label": "files",
+      "degree": 6
+    }
+  ],
+  "surprises": [
+    {
+      "source": "detectVerifyCandidates()",
+      "target": "f()",
+      "source_files": [
+        "src/crew.ts",
+        "src/decide.test.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "indirect_call",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    },
+    {
+      "source": "runFix()",
+      "target": "f()",
+      "source_files": [
+        "src/engine.ts",
+        "src/decide.test.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "indirect_call",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    },
+    {
+      "source": "readMarkdownDir()",
+      "target": "f()",
+      "source_files": [
+        "src/index.ts",
+        "src/decide.test.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "indirect_call",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    },
+    {
+      "source": "renderReport()",
+      "target": "f()",
+      "source_files": [
+        "src/report.ts",
+        "src/decide.test.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "indirect_call",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    },
+    {
+      "source": "runWork()",
+      "target": "f()",
+      "source_files": [
+        "src/work.ts",
+        "src/decide.test.ts"
+      ],
+      "confidence": "INFERRED",
+      "relation": "indirect_call",
+      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+    }
+  ],
+  "questions": [
+    {
+      "type": "bridge_node",
+      "question": "Why does `dedupe()` connect `decide.ts` to `engine.ts`?",
+      "why": "High betweenness centrality (0.015) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `f()` connect `decide.ts` to `engine.ts`, `crew.ts`, `index.ts`, `work.ts`?",
+      "why": "High betweenness centrality (0.014) - this node is a cross-community bridge."
+    },
+    {
+      "type": "bridge_node",
+      "question": "Why does `bySlug()` connect `roster.ts` to `engine.ts`, `crew.ts`, `work.ts`?",
+      "why": "High betweenness centrality (0.012) - this node is a cross-community bridge."
+    },
+    {
+      "type": "verify_inferred",
+      "question": "Are the 7 inferred relationships involving `f()` (e.g. with `detectVerifyCandidates()` and `dedupe()`) actually correct?",
+      "why": "`f()` has 7 INFERRED edges - model-reasoned connections that need verification."
+    },
+    {
+      "type": "isolated_nodes",
+      "question": "What connects `name`, `version`, `description` to the rest of the system?",
+      "why": "41 weakly-connected nodes found - possible documentation gaps or missing edges."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `engine.ts` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.08771929824561403 - nodes in this community are weakly interconnected."
+    },
+    {
+      "type": "low_cohesion",
+      "question": "Should `crew.ts` be split into smaller, more focused modules?",
+      "why": "Cohesion score 0.11596638655462185 - nodes in this community are weakly interconnected."
+    }
+  ]
+}

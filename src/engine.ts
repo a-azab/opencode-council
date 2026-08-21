@@ -216,9 +216,24 @@ async function askOnce<T>(
       }),
     })
     const ms = Date.now() - t0
-    const body = await r.json()
+    // Parse defensively: an error response often has no body at all. A 401 from an
+    // authenticated server returns zero bytes, and calling .json() on that throws
+    // "Unexpected end of JSON input" - which reports a parser problem for what is
+    // actually a missing credential, and sends you looking in the wrong place entirely.
+    const raw = await r.text()
     if (r.status >= 300)
-      return { ok: false, state: "failed", detail: `http ${r.status}: ${JSON.stringify(body).slice(0, 160)}`, ms }
+      return {
+        ok: false,
+        state: r.status === 401 || r.status === 403 ? "autherror" : "failed",
+        detail: `http ${r.status}: ${raw.slice(0, 160) || "(empty body)"}`,
+        ms,
+      }
+    let body: any
+    try {
+      body = JSON.parse(raw)
+    } catch {
+      return { ok: false, state: "malformed", detail: `unparseable body: ${raw.slice(0, 160)}`, ms }
+    }
 
     const info = body?.info ?? {}
     if (info.error) return { ok: false, ...classify(info.error), ms }

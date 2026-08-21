@@ -10,6 +10,10 @@ import {
   proposeInit,
   renderInitProposal,
   applyInit,
+  readCrewConfig,
+  readInstructions,
+  runIntake,
+  renderGate,
   type CrewConfig,
 } from "./crew.ts"
 import { type Role } from "./roster.ts"
@@ -77,6 +81,16 @@ function gitDiff(cwd: string, base: string) {
   }
 }
 
+/** Where the engine sends model calls, and how it authenticates if the server wants it. */
+function ctxFor(input: any) {
+  const user = process.env.OPENCODE_SERVER_USERNAME
+  const pass = process.env.OPENCODE_SERVER_PASSWORD
+  return {
+    serverUrl: String(input?.serverUrl ?? "http://127.0.0.1:4096"),
+    auth: user && pass ? "Basic " + Buffer.from(`${user}:${pass}`).toString("base64") : undefined,
+  }
+}
+
 function artifactDir(cwd: string, kind: string): string {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
   const dir = join(cwd, "council-artifacts", `${stamp}-${kind}`)
@@ -93,7 +107,13 @@ export const CouncilPlugin = async (input: any) => ({
         "config (verify command, PR base, review lanes), then writes it to AGENTS.md once " +
         "you confirm. Run init once per repo before anything else.",
       args: {
-        mode: z.enum(["init"]).default("init").describe("init = detect and record this repo's crew config"),
+        mode: z
+          .enum(["init", "plan"])
+          .default("plan")
+          .describe(
+            "init = detect and record this repo's crew config; plan = intake a directive into an ordered work item list and stop at the approval gate",
+          ),
+        directive: z.string().default("").describe("what you want built or changed (plan only)"),
         write: z
           .boolean()
           .default(false)
@@ -106,13 +126,52 @@ export const CouncilPlugin = async (input: any) => ({
         lanes: z.string().default("").describe("comma-separated review lanes (write only)"),
       },
       async execute(
-        args: { mode?: "init"; write?: boolean; verify?: string; base?: string; lanes?: string },
+        args: {
+          mode?: "init" | "plan"
+          directive?: string
+          write?: boolean
+          verify?: string
+          base?: string
+          lanes?: string
+        },
         context: any,
       ) {
         const cwd = context?.directory ?? input?.directory ?? process.cwd()
         const scope = resolveScope(cwd)
         if (scope.kind === "notrepo")
           return `${cwd} is not a git repository. The crew's scope is the repo you are standing in, so there is nothing to configure here.`
+
+        if (args?.mode === "plan") {
+          const directive = (args.directive ?? "").trim()
+          if (!directive) return "No directive given. `plan` needs one — say what you want built or changed."
+
+          const cfg = readCrewConfig(scope.root)
+          if (!cfg) return `This repo has no crew config yet. Run \`/crew-init\` first.`
+
+          // A worktree branches from HEAD, so uncommitted work is invisible to the crew: it
+          // would plan against a repo state that is not the one on your screen, and its PR
+          // would then collide with your edits. Cheaper to stop here. (C9)
+          if (scope.dirty.length)
+            return [
+              `${scope.dirty.length} uncommitted file(s):`,
+              ...scope.dirty.slice(0, 10).map((f) => `  • ${f}`),
+              scope.dirty.length > 10 ? `  … and ${scope.dirty.length - 10} more` : "",
+              "",
+              "The crew branches from HEAD, so it would plan against a state that is not what you",
+              "see, and its PR would collide with your edits. Commit them, or say the word and",
+              "I'll stash them first.",
+            ]
+              .filter(Boolean)
+              .join("\n")
+
+          const instructions = readInstructions(scope.root)
+          const intake = await runIntake(ctxFor(input), {
+            root: scope.root,
+            directive,
+            instructions: instructions.text,
+          })
+          return renderGate(intake, cfg, scope)
+        }
 
         if (!args?.write) return renderInitProposal(proposeInit(scope.root, scope.branch))
 
@@ -180,12 +239,7 @@ export const CouncilPlugin = async (input: any) => ({
       ) {
         const t0 = Date.now()
         const cwd = context?.directory ?? input?.directory ?? process.cwd()
-        const user = process.env.OPENCODE_SERVER_USERNAME
-        const pass = process.env.OPENCODE_SERVER_PASSWORD
-        const ctx = {
-          serverUrl: String(input?.serverUrl ?? "http://127.0.0.1:4096"),
-          auth: user && pass ? "Basic " + Buffer.from(`${user}:${pass}`).toString("base64") : undefined,
-        }
+        const ctx = ctxFor(input)
 
         // Work has no diff either, and must resolve its done-predicate before doing anything.
         if (args?.mode === "work") {
