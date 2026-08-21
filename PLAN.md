@@ -687,3 +687,147 @@ beats one large diff.
   comment naming the ceiling and the upgrade path.
 - Node 24 strips TypeScript natively and has a built-in test runner — **no build step, no
   test framework, no bundler.**
+
+---
+
+## 9. Crew — directive to PR
+
+### 9.1 Why this exists
+
+`review` judges a diff. `plan` votes on an approach. `work` implements a goal until the
+project's own check passes. None of them takes a human directive through **intake →
+approved plan → implementation → verification → reviewed PR**, which is the only shape
+that produces work you would actually merge.
+
+Crew is that path. It is a strict superset of `work`, so `work` dies when Phase 3 lands.
+
+The literature in §6b applies unchanged and constrains the design: multi-model fan-out for
+**read-only** analysis is SUPPORTED; a swarm of role agents **constructing** code is
+CONTRADICTED (MAST: 41–86.7% failure across 7 frameworks; Cognition: "running multiple
+agents in collaboration only results in fragile systems"). Crew therefore parallelises
+nothing during construction. One worker, one item, in order.
+
+### 9.2 Locked decisions
+
+| # | Decision | Reason |
+|---|---|---|
+| **C1** | Scope is the git root of the session's cwd. No repo allowlist, no issue→repo mapping. | Blast radius is "where you are standing". Deletes a whole feature. |
+| **C2** | Items run **sequentially**, one branch, one commit each, one PR. | The disjoint-file scheduler solved a problem we do not have and reintroduced the exact concurrency risk §6b warns about. |
+| **C3** | Approval gate after intake, **on by default**. | You see the task list before a worktree is touched. |
+| **C4** | PR only. Never merges, never pushes to a base branch. | Matches `work`'s existing promise not to touch your tree. |
+| **C5** | Item failure **escalates**, it does not abort. Reviewer + skeptic lanes diagnose, fix, then the list resumes. | User directive. Replaces the earlier stop-on-first-failure rule. |
+| **C6** | Review and acceptance gaps go **back to execute**. PR is the loop's exit, not a step. | User directive. |
+| **C7** | Termination floors: 3 escalation rounds/item, 3 review→fix cycles, 60 min wall clock. First to trip stops the run **with a report**. | C5 + C6 make the pipeline a loop with no natural end. §6b: ~19% of multi-agent failures are stopping-condition failures. Non-negotiable. |
+| **C8** | Acceptance criteria are **verified by the `qa` lane against the item's diff**, read-only. | `WorkItem.acceptance` was decorative — the verify command proves *nothing broke*, not *the thing got built*. §6b: "many existing verifiers perform only superficial checks." |
+| **C9** | Dirty working tree → **refuse, offer to stash**. | Branching from HEAD with uncommitted work plans against a state that is not on the user's screen, and the PR then collides with it. |
+| **C10** | Retry `maxAttempts: 3 → 11`, transient only. `Retry-After` > 30 min → **bench the model for the run** and pick a replacement. | User directive. `isRetryable` already excludes `autherror`/`malformed`. |
+| **C11** | `AGENTS.md` (+ `CLAUDE.md`) is read at run start and **prepended to every crew node's prompt**. | User directive: the crew always respects it. Deterministic — does not rely on opencode session injection. |
+| **C12** | The implementer carries **ponytail** discipline inline in `agent/crew-dev.md`. | User directive. Includes the never-simplify-away list: validation at trust boundaries, error handling preventing data loss, security, accessibility, understanding the problem. |
+| **C13** | **graphify** supplies codebase understanding at intake; the crew reads, updates and uses it for impact analysis. | Replaces a per-run explore lane with a persistent graph. Measured on thiqwave-platform 2026-08-21: 903 code files → 6130 nodes / 10170 edges / 460 communities in **13.6s, zero LLM calls** (`--code-only`, tree-sitter AST). Cheap enough to rebuild every run. |
+| **C14** | Config lives in a fenced `crew` block in the repo's `AGENTS.md`. | One file, already loaded in every session, human-editable, no second source of truth. Parsed by the flat `key: value` parser already in `index.ts`. |
+| **C15** | The worker gets `bash`, **confined to the worktree**. Read-only review lanes keep `edit: deny, bash: deny`. | Without it the implementer writes blind and its only signal is pass/fail. C5's escalation loop is worthless if nothing can run a failing test and read the trace. |
+| **C16** | No spend cap. | User declined one. C7's floors still guarantee termination. Run summary reports call count and `AGENTS.md` token overhead so the cost is visible. |
+| **C17** | No resume. | Model-level failure is already covered by `askAny` roster fallthrough + C10. Process-level death leaves the commits on the branch; re-run. |
+
+### 9.3 Pipeline
+
+```
+/crew "directive"
+  0  resolve scope     git root, verify command(s), base branch, dirty check (C9)
+  1  read instructions AGENTS.md + CLAUDE.md, prepended everywhere after (C11)
+  2  intake            crew-cpo + crew-cto, read-only, fed by graphify (C13)
+                       -> WorkItem[] { title, detail, files, acceptance }
+  3  GATE              you approve or redirect (C3)
+  4  execute           per item, sequential (C2): worktree -> implement (C12,C15)
+                       -> verify -> commit.  failure escalates (C5)
+  5  review            council review on the branch diff
+  6  acceptance        qa lane: item diff vs its acceptance criteria (C8)
+  7  gaps?             -> back to 4 (C6), bounded by C7
+  8  ship              push, gh pr create, report
+```
+
+### 9.4 Phases
+
+#### Phase 1a — `/crew init` — **TODO**
+- [ ] Scope resolution: git root, refuse non-repo, dirty check + stash offer (C9)
+- [ ] Detect stack (manifests + directory shape), verify command list **with path scopes**
+      for monorepos, base branch (detect and **ask** — `origin/HEAD` often disagrees with
+      the branch the team actually merges to)
+- [ ] Propose the lane roster from `ROUTES` globs; user edits; write it down
+- [ ] Read/write the fenced `crew` block in `AGENTS.md`, idempotent, diff shown first,
+      never touches prose
+- [ ] `.git/info/exclude` gets `.worktrees/`, `council-artifacts/` — per-clone, not
+      committed, so the crew stays out of the team's diffs
+- [ ] graphify staleness check: `graphify-out/graph.json` mtime vs `git log -1`; offer rebuild
+- [ ] Tests: detection, block parse/write round-trip, scope resolution
+
+#### Phase 1b — intake + gate — **TODO**
+- [ ] `Role` union gains `cpo`/`cto`; roster entries; excluded from `ROUTES` (they are not
+      file-triggered, they always run)
+- [ ] `agent/crew-cpo.md` (outcomes + acceptance criteria), `agent/crew-cto.md` (approach,
+      file impact, risk)
+- [ ] graphify helpers: `query --budget`, `path`, `explain` shelled out, results injected
+      into intake prompts. `GRAPHIFY_QUERY_LOG_DISABLE=1` always — this is a financial
+      codebase and the tool's own docs contradict themselves on whether logging defaults on
+- [ ] `WorkItem[]` structured output + schema
+- [ ] Gate: task list rendered, approve / redirect / abort
+- [ ] **Writes no code.** Terminates at the gate.
+
+#### Phase 2 — execute one item — **TODO**
+- [ ] `agent/crew-dev.md` with ponytail inline (C12)
+- [ ] Worktree per run, `git worktree prune` on start, cleanup on failure, keep on success
+- [ ] Implement → verify → commit, commit message matching the repo's sampled convention
+- [ ] Secret exclusion from implement prompts: `.env*`, `*.pem`, key material
+- [ ] `gh pr create`; PR body = directive, item table, verify results, unresolved gaps
+- [ ] Dependency change in an item's diff → real install in the worktree for that item
+      (the `node_modules` symlink in `work.ts` is explicitly wrong for this case)
+
+#### Phase 3 — the full loop — **TODO**
+- [ ] All items sequentially; escalation on failure (C5)
+- [ ] Council review + qa acceptance check (C8); gaps re-enter execute (C6)
+- [ ] Termination floors (C7) with a report on every exit path
+- [ ] Heartbeat per step with elapsed time; stall watchdog
+- [ ] Run summary: items done/failed, calls made, `AGENTS.md` token overhead, PR URL
+- [ ] **Delete `work` mode and `/council-work`**
+
+#### PAUSE — run it on something real before Phase 4.
+
+#### Phase 4 — tracker seam — **TODO**
+- [ ] `start / plan / progress / finish`, defaulting to no-ops. stdout implementation is
+      the default, not silence
+- [ ] Resolution order: explicit config → `AGENTS.md`/`CLAUDE.md` declaration → **ask
+      once** → offer to persist. Never guess.
+
+#### Phase 5 — Linear tracker — **TODO**
+- [ ] OAuth app, `actor=app`, `app:assignable` — **requires Linear workspace admin**
+- [ ] `agentSessionCreateOnIssue`, activities (`thought`/`action`/`elicitation`/`response`/
+      `error`), `agentSessionUpdate{plan}` as the live checklist, PR in `externalUrls`
+- [ ] Outbound only. No webhook, no daemon, no ingress — the crew is prompted from
+      opencode and creates its own session.
+
+### 9.5 Explicitly NOT building
+
+| rejected | why |
+|---|---|
+| Parallel item execution | C2. Nothing measured says sequential is too slow. Re-open with a number, not a feeling. |
+| Linear webhook / daemon (Tier 3) | Buys exactly one thing: starting a run from the Linear UI. Costs a public endpoint, a 5s ACK path, and an always-on worker. Purely additive later — the receiver would call the same entry point. |
+| Spend cap | C16. |
+| Resume / event log | C17. |
+| `AGENTS.md` distillation digest | 64KB × ~50 calls is real overhead, but building the digest before measuring is the mistake §6c warns about. Report the number first. |
+| graphify via MCP | Shelling out works regardless of whether engine-created sessions receive MCP tools. Revisit once Phase 1 answers that. |
+
+### 9.6 Open risks
+
+1. **Do engine-created sessions load `AGENTS.md` or plugin prompts?** C11 and C12 make this
+   moot by inlining both — but if injection *does* work we are paying twice. Measure in
+   Phase 1.
+2. **Intake quality is the whole product.** A bad task list poisons every downstream phase.
+   This is where to over-invest, and graphify (C13) is the lever.
+3. **graphify community labels are LLM-free placeholders** without a backend. Names come
+   from representative nodes (`community=transaction.module.ts`), which is serviceable but
+   worse than real labels. `--backend claude-cli` would use the local subscription; not
+   done yet.
+4. **nixpkgs graphify is 0.9.28, PyPI is 0.9.48.** We shell out to stable CLI surface
+   (`extract`/`query`/`path`/`explain`), so skew is low-risk. PyPI wheels do not work on
+   NixOS — numpy needs `libstdc++`/`libz` the wheels cannot find. Do not "fix" this with
+   `LD_LIBRARY_PATH`.
