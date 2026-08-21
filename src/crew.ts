@@ -627,6 +627,46 @@ export function closeWorktree(root: string, path: string) {
   }
 }
 
+export type CrewWorktree = { slug: string; branch: string; path: string; ageMs: number }
+
+/**
+ * The live crew worktrees, so a human can see what is safe to remove. Only `crew/<slug>`
+ * branches - the exact name openWorktree writes - which keeps the main worktree and any
+ * worktree the user made themselves out of a list whose whole purpose is deletion.
+ *
+ * Age is the directory's own birthtime, not the HEAD commit date: a worktree branches from
+ * the parent's HEAD, so a run started a minute ago in a repo last committed to last week
+ * would report a week and read as abandoned.
+ */
+export function listWorktrees(root: string): CrewWorktree[] {
+  const now = Date.now()
+  return git(root, ["worktree", "list", "--porcelain"])
+    .split("\n\n")
+    .flatMap((block) => {
+      const path = block.match(/^worktree (.+)$/m)?.[1]
+      const slug = block.match(/^branch refs\/heads\/crew\/(.+)$/m)?.[1]
+      // a registration whose directory is gone is `prune` material, not a live worktree
+      if (!path || !slug || !existsSync(path)) return []
+      const s = statSync(path)
+      return [{ slug, branch: `crew/${slug}`, path, ageMs: now - (s.birthtimeMs || s.mtimeMs) }]
+    })
+}
+
+const humanAge = (ms: number) => {
+  const min = Math.floor(ms / 60_000)
+  if (min < 60) return `${min}m`
+  const hours = Math.floor(min / 60)
+  return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`
+}
+
+/** One row per worktree, each carrying the exact removal command - the point is cleanup. */
+export function renderWorktrees(list: CrewWorktree[]): string {
+  if (!list.length) return "No live crew worktrees."
+  return list
+    .map((w) => `- ${w.slug} — \`${w.branch}\`, ${humanAge(w.ageMs)} old\n  git worktree remove ${w.path} --force`)
+    .join("\n")
+}
+
 /**
  * `node_modules` is a symlink we created, not work. Measured: without this exclusion it
  * shows up as untracked in the worktree, `git add -A` stages the symlink into the commit,
