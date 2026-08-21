@@ -59,6 +59,21 @@ export type Ctx = {
  */
 const DEFAULT_TIMEOUT_MS = 90_000
 
+/**
+ * Per-node timeout, scaled to the size of what the node has to read.
+ *
+ * Measured (PLAN §7): a trivial structured prompt returns in 4-21s, but a real 51k-char
+ * diff took 57-62s for the models that finished and blew past 90s for two that did not.
+ * Large-context latency does not correlate with trivial-prompt latency, so a fixed timeout
+ * derived from small probes drops nodes on exactly the reviews that matter most - and a
+ * dropped node is lost coverage, not a free speedup.
+ *
+ * Capped, because a round costs its slowest member and the pipeline runs several rounds.
+ */
+export function timeoutFor(chars: number): number {
+  return Math.min(300_000, 60_000 + Math.ceil(chars / 1000) * 3_000)
+}
+
 function headers(ctx: Ctx) {
   return { "content-type": "application/json", ...(ctx.auth ? { authorization: ctx.auth } : {}) }
 }
@@ -287,6 +302,8 @@ export async function runReview(
   input: { diff: string; files: string[]; changedLines?: number; maxRounds?: number },
 ): Promise<Review> {
   const maxRounds = input.maxRounds ?? DEFAULT_MAX_ROUNDS
+  // An explicit timeout wins; otherwise scale it to the diff the nodes have to read.
+  ctx = { ...ctx, timeoutMs: ctx.timeoutMs ?? timeoutFor(input.diff.length) }
   const roles = selectRoles(input.files, input.changedLines ?? 0)
   const nodes = selectNodes(roles)
   const results = await fanout(ctx, nodes, input.diff)

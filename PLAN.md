@@ -476,6 +476,39 @@ Measured 2026-08-16 against opencode 1.18.13. **Verdict: GO.**
 | `confident: false` correctly escalated the SQL-injection fix | Working as designed. The placeholder syntax depends on a driver the fixer cannot see, so declining is the right answer. |
 | A full run took ~10 minutes | Rounds are sequential and each is bounded by its slowest member, so worst case ≈ 4 × per-node timeout. Default dropped 180s → 90s (~4× the slowest measured model). |
 
+### First real multi-file run (2026-08-16)
+
+Reviewed this repo's own `HEAD~6` diff — 10 files, 845 changed lines, 51,693 chars of
+`.ts` and `.md`. Roughly 100× the fixture everything else was measured on.
+
+| claim | measured | verdict |
+|---|---|---|
+| routing cuts cost | 5 roles → **6 nodes**, not 11. `pragmatist` fired (845 > 200), `docs` from `.md`, `qa` from `*.test.ts`, `security` correctly did **not** | holds |
+| "~1–3 minutes" | **180s** — with 2 of 6 nodes failing | at the boundary, and optimistic |
+| per-node latency | 57–62s for finishers vs 4–21s on the fixture | **~10× — the fixture numbers do not generalise** |
+| 90s timeout | **2 of 6 nodes timed out** (`opus5`, `kimik3`) | **wrong, fixed** |
+
+**The timeout was a real defect I introduced.** It was set to 90s as "~4× the slowest
+measured model", but that measurement came from a *trivial* prompt. Large-context latency
+does not correlate with trivial-prompt latency, so the number was derived from data that
+could not support it. Replaced with `timeoutFor(chars)` — 60s base plus 3s per 1k chars,
+capped at 300s. The real diff now gets 216s instead of 90s.
+
+**The council found a genuine regression in its own source**, raised independently by two
+models: `mode: "fix"` had started running a *fresh* review and patching those findings
+instead of loading the previous review's `findings.json`. Because reviews are
+nondeterministic, the report a user approved and the patches they received would not
+correspond — and it silently paid for a second full review. Fixed.
+
+**What did not get exercised, even here:** 4 raw findings produced 0 dedupe merges, 0
+disputes and 0 debate rounds. The dedupe line-window and the debate loop still have no
+real-world evidence behind them. A larger or more contentious diff is needed to test those.
+
+**Findings clustered in the first files of the diff** (`src/index.ts`, `README.md`) with
+nothing on `engine.ts` or `decide.ts`, which had the largest changes. Consistent with
+attention thinning over a 51k-char payload — worth investigating whether per-file review
+beats one large diff.
+
 ### Spike results
 
 | Q | Result |

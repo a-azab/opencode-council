@@ -131,10 +131,23 @@ export const CouncilPlugin = async (input: any) => ({
         const { diff, files, changedLines } = gitDiff(cwd, base)
         if (!diff.trim()) return `Nothing to do — no diff against ${base}.`
 
-        const review = await runReview(ctx, { diff, files, changedLines })
-
         if (args?.mode === "fix") {
-          const patches = await runFix(ctx, { findings: review.kept, diff, cwd })
+          // Patch the findings the user actually read. Running a fresh review here would
+          // produce a DIFFERENT set - reviews are nondeterministic, models time out - so
+          // the report they approved and the patches they get back would not correspond.
+          // It also pays for a second full review nobody asked for.
+          const root = join(cwd, "council-artifacts")
+          const prev = existsSync(root)
+            ? readdirSync(root)
+                .filter((d) => existsSync(join(root, d, "findings.json")))
+                .sort()
+                .pop()
+            : undefined
+          if (!prev) return "No previous review found. Run council({ mode: 'review' }) first."
+          const kept = JSON.parse(readFileSync(join(root, prev, "findings.json"), "utf8")).kept ?? []
+          if (!kept.length) return `The last review (${prev}) kept no findings — nothing to fix.`
+
+          const patches = await runFix(ctx, { findings: kept, diff, cwd })
           const dir = artifactDir(cwd, "fix")
           const path = join(dir, "patches.md")
           writeFileSync(path, renderPatches(patches))
@@ -147,9 +160,11 @@ export const CouncilPlugin = async (input: any) => ({
             `Nothing applied. Review and apply what you accept.`,
             ``,
             `Patches: ${path}`,
+            `From review: ${prev}`,
           ].join("\n")
         }
 
+        const review = await runReview(ctx, { diff, files, changedLines })
         const dir = artifactDir(cwd, "review")
         const path = join(dir, "report.md")
         writeFileSync(path, renderReport(review, { files, ms: Date.now() - t0 }))

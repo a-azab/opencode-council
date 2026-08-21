@@ -141,7 +141,7 @@ arithmetic, not a model's preference.
 **Ties come to you.** Two proposals within `TIE_MARGIN` are not meaningfully ranked, so no
 winner is declared; picking one would be false precision the numbers don't support.
 
-Artifacts land in `council-artifacts/<timestamp>/` — `report.md`, `findings.json`,
+Artifacts land in `council-artifacts/<timestamp>-<kind>/` — `report.md`, `findings.json`,
 `patches.md`, or `plan.md` + `plan.json`.
 
 ---
