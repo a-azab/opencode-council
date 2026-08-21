@@ -437,6 +437,26 @@ where there is no diff to compute against.
 
 ### 3. Cleanup — see below. Deliberately blocked on real-world use, not on code.
 
+### ⚠ Two old commands have no successor — do NOT delete them
+
+Measured in a fresh process: the plugin wins name collisions, so `council-review` and
+`council-plan` now resolve to the plugin and the old files of those names are **silently
+shadowed** — still on disk, never executed, and editing them does nothing.
+
+But two of the original four were never ported and have no equivalent:
+
+| old command | what it does | closest thing here | gap |
+|---|---|---|---|
+| `council-task` | general task execution — every model produces an artefact, one debate round, one consolidated result | `council-fix` | `council-fix` only handles *findings from a review*. There is no general "do this task with the council". |
+| `council-independent` | N models work alone; no moderator, no debate, **no synthesis** — you read the raw takes | nothing | The engine always dedupes and verifies. There is no path to unsynthesized perspectives. |
+
+`council-independent` is cheap to add if wanted — it is `fanout()` with the aggregation
+skipped. `council-task` is a real feature, not a mode flag.
+
+**Until one of those is resolved, the cleanup below must not delete
+`command/council-task.md` or `command/council-independent.md`.** Deleting them would be
+losing functionality while calling it tidying.
+
 ### Cleanup — NOT DONE, and deliberately so
 
 - [ ] Delete the `agent` block from `~/.config/opencode/opencode.json`
