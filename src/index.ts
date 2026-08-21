@@ -15,6 +15,8 @@ import {
   renderGate,
   runExecute,
   renderRun,
+  listWorktrees,
+  renderWorktrees,
   type CrewConfig,
 } from "./crew.ts"
 import { type Role } from "./roster.ts"
@@ -123,10 +125,10 @@ export const CouncilPlugin = async (input: any) => ({
         "you confirm. Run init once per repo before anything else.",
       args: {
         mode: z
-          .enum(["init", "plan", "run"])
+          .enum(["init", "plan", "run", "status"])
           .default("plan")
           .describe(
-            "init = detect and record this repo's crew config; plan = intake a directive into an ordered work item list and stop at the approval gate; run = execute the last approved plan in an isolated worktree and open a PR",
+            "init = detect and record this repo's crew config; plan = intake a directive into an ordered work item list and stop at the approval gate; run = execute the last approved plan in an isolated worktree and open a PR; status = list this repo's live crew worktrees and how to remove them",
           ),
         directive: z.string().default("").describe("what you want built or changed (plan only)"),
         write: z
@@ -142,7 +144,7 @@ export const CouncilPlugin = async (input: any) => ({
       },
       async execute(
         args: {
-          mode?: "init" | "plan"
+          mode?: "init" | "plan" | "run" | "status"
           directive?: string
           write?: boolean
           verify?: string
@@ -155,6 +157,11 @@ export const CouncilPlugin = async (input: any) => ({
         const scope = resolveScope(cwd)
         if (scope.kind === "notrepo")
           return `${cwd} is not a git repository. The crew's scope is the repo you are standing in, so there is nothing to configure here.`
+
+        // Before the config lookup below, deliberately: a repo whose crew config was never
+        // written or has been removed is exactly where worktrees get stranded, and a
+        // read-only query has no reason to demand config. Writes no artifact directory.
+        if (args?.mode === "status") return renderWorktrees(listWorktrees(scope.root))
 
         if (args?.mode === "plan" || args?.mode === "run") {
           const cfg = readCrewConfig(scope.root)
