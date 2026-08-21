@@ -4,7 +4,8 @@ import { dirname, join, basename } from "node:path"
 import { execFileSync } from "node:child_process"
 import { z } from "zod"
 import { runReview, runFix, runPlan, runIndependent } from "./engine.ts"
-import { renderReport, renderSummary, renderPatches, renderPlan, renderTakesIndex } from "./report.ts"
+import { detectVerify, runWork } from "./work.ts"
+import { renderReport, renderSummary, renderPatches, renderPlan, renderTakesIndex, renderWork } from "./report.ts"
 
 const PKG = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -86,14 +87,29 @@ export const CouncilPlugin = async (input: any) => ({
         "vote on a goal. Use /check for a fast inline pass instead.",
       args: {
         mode: z
-          .enum(["review", "fix", "plan", "independent"])
+          .enum(["review", "fix", "plan", "independent", "work"])
           .default("review")
-          .describe("review = the graph; fix = verified patches; plan = proposal vote on a goal"),
+          .describe(
+            "review = the graph; fix = verified patches; plan = proposal vote; " +
+              "independent = every model answers alone, unmerged; work = implement a goal in an isolated worktree until the project's own check passes",
+          ),
         base: z.string().default("HEAD").describe("git ref to diff against (review/fix only)"),
-        goal: z.string().default("").describe("what to plan (plan mode only)"),
+        goal: z.string().default("").describe("what to plan / answer / build (plan, independent, work)"),
+        verify: z
+          .string()
+          .default("")
+          .describe(
+            "work mode only — the command proving the project still works, e.g. 'npm test'. " +
+              "Detected if omitted; if it cannot be determined unambiguously you are asked, never guessed at.",
+          ),
       },
       async execute(
-        args: { mode?: "review" | "fix" | "plan" | "independent"; base?: string; goal?: string },
+        args: {
+          mode?: "review" | "fix" | "plan" | "independent" | "work"
+          base?: string
+          goal?: string
+          verify?: string
+        },
         context: any,
       ) {
         const t0 = Date.now()
@@ -103,6 +119,52 @@ export const CouncilPlugin = async (input: any) => ({
         const ctx = {
           serverUrl: String(input?.serverUrl ?? "http://127.0.0.1:4096"),
           auth: user && pass ? "Basic " + Buffer.from(`${user}:${pass}`).toString("base64") : undefined,
+        }
+
+        // Work has no diff either, and must resolve its done-predicate before doing anything.
+        if (args?.mode === "work") {
+          const goal = (args.goal ?? "").trim()
+          if (!goal) return "No goal given. `work` needs one."
+
+          let command = (args.verify ?? "").trim()
+          if (!command) {
+            const probe = detectVerify(cwd)
+            if (probe.kind === "found") command = probe.command
+            else if (probe.kind === "ambiguous")
+              // Never pick one. A wrong verify command is the worst outcome available here:
+              // the loop would run something that passes trivially and report the work done.
+              return [
+                "I can't tell which check proves this project works, and guessing would be worse",
+                "than asking — a check that passes trivially would make the loop report success",
+                "on unfinished work. Candidates:",
+                ...probe.candidates.map((c) => `  • ${c.command}   (${c.why})`),
+                "",
+                `Re-run with the right one, e.g. council({ mode: "work", goal: "...", verify: "${probe.candidates[0].command}" })`,
+              ].join("\n")
+            else
+              return [
+                "I can't find any test or build command in this project, so there is no objective",
+                "way to know when the work is done. Tell me what to run and I'll use it:",
+                `  council({ mode: "work", goal: "${goal.slice(0, 60)}", verify: "<your command>" })`,
+              ].join("\n")
+          }
+
+          const result = await runWork(ctx, { goal, cwd, verifyCommand: command })
+          const dir = artifactDir(cwd, "work")
+          const out = join(dir, "work.md")
+          writeFileSync(out, renderWork(result))
+          writeFileSync(join(dir, "work.json"), JSON.stringify(result, null, 2))
+          const done = result.items.filter((i) => i.state === "done").length
+          return [
+            result.done
+              ? `DONE — ${done}/${result.items.length} items, \`${command}\` passing.`
+              : `INCOMPLETE — ${done}/${result.items.length} items done. Stopped rather than build on a broken base.`,
+            `Nothing in your working tree was touched. Work is on branch \`${result.branch}\`:`,
+            `  git diff ${result.branch}`,
+            `  git worktree remove ${result.worktree}   # when finished`,
+            ``,
+            `Report: ${out}`,
+          ].join("\n")
         }
 
         // Planning has no diff, so it must resolve before the diff guard below.

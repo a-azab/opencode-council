@@ -37,6 +37,58 @@ export const FINDINGS_SCHEMA = {
   additionalProperties: false,
 } as const
 
+export const WORKITEMS_SCHEMA = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "one line, imperative" },
+          detail: { type: "string", description: "what to change and why" },
+          files: {
+            type: "array",
+            items: { type: "string" },
+            description: "paths this item is expected to touch",
+          },
+          acceptance: {
+            type: "string",
+            description: "how a reviewer would know this item is genuinely done",
+          },
+        },
+        required: ["title", "detail", "files", "acceptance"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["items"],
+  additionalProperties: false,
+} as const
+
+/** One work item's implementation: whole files, never diffs. Same reasoning as PATCH_SCHEMA. */
+export const IMPLEMENT_SCHEMA = {
+  type: "object",
+  properties: {
+    files: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          new_content: { type: "string", description: "the complete new file, first line to last" },
+        },
+        required: ["path", "new_content"],
+        additionalProperties: false,
+      },
+    },
+    explanation: { type: "string" },
+    confident: { type: "boolean", description: "false if guessing; the loop escalates instead of continuing" },
+  },
+  required: ["files", "explanation", "confident"],
+  additionalProperties: false,
+} as const
+
 export const PROPOSAL_SCHEMA = {
   type: "object",
   properties: {
