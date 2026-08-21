@@ -88,17 +88,61 @@ Or call the tool directly for a different base:
 council({ base: "main" })
 ```
 
-### `/council-fix` — patches, behind your gate
+The commands are thin wrappers over one tool:
+
+| call | does |
+|---|---|
+| `council({ mode: "review", base: "HEAD" })` | the full graph (default) |
+| `council({ mode: "fix" })` | patches for the last review's findings |
+| `council({ mode: "plan", goal: "..." })` | propose and vote on an approach |
+
+`goal` is required for `mode: "plan"` and ignored otherwise. `base` accepts any git ref.
+
+### `/council-fix` — patches, verified, behind your gate
 
 ```
 /council-fix
 ```
 
-Generates a patch per finding and **applies nothing**. Each patch is validated with
-`git apply --check` before you ever see it; a fixer that is guessing returns
-`confident: false` and is escalated rather than applied.
+Takes the last review's findings and writes a patch for each. **Applies nothing.**
 
-Artifacts land in `council-artifacts/<timestamp>/` — `report.md` and `findings.json`.
+Every patch goes through three checks before you see it:
+
+1. **The fixer returns the full file, not a diff.** git computes the patch. Models are
+   reliably bad at `@@` hunk arithmetic and there is no reason to make them try.
+2. **`git apply --check`.** A patch git will not take is not a patch, however confident the
+   model was.
+3. **An independent model re-checks the finding against the patched content** — never the
+   model that wrote the fix. If it says the problem is still there, its reason becomes the
+   next attempt's instruction. Two attempts, then it escalates to you.
+
+Results are sorted into four buckets that never merge:
+
+| bucket | meaning |
+|---|---|
+| **verified** | an independent model confirmed the finding is gone |
+| **unverified** | the patch applies, but the check could not run — treat as unreviewed |
+| **needs a decision** | the fixer set `confident: false`; the right fix depends on intent it wasn't told |
+| **unresolved** | re-checked twice and a reviewer still sees the problem |
+
+The distinction matters: a patch nobody checked is not done, and presenting it beside a
+verified one would make the guarantee meaningless.
+
+### `/council-plan` — pick an approach by vote
+
+```
+/council-plan add rate limiting without adding Redis
+```
+
+Five lanes propose an approach. Every model then scores every proposal **except its own**
+on correctness, simplicity, risk and completeness. The winner is the highest mean —
+arithmetic, not a model's preference.
+
+**Ties come to you.** Two proposals within `TIE_MARGIN` are not meaningfully ranked, so no
+winner is declared; picking one would be false precision the numbers don't support.
+
+Artifacts land in `council-artifacts/<timestamp>/` — `report.md`, `findings.json`,
+`patches.md`, or `plan.md` + `plan.json`.
 
 ---
 
@@ -144,6 +188,8 @@ did not raise the finding — self-verification is not verification.
 | convergence | no tier moved, or no disputes left, or round limit |
 | keep / downgrade / drop | `decide()` over skeptic votes |
 | the report | template-filled from data |
+| a fix is resolved | an independent model's verdict on the patched content, not the fixer's |
+| which plan wins | mean of cross-scores; ties escalate rather than resolve |
 
 A model may summarise the report, but cannot add, remove, or re-tier a finding.
 
@@ -229,13 +275,18 @@ it, the two asymmetries above are the things most likely to be "simplified" into
 
 | file | role |
 |---|---|
-| `src/decide.ts` | pure aggregation: dedupe, disputes, convergence, decide |
+| `src/decide.ts` | pure judgement: dedupe, disputes, convergence, `decide`, `tally` |
 | `src/roster.ts` | models, routing table, node and skeptic selection |
-| `src/engine.ts` | fan-out, debate, verification, fix — moves data, holds no judgement |
+| `src/engine.ts` | fan-out, debate, verification, fix, plan — moves data, holds no judgement |
 | `src/schema.ts` | JSON Schemas enforced by the runtime as forced tool calls |
-| `src/report.ts` | report rendering |
+| `src/report.ts` | report, patch and plan rendering |
 | `src/index.ts` | plugin entry: registers agents, commands, and the `council` tool |
 | `agent/*.md` | the 12 role prompts — expertise and tier calibration only |
+| `src/*.test.ts` | 46 tests: `decide`, `roster`, `tally`, patch classification |
+
+The rule the whole design rests on: **anything that decides an outcome lives in
+`decide.ts` and is tested.** `engine.ts` may move data and call models, but if you find
+yourself writing a judgement there, it belongs one file over.
 
 **[PLAN.md](./PLAN.md)** carries the design decisions with rationale, the measured spike
 results, and 18 opencode runtime gotchas that cost real time to discover. Read it before

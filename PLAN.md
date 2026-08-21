@@ -374,6 +374,16 @@ It *was* the plugin. Folded into Phase 2.
 
 **All features are built. Only cleanup remains, and it is blocked on use rather than code.**
 
+### What ships
+
+| surface | entry point |
+|---|---|
+| `/check` | inline 6-lens pass, no subagents |
+| `/council-review` | `council({ mode: "review", base })` — the full graph |
+| `/council-fix` | `council({ mode: "fix" })` — verified patches, applies nothing |
+| `/council-plan` | `council({ mode: "plan", goal })` — cross-scored vote |
+| 12 role agents | `council-{security,systems,code,pragmatist,product,breadth,reviewer,docs,qa,ops,skeptic,fixer}` |
+
 ### Phase 4c — fix loop — **DONE** (was PARTIAL)
 
 The loop closes. A patch is re-checked against the patched content by a model that did not
