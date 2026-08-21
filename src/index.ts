@@ -5,6 +5,14 @@ import { execFileSync } from "node:child_process"
 import { z } from "zod"
 import { runReview, runFix, runPlan, runIndependent } from "./engine.ts"
 import { detectVerify, runWork } from "./work.ts"
+import {
+  resolveScope,
+  proposeInit,
+  renderInitProposal,
+  applyInit,
+  type CrewConfig,
+} from "./crew.ts"
+import { type Role } from "./roster.ts"
 import { renderReport, renderSummary, renderPatches, renderPlan, renderTakesIndex, renderWork } from "./report.ts"
 
 const PKG = dirname(dirname(fileURLToPath(import.meta.url)))
@@ -78,6 +86,64 @@ function artifactDir(cwd: string, kind: string): string {
 
 export const CouncilPlugin = async (input: any) => ({
   tool: {
+    crew: {
+      description:
+        "The crew: take a directive from intake through an approved plan, implementation, " +
+        "verification and review, to a PR. mode:'init' inspects the repo and proposes its " +
+        "config (verify command, PR base, review lanes), then writes it to AGENTS.md once " +
+        "you confirm. Run init once per repo before anything else.",
+      args: {
+        mode: z.enum(["init"]).default("init").describe("init = detect and record this repo's crew config"),
+        write: z
+          .boolean()
+          .default(false)
+          .describe("false proposes and returns; true writes. Never write before the human has seen the proposal."),
+        verify: z
+          .string()
+          .default("")
+          .describe("comma-separated commands, run in order, all must pass (write only)"),
+        base: z.string().default("").describe("PR target branch (write only)"),
+        lanes: z.string().default("").describe("comma-separated review lanes (write only)"),
+      },
+      async execute(
+        args: { mode?: "init"; write?: boolean; verify?: string; base?: string; lanes?: string },
+        context: any,
+      ) {
+        const cwd = context?.directory ?? input?.directory ?? process.cwd()
+        const scope = resolveScope(cwd)
+        if (scope.kind === "notrepo")
+          return `${cwd} is not a git repository. The crew's scope is the repo you are standing in, so there is nothing to configure here.`
+
+        if (!args?.write) return renderInitProposal(proposeInit(scope.root, scope.branch))
+
+        // The write path takes only what the human confirmed. Defaulting a verify command
+        // would reintroduce exactly the failure detectVerify refuses to make: a command
+        // that passes trivially, letting the crew report unfinished work as done.
+        const list = (s?: string) =>
+          (s ?? "")
+            .split(",")
+            .map((x) => x.trim())
+            .filter(Boolean)
+        const verify = list(args.verify)
+        const lanes = list(args.lanes) as Role[]
+        const base = (args.base ?? "").trim()
+
+        const missing = [
+          !verify.length && "verify (how this project proves it still works)",
+          !base && "base (the PR target branch)",
+          !lanes.length && "lanes (which review lanes run here)",
+        ].filter(Boolean)
+        if (missing.length)
+          return `Not writing — still unconfirmed:\n${missing.map((m) => `  • ${m}`).join("\n")}`
+
+        const cfg: CrewConfig = { verify, base, lanes }
+        const written = applyInit(scope.root, cfg)
+        return written.length
+          ? `Wrote ${written.join(", ")}.\n\nverify: ${verify.join(", ")}\nbase: ${base}\nlanes: ${lanes.join(", ")}`
+          : "Nothing to write — config already matches."
+      },
+    },
+
     council: {
       description:
         "Multi-model code work: fans out across role x model, debates disputed findings to a " +
@@ -262,7 +328,7 @@ export const CouncilPlugin = async (input: any) => ({
     // their own deny list (engine.ts) because self-created children inherit nothing.
     config.experimental ??= {}
     config.experimental.primary_tools = [
-      ...new Set([...(config.experimental.primary_tools ?? []), "council"]),
+      ...new Set([...(config.experimental.primary_tools ?? []), "council", "crew"]),
     ]
 
     config.command ??= {}

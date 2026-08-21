@@ -1,0 +1,204 @@
+import { test } from "node:test"
+import assert from "node:assert/strict"
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import {
+  parseCrewBlock,
+  renderCrewBlock,
+  upsertCrewBlock,
+  resolveScope,
+  detectStack,
+  detectVerifyCandidates,
+  proposeLanes,
+  graphState,
+  missingIgnores,
+  proposeInit,
+  applyInit,
+  CREW_IGNORES,
+  type CrewConfig,
+} from "./crew.ts"
+
+const CFG: CrewConfig = {
+  verify: ["npm test", "npm run lint"],
+  base: "develop",
+  lanes: ["code", "qa", "reviewer"],
+}
+
+test("a config survives a render/parse round trip", () => {
+  assert.deepEqual(parseCrewBlock(renderCrewBlock(CFG)), CFG)
+})
+
+test("no crew block parses to nothing, not to defaults", () => {
+  // A missing block and an empty block must be distinguishable from a configured one,
+  // or init cannot tell "never run here" from "configured with blanks".
+  assert.deepEqual(parseCrewBlock("# AGENTS\n\nSome prose.\n"), {})
+})
+
+test("comments and blank lines inside the block are ignored", () => {
+  const md = "```crew\n# what to run\nverify: npm test\n\nbase: main\n```"
+  assert.deepEqual(parseCrewBlock(md), { verify: ["npm test"], base: "main" })
+})
+
+test("upsert appends a section when the file has none", () => {
+  const out = upsertCrewBlock("# AGENTS\n\nHouse rules.\n", CFG)
+  assert.ok(out.startsWith("# AGENTS\n\nHouse rules."), "existing prose must lead")
+  assert.deepEqual(parseCrewBlock(out), CFG)
+})
+
+test("upsert replaces the block in place and touches nothing else", () => {
+  // The whole point of the fence. A regression here rewrites a file the user's team
+  // reviews, which is the most damaging thing this tool could do.
+  const before = `# AGENTS
+
+Rules above.
+
+## Crew
+
+\`\`\`crew
+verify: old command
+base: master
+lanes: reviewer
+\`\`\`
+
+## Something the user wrote after
+
+Prose below that must survive.
+`
+  const after = upsertCrewBlock(before, CFG)
+  assert.deepEqual(parseCrewBlock(after), CFG)
+  assert.ok(after.includes("Rules above."))
+  assert.ok(after.includes("Prose below that must survive."))
+  assert.ok(after.includes("## Something the user wrote after"))
+  assert.ok(!after.includes("old command"))
+  assert.equal(after.match(/```crew/g)?.length, 1, "must not accumulate blocks")
+})
+
+test("upsert is idempotent", () => {
+  const once = upsertCrewBlock("# AGENTS\n", CFG)
+  assert.equal(upsertCrewBlock(once, CFG), once)
+})
+
+test("resolveScope reports a non-repo instead of throwing", () => {
+  assert.deepEqual(resolveScope("/"), { kind: "notrepo" })
+})
+
+test("resolveScope finds this repo from a subdirectory", () => {
+  const scope = resolveScope(new URL(".", import.meta.url).pathname)
+  assert.equal(scope.kind, "ok")
+  if (scope.kind !== "ok") return
+  assert.ok(scope.root.endsWith("opencode-council"), scope.root)
+  assert.ok(Array.isArray(scope.dirty))
+})
+
+test("detectStack recognises this repo as node", () => {
+  const root = new URL("..", import.meta.url).pathname
+  assert.ok(detectStack(root).includes("node"))
+})
+
+test("verify candidates carry a reason and never collapse to a guess", () => {
+  const root = new URL("..", import.meta.url).pathname
+  const found = detectVerifyCandidates(root)
+  assert.ok(found.length >= 1, "this repo has a test script")
+  for (const c of found) assert.ok(c.why.length > 0, `candidate without a reason: ${c.command}`)
+})
+
+test("a directory with no manifests yields no candidates", () => {
+  assert.deepEqual(detectVerifyCandidates("/nonexistent"), [])
+})
+
+test("nx repos are offered the affected-only command first", () => {
+  // The narrowing that keeps a monorepo run from taking an hour. Ordering matters: the
+  // caller shows candidates in order and the first is the recommendation, so a whole-
+  // workspace command winning here would silently cost an hour a run.
+  const dir = mkdtempSync(join(tmpdir(), "crew-nx-"))
+  try {
+    writeFileSync(join(dir, "nx.json"), "{}")
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "jest" } }))
+    const found = detectVerifyCandidates(dir, "develop")
+    assert.match(found[0].command, /nx affected/, `first candidate was ${found[0].command}`)
+    assert.match(found[0].command, /--base=develop/, "must target the configured base")
+    assert.ok(
+      found.some((c) => c.command === "npm run test"),
+      "the whole-workspace fallbacks must still be offered",
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("proposeLanes always includes reviewer", () => {
+  const root = new URL("..", import.meta.url).pathname
+  const lanes = proposeLanes(root)
+  assert.ok(lanes.includes("reviewer"), `${lanes}`)
+})
+
+test("proposeLanes degrades to reviewer outside a repo rather than throwing", () => {
+  assert.deepEqual(proposeLanes("/nonexistent"), ["reviewer"])
+})
+
+test("graphState reports missing when there is no graph", () => {
+  assert.deepEqual(graphState("/nonexistent"), { kind: "missing" })
+})
+
+test("missingIgnores lists everything when the exclude file is absent", () => {
+  assert.deepEqual(missingIgnores("/nonexistent"), CREW_IGNORES)
+})
+
+/** A throwaway repo, so the write-path tests touch nothing real. */
+function scratchRepo(): string {
+  const dir = mkdtempSync(join(tmpdir(), "crew-repo-"))
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir })
+  execFileSync("git", ["config", "user.email", "t@t"], { cwd: dir })
+  execFileSync("git", ["config", "user.name", "t"], { cwd: dir })
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "true" } }))
+  execFileSync("git", ["add", "-A"], { cwd: dir })
+  execFileSync("git", ["commit", "-qm", "init"], { cwd: dir })
+  return dir
+}
+
+test("applyInit writes both files and is idempotent", () => {
+  const dir = scratchRepo()
+  try {
+    const cfg: CrewConfig = { verify: ["npm test"], base: "main", lanes: ["reviewer"] }
+
+    const first = applyInit(dir, cfg)
+    assert.deepEqual(first.sort(), [".git/info/exclude", "AGENTS.md"])
+    assert.deepEqual(parseCrewBlock(readFileSync(join(dir, "AGENTS.md"), "utf8")), cfg)
+    const exclude = readFileSync(join(dir, ".git", "info", "exclude"), "utf8")
+    for (const line of CREW_IGNORES) assert.ok(exclude.includes(line), `missing ignore: ${line}`)
+
+    // Re-init must be a no-op, not a duplicate append. Init is expected to be re-run.
+    assert.deepEqual(applyInit(dir, cfg), [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("applyInit preserves prose the user wrote in AGENTS.md", () => {
+  const dir = scratchRepo()
+  try {
+    const prose = "# AGENTS\n\nNever commit to main. Money is integers.\n"
+    writeFileSync(join(dir, "AGENTS.md"), prose)
+    applyInit(dir, { verify: ["npm test"], base: "main", lanes: ["reviewer"] })
+    applyInit(dir, { verify: ["npm run ci"], base: "develop", lanes: ["qa"] })
+    const after = readFileSync(join(dir, "AGENTS.md"), "utf8")
+    assert.ok(after.includes("Never commit to main. Money is integers."))
+    assert.equal(after.match(/```crew/g)?.length, 1)
+    assert.deepEqual(parseCrewBlock(after), { verify: ["npm run ci"], base: "develop", lanes: ["qa"] })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("proposeInit surfaces an existing config so re-init is not silent", () => {
+  const dir = scratchRepo()
+  try {
+    const cfg: CrewConfig = { verify: ["npm test"], base: "main", lanes: ["reviewer"] }
+    applyInit(dir, cfg)
+    assert.deepEqual(proposeInit(dir, "main").existing, cfg)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
