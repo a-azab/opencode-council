@@ -195,6 +195,37 @@ costs `git worktree remove`, not a recovery.
 An incomplete run reports as incomplete, in the terminal and in the PR body. That is
 enforced by tests, because it is the one lie that would matter.
 
+### `/crew-status` — what's still lying around
+
+Lists live crew worktrees with their branch, age, and the exact command to remove each.
+Works in any git repo, including one with no crew config — that's precisely where a
+worktree gets stranded and forgotten.
+
+The crew wrote this one.
+
+### Tracking — optional, and off by default
+
+Runs report to your terminal. If you want them mirrored somewhere, `/crew-init` asks once
+and records the answer in the `crew` block.
+
+| `tracker:` | behaviour |
+|---|---|
+| absent | init never asked — it will ask once, and offer to record your answer |
+| `none` | you declined. It won't ask again. |
+| `linear` | mirrored into a Linear agent session |
+
+**`none` and absent are different on purpose.** Creating issues in someone's workspace
+uninvited is worse than asking one question, so the crew never guesses.
+
+With `linear`, the crew registers as a real workspace member and streams into a native
+agent session: a live plan checklist, one entry per item, and the PR link attached when it
+opens. Outbound only — no webhook, no public endpoint, no daemon. Needs `LINEAR_API_TOKEN`
+from an OAuth app installed with `actor=app` (workspace admin required). Without the token
+it isn't offered at all.
+
+**A tracker can never break a run.** An outage, an expired token, or a preview-API change
+costs you a warning line. The work is real; the mirror is not.
+
 ### `/council-independent` — the raw takes, unmerged
 
 ```

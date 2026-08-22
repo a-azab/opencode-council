@@ -20,8 +20,15 @@ Then resolve, in this order, asking only about what is genuinely ambiguous:
    `graphify extract . --code-only --max-workers 16` (local tree-sitter AST, no LLM calls,
    seconds even on a large repo). Do not plan against a stale graph.
 
+5. **Tracking** — if the proposal says it is not recorded, ask once whether runs should be
+   mirrored anywhere. Offer only what the proposal lists as available; do not offer Linear
+   if it is not there, since that needs `LINEAR_API_TOKEN`. If the user says no, record
+   `none` — that is a real answer and stops the question coming back. Never enable a
+   tracker they did not ask for: creating issues in someone's workspace uninvited is worse
+   than one question.
+
 Once the user has confirmed, call `crew` again with `write: true` and the confirmed
-`verify`, `base` and `lanes`.
+`verify`, `base`, `lanes` and `tracker`.
 
 Report which files changed. Only two ever do: the `crew` fenced block in `AGENTS.md`, and
 `.git/info/exclude` — which is per-clone and never committed, so nothing here reaches the

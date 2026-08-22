@@ -10,6 +10,16 @@ import { join } from "node:path"
 import { selectRoles, bySlug, skepticPool, ROSTER, type Role } from "./roster.ts"
 import { ask, runReview, type Ctx, type NodeState } from "./engine.ts"
 import { WORKITEMS_SCHEMA, VERDICT_SCHEMA } from "./schema.ts"
+import {
+  findIssue,
+  createSessionOnIssue,
+  createActivity,
+  updatePlan,
+  addExternalUrl,
+  issueIdentifierIn,
+  type LinearCtx,
+  type PlanStep,
+} from "./linear.ts"
 
 /**
  * What `/crew init` writes and every later phase reads.
@@ -690,19 +700,134 @@ export function guarded(inner: Tracker, onStep: (m: string) => void): Tracker {
 }
 
 /**
- * Trackers that actually work today, so init never offers one it cannot deliver.
+ * Mirrors a run into a Linear agent session (PLAN.md §9 Phase 5).
  *
- * `linear` appears here only once Phase 5 lands. Listing it earlier would have init ask a
- * question whose answer it cannot honour — the human picks it, nothing mirrors, and the
- * config now lies about what this repo does.
+ * Outbound only: the crew creates its own session rather than waiting to be assigned one,
+ * so there is no webhook, no public endpoint and no daemon. In the Linear UI it renders
+ * identically to an agent that was delegated the issue.
+ *
+ * `issueRef` must name a real issue — a session hangs off an issue, so a directive that is
+ * free text has nothing to attach to. That case reports and falls back to terminal-only
+ * rather than inventing an issue nobody asked for.
  */
-export function availableTrackers(): TrackerName[] {
-  return ["none"]
+export function linearTracker(
+  ctx: LinearCtx,
+  issueRef: string,
+  onStep: (m: string) => void,
+): Tracker {
+  let sessionId: string | null = null
+  let plan: PlanStep[] = []
+
+  const syncPlan = async () => {
+    if (sessionId) await updatePlan(ctx, sessionId, plan)
+  }
+
+  return {
+    name: "linear",
+    async start({ directive, items, branch }) {
+      const issue = await findIssue(ctx, issueRef)
+      if (!issue) {
+        onStep(`  tracker(linear): ${issueRef} not found — continuing without it`)
+        return
+      }
+      sessionId = await createSessionOnIssue(ctx, issue.id)
+      // Linear marks a session unresponsive if nothing arrives within 10s of creation, so
+      // this acknowledgement is a protocol requirement, not decoration.
+      await createActivity(ctx, sessionId, {
+        type: "thought",
+        body: `Picked this up. ${items.length} item(s) planned, working on \`${branch}\`.`,
+      })
+      plan = items.map((i) => ({ content: i.title, status: "pending" as const }))
+      await syncPlan()
+      onStep(`  tracker(linear): session open on ${issue.identifier}`)
+    },
+
+    step(message) {
+      // Ephemeral, so progress replaces itself instead of burying the issue in a hundred
+      // entries. Fire-and-forget: a progress line must never delay or fail the run.
+      if (!sessionId) return
+      void createActivity(ctx, sessionId, { type: "thought", body: message }, true).catch(() => {})
+    },
+
+    async itemDone(outcome) {
+      const i = plan.findIndex((p) => p.content === outcome.item.title)
+      if (i !== -1) {
+        plan[i].status = outcome.state === "done" ? "completed" : "canceled"
+        await syncPlan()
+      }
+      if (!sessionId) return
+      await createActivity(ctx, sessionId, {
+        type: "action",
+        action: outcome.state === "done" ? "Implemented" : "Could not finish",
+        parameter: outcome.item.title,
+        result:
+          outcome.state === "done"
+            ? `\`${outcome.commit}\` after ${outcome.attempts} attempt(s)${outcome.judge ? `, acceptance confirmed by an independent reviewer` : ""}`
+            : `${outcome.state}${outcome.detail ? `: ${outcome.detail}` : ""}`,
+      })
+    },
+
+    async finish(result) {
+      if (!sessionId) return
+      if (result.prUrl) await addExternalUrl(ctx, sessionId, "Pull request", result.prUrl)
+
+      const done = result.outcomes.filter((o) => o.state === "done").length
+      const stuck = result.outcomes.filter((o) => o.state !== "done")
+      const where = result.prUrl
+        ? `PR: ${result.prUrl}`
+        : result.pushed
+          ? `Branch \`${result.branch}\` is pushed; no PR was opened.`
+          : `Branch \`${result.branch}\` exists locally only — it was **not** pushed.`
+
+      // An incomplete run reports as an error, not a response. A green-looking summary over
+      // unfinished work is the one failure that costs someone real time.
+      await createActivity(ctx, sessionId, {
+        type: stuck.length ? "error" : "response",
+        body: [
+          stuck.length
+            ? `Stopped with ${done}/${result.outcomes.length} item(s) done.`
+            : `Done — ${done} item(s), ${Math.round(result.seconds)}s.`,
+          "",
+          ...stuck.map((o) => `- **${o.item.title}** — ${o.state}${o.detail ? `: ${o.detail}` : ""}`),
+          stuck.length ? "" : "",
+          where,
+        ]
+          .filter((l) => l !== undefined)
+          .join("\n"),
+      })
+    },
+  }
 }
 
-export function trackerFor(name: TrackerName | undefined, onStep: (m: string) => void): Tracker {
+/**
+ * Trackers that actually work today, so init never offers one it cannot deliver.
+ *
+ * Linear needs a token, so it is only offered where one exists. Listing it unconditionally
+ * would let someone pick a tracker that silently mirrors nothing while the config claims
+ * otherwise.
+ */
+export function availableTrackers(env: NodeJS.ProcessEnv = process.env): TrackerName[] {
+  return ["none", ...(env.LINEAR_API_TOKEN ? (["linear"] as const) : [])]
+}
+
+export function trackerFor(
+  name: TrackerName | undefined,
+  onStep: (m: string) => void,
+  opts: { issueRef?: string | null; env?: NodeJS.ProcessEnv } = {},
+): Tracker {
+  const env = opts.env ?? process.env
   const stdout = stdoutTracker(onStep)
-  if (!name || name === "none" || !availableTrackers().includes(name)) return stdout
+  if (!name || name === "none" || !availableTrackers(env).includes(name)) return stdout
+
+  if (name === "linear") {
+    if (!opts.issueRef) {
+      // A Linear agent session hangs off an issue. Without one there is nothing to attach
+      // to, and inventing an issue is not ours to do.
+      onStep(`  tracker(linear): the directive does not name an issue (e.g. ENG-123) — terminal only`)
+      return stdout
+    }
+    return fanout(stdout, guarded(linearTracker({ token: env.LINEAR_API_TOKEN! }, opts.issueRef, onStep), onStep))
+  }
   return stdout
 }
 

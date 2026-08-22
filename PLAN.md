@@ -919,18 +919,49 @@ worktree the crew itself had been running in.
 
 #### PAUSE — run it on something real before Phase 4.
 
-#### Phase 4 — tracker seam — **TODO**
-- [ ] `start / plan / progress / finish`, defaulting to no-ops. stdout implementation is
-      the default, not silence
-- [ ] Resolution order: explicit config → `AGENTS.md`/`CLAUDE.md` declaration → **ask
-      once** → offer to persist. Never guess.
+#### Phase 4 — tracker seam — **DONE** (2026-08-21)
+- [x] `start / step / itemDone / finish`. The stdout implementation is the **default, not
+      silence** — an unmirrored run would otherwise be twenty silent minutes, which is
+      indistinguishable from a hang.
+- [x] `guarded()` — a tracker failure costs a warning line, never a branch. The work is
+      real; the mirror is not. An outage, an expired token or a preview-schema change must
+      not be able to lose committed work.
+- [x] `fanout()` — a mirror never *replaces* the terminal signal, it accompanies it.
+- [x] Three config states kept distinct: **absent** (never asked → ask once, offer to
+      record), **`none`** (declined → never re-ask), **unknown** (dropped, so a typo reads
+      as "never asked" rather than silently disabling tracking).
+- [x] `availableTrackers()` lists only what can actually be honoured, so init cannot ask a
+      question it is unable to deliver on.
 
-#### Phase 5 — Linear tracker — **TODO**
-- [ ] OAuth app, `actor=app`, `app:assignable` — **requires Linear workspace admin**
-- [ ] `agentSessionCreateOnIssue`, activities (`thought`/`action`/`elicitation`/`response`/
-      `error`), `agentSessionUpdate{plan}` as the live checklist, PR in `externalUrls`
-- [ ] Outbound only. No webhook, no daemon, no ingress — the crew is prompted from
-      opencode and creates its own session.
+Also closed a gap this surfaced: in the real tool path `runExecute` had nowhere to send
+progress, because a tool call returns once at the end. Steps now append to `run.log` in the
+artifact dir as they happen, so a run can be tailed while it is still going.
+
+#### Phase 5 — Linear tracker — **BUILT, UNVERIFIED against a live workspace** (2026-08-21)
+- [x] `src/linear.ts` — hand-rolled over `fetch`, six operations. Not `@linear/sdk`: both
+      APIs are previews (Agents API is Developer Preview, Agent Plans is a technology
+      preview) and Linear says outright they may change. A thin file is a one-file repair;
+      a dependency pinned to a preview schema is not.
+- [x] `agentSessionCreateOnIssue`, `thought` acknowledgement **within the 10s window Linear
+      requires**, `agentSessionUpdate{plan}` as the live checklist, `action` per item,
+      `response`/`error` at the end, PR via `addedExternalUrls` (never `externalUrls`,
+      which replaces the whole array).
+- [x] Progress uses **ephemeral** activities, so a twenty-minute run replaces its own
+      progress line instead of burying the issue in a hundred entries.
+- [x] Outbound only. No webhook, no daemon, no ingress.
+- [x] Every degradation path is honest: no token → not offered; token but the directive
+      names no issue → says so and falls back to terminal-only; unreachable Linear →
+      warning line, run continues.
+
+**Verified against a stub GraphQL server (8 tests), not a real workspace.** That proves the
+client is internally consistent — a plan status actually flips, a stuck item is `canceled`
+rather than left `pending` forever, an incomplete run reports as `error` not `response`.
+It cannot prove Linear accepts these mutations. Only a real workspace can.
+
+**What remains, and it needs the human:** create a Linear OAuth application with
+`actor=app` and the `app:assignable` scope (**workspace admin required**), then export
+`LINEAR_API_TOKEN`. Until then `availableTrackers()` correctly omits `linear` and init will
+not offer it.
 
 ### 9.5 Explicitly NOT building
 

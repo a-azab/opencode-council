@@ -142,6 +142,10 @@ export const CouncilPlugin = async (input: any) => ({
           .describe("comma-separated commands, run in order, all must pass (write only)"),
         base: z.string().default("").describe("PR target branch (write only)"),
         lanes: z.string().default("").describe("comma-separated review lanes (write only)"),
+        tracker: z
+          .string()
+          .default("")
+          .describe("where to mirror runs: 'none', or 'linear' when LINEAR_API_TOKEN is set (write only)"),
       },
       async execute(
         args: {
@@ -151,6 +155,7 @@ export const CouncilPlugin = async (input: any) => ({
           verify?: string
           base?: string
           lanes?: string
+          tracker?: string
         },
         context: any,
       ) {
@@ -205,7 +210,9 @@ export const CouncilPlugin = async (input: any) => ({
               cfg,
               instructions: readInstructions(scope.root).text,
               directive: saved.directive ?? "",
-              tracker: trackerFor(cfg.tracker, say),
+              tracker: trackerFor(cfg.tracker, say, {
+                issueRef: issueIdentifierIn(saved.directive ?? ""),
+              }),
             })
             writeFileSync(join(dir, "run.json"), JSON.stringify(result, null, 2))
             return `${renderRun(result, cfg)}\n\nStep log: ${logPath}`
@@ -263,10 +270,14 @@ export const CouncilPlugin = async (input: any) => ({
         if (missing.length)
           return `Not writing — still unconfirmed:\n${missing.map((m) => `  • ${m}`).join("\n")}`
 
-        const cfg: CrewConfig = { verify, base, lanes }
+        const tracker = (args.tracker ?? "").trim()
+        if (tracker && !availableTrackers().includes(tracker as any))
+          return `Unknown or unavailable tracker \`${tracker}\`. Available here: ${availableTrackers().join(", ")}.${tracker === "linear" ? " Linear needs LINEAR_API_TOKEN set." : ""}`
+
+        const cfg: CrewConfig = { verify, base, lanes, ...(tracker ? { tracker: tracker as any } : {}) }
         const written = applyInit(scope.root, cfg)
         return written.length
-          ? `Wrote ${written.join(", ")}.\n\nverify: ${verify.join(", ")}\nbase: ${base}\nlanes: ${lanes.join(", ")}`
+          ? `Wrote ${written.join(", ")}.\n\nverify: ${verify.join(", ")}\nbase: ${base}\nlanes: ${lanes.join(", ")}${tracker ? `\ntracker: ${tracker}` : ""}`
           : "Nothing to write — config already matches."
       },
     },
