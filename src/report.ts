@@ -54,6 +54,29 @@ export function renderReport(review: Review, meta: { files: string[]; ms: number
     )
   }
 
+  // A lane that answered only because a stand-in took over is not the lane that was
+  // planned, and two lanes answered by one model are not two independent opinions.
+  // Reporting the count without the substitutions would overstate coverage exactly the way
+  // hiding a drop does.
+  const stood = nodes.filter((n) => n.state === "ok" && n.substituted?.length)
+  if (stood.length) {
+    lines.push("## Lanes covered by a stand-in", "")
+    lines.push("| role | answered by | passed over |", "|---|---|---|")
+    for (const n of stood)
+      lines.push(
+        `| ${n.node.role} | ${n.node.slug} | ${n.substituted!.map((s) => `${s.from} (\`${s.state}\`)`).join(", ")} |`,
+      )
+    lines.push("")
+    const correlated = stood.filter((n) => nodes.some((o) => o !== n && o.state === "ok" && o.node.slug === n.node.slug))
+    if (correlated.length)
+      lines.push(
+        `> ${correlated.length} stand-in(s) reused a model already answering another lane.` +
+          " Those two lanes are correlated, not independent — which is the thing a" +
+          " multi-model panel is buying its way out of.",
+        "",
+      )
+  }
+
   if (disputed.length) {
     lines.push("## Unresolved disagreements", "")
     for (const g of disputed)

@@ -13,7 +13,7 @@ import {
   dedupe, decide, applyOutcome, disputes, applyRevisions, converged, tally,
   type Finding, type Group, type Verdict, type Revision, type Score,
 } from "./decide.ts"
-import { selectRoles, selectNodes, skepticPool, SKEPTICS_PER_TIER, bySlug, ROSTER, type Node } from "./roster.ts"
+import { selectRoles, selectNodes, skepticPool, SKEPTICS_PER_TIER, bySlug, ROSTER, type Node, type Role, type Member } from "./roster.ts"
 
 /**
  * Node outcomes are kept distinct on purpose. The council this replaces collapsed all of
@@ -37,6 +37,14 @@ export type NodeResult = {
   ms: number
   findings: Finding[]
   detail?: string
+  /**
+   * Models tried and passed over before this one answered, in order.
+   *
+   * Kept so the report can say "security/fable stood in for glm52 after a timeout" rather
+   * than quietly presenting a substituted lane as the one that was planned. A coverage
+   * number that hides substitutions is the same lie as one that hides drops.
+   */
+  substituted?: { from: string; state: NodeState; detail?: string }[]
 }
 
 export type Ctx = {
@@ -329,18 +337,89 @@ function skepticPrompt(f: Finding, diff: string): string {
 }
 
 /** Round one: every selected (role, model) reviews independently and in parallel. */
-export async function fanout(ctx: Ctx, nodes: Node[], diff: string): Promise<NodeResult[]> {
+/**
+ * A model that is dead for the rest of this run.
+ *
+ * Run-scoped rather than per-node because the failures that matter are model-level, not
+ * call-level: an exhausted quota or a model that cannot emit a forced tool call fails
+ * identically on every lane. Measured 2026-08-21: kimik3 returned "You've reached your
+ * usage limit for this billing cycle" on all four review slices, and minimax returned
+ * `malformed` on all four. Without a bench, failover retries each of those once per node.
+ */
+export type Bench = Map<string, string>
+
+/**
+ * Deterministic substitute order for a failed node, most-diverse first.
+ *
+ * Three tiers, and the third one matters: on a full-panel run every model is already
+ * assigned to some lane, so restricting substitutes to unassigned models offers **zero**
+ * stand-ins at exactly the moment coverage is being lost. Reusing a model that is already
+ * working another lane costs correlation - two lanes answered by one model are not two
+ * independent opinions - but a correlated lane beats an absent one, and `substituted` on
+ * the result records it so the report cannot pass it off as independent.
+ */
+export function substitutesFor(node: Node, round: Node[], bench: Bench, tried: Set<string>): Member[] {
+  const unavailable = new Set([...tried, ...bench.keys()])
+  const inRound = new Set(round.map((n) => n.slug))
+  const usable = ROSTER.filter((m) => !unavailable.has(m.slug))
+  const byRole = (want: boolean) => (m: Member) => m.roles.includes(node.role) === want
+
+  return [
+    ...usable.filter((m) => !inRound.has(m.slug)).filter(byRole(true)), // free, carries the role
+    ...usable.filter((m) => !inRound.has(m.slug)).filter(byRole(false)), // free, any role
+    ...usable.filter((m) => inRound.has(m.slug)).filter(byRole(true)), // busy, carries the role
+    ...usable.filter((m) => inRound.has(m.slug)).filter(byRole(false)), // busy, any role
+  ]
+}
+
+/** Failures that are the model's fault for the whole run, not this one call's. */
+export function benchable(state: NodeState, detail: string): string | null {
+  if (state === "malformed") return "cannot emit schema-valid structured output"
+  if (state === "autherror") return "auth rejected"
+  if (/usage limit|quota|billing cycle|insufficient|credit/i.test(detail)) return "quota exhausted"
+  return null
+}
+
+export const MAX_SUBSTITUTIONS = 3
+
+export async function fanout(
+  ctx: Ctx,
+  nodes: Node[],
+  diff: string,
+  bench: Bench = new Map(),
+): Promise<NodeResult[]> {
   const settled = await Promise.allSettled(
     nodes.map(async (node): Promise<NodeResult> => {
-      const r = await ask<{ findings: Finding[] }>(ctx, {
-        model: node.model,
-        agent: `council-${node.role}`,
-        text: reviewPrompt(diff, node.role),
-        schema: FINDINGS_SCHEMA,
-      })
-      if (!r.ok) return { node, state: r.state, ms: r.ms, findings: [], detail: r.detail }
-      const findings = (r.value.findings ?? []).map((f) => ({ ...f, role: node.role, model: node.slug }))
-      return { node, state: "ok", ms: r.ms, findings }
+      const substituted: NodeResult["substituted"] = []
+      const tried = new Set<string>()
+      let current = node
+
+      for (let attempt = 0; attempt <= MAX_SUBSTITUTIONS; attempt++) {
+        tried.add(current.slug)
+        const r = await ask<{ findings: Finding[] }>(ctx, {
+          model: current.model,
+          agent: `council-${node.role}`,
+          text: reviewPrompt(diff, node.role),
+          schema: FINDINGS_SCHEMA,
+        })
+        if (r.ok) {
+          const findings = (r.value.findings ?? []).map((f) => ({ ...f, role: node.role, model: current.slug }))
+          return { node: current, state: "ok", ms: r.ms, findings, substituted }
+        }
+
+        const why = benchable(r.state, r.detail)
+        if (why) bench.set(current.slug, why)
+        substituted.push({ from: current.slug, state: r.state, detail: r.detail })
+
+        // The lane is only lost when the roster is genuinely out of stand-ins. Reporting a
+        // dropped lane while eight unused models sit idle is the coverage gap this fixes.
+        const next = substitutesFor(node, nodes, bench, tried)[0]
+        if (!next || attempt === MAX_SUBSTITUTIONS)
+          return { node: current, state: r.state, ms: r.ms, findings: [], detail: r.detail, substituted }
+        current = { role: node.role, slug: next.slug, model: next.model }
+      }
+      // unreachable: the loop always returns
+      return { node: current, state: "failed", ms: 0, findings: [], detail: "exhausted", substituted }
     }),
   )
   // allSettled, not all: one timeout must not discard the other ten results
@@ -439,12 +518,27 @@ export const DEFAULT_MAX_ROUNDS = 2
 
 export async function runReview(
   ctx: Ctx,
-  input: { diff: string; files: string[]; changedLines?: number; maxRounds?: number },
+  input: {
+    diff: string
+    files: string[]
+    changedLines?: number
+    maxRounds?: number
+    /**
+     * Force this exact set of lanes instead of routing on changed paths.
+     *
+     * Routing exists to spend models where they matter, and on a `.ts`-only diff it wakes
+     * `code` and nothing else - so a security or systems lane never sees code that has no
+     * `auth` or `.sql` in its filename. That is the right default and the wrong behaviour
+     * when someone asks for the whole council, which is a judgement only the caller can
+     * make. `ALL_ROLES` is the full panel.
+     */
+    roles?: Role[]
+  },
 ): Promise<Review> {
   const maxRounds = input.maxRounds ?? DEFAULT_MAX_ROUNDS
   // An explicit timeout wins; otherwise scale it to the diff the nodes have to read.
   ctx = { ...ctx, timeoutMs: ctx.timeoutMs ?? timeoutFor(input.diff.length) }
-  const roles = selectRoles(input.files, input.changedLines ?? 0)
+  const roles = input.roles ?? selectRoles(input.files, input.changedLines ?? 0)
   const nodes = selectNodes(roles)
   const results = await fanout(ctx, nodes, input.diff)
 

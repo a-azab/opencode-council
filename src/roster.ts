@@ -38,6 +38,16 @@ export const ROSTER: Member[] = [
 
 export const bySlug = (slug: string) => ROSTER.find((m) => m.slug === slug)
 
+/**
+ * Every lane, for when the caller wants the whole council rather than the lanes a diff's
+ * filenames happen to wake. `skeptic` is excluded on purpose: it verifies findings that
+ * already exist, it does not produce them.
+ */
+export const ALL_ROLES: Role[] = [
+  "security", "systems", "code", "pragmatist", "product",
+  "breadth", "reviewer", "docs", "qa", "ops",
+]
+
 /** Changed-path globs to the roles they should wake. Ported from lets-workflow §4.1. */
 export const ROUTES: [string, Role[]][] = [
   ["**/{Dockerfile,docker-compose*,Makefile,*.tf}", ["ops", "security"]],
