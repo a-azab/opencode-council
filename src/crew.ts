@@ -26,7 +26,19 @@ export type CrewConfig = {
   base: string
   /** review lanes on this repo's payroll. */
   lanes: Role[]
+  /**
+   * Where the work is mirrored, or `none`.
+   *
+   * Absent is NOT the same as `none`: absent means init never asked, so the crew asks once
+   * and offers to record the answer. `none` means the human said no, and is never
+   * re-asked. Guessing either way would be wrong - creating issues in someone's tracker
+   * uninvited is worse than one question.
+   */
+  tracker?: TrackerName
 }
+
+export const TRACKERS = ["none", "linear"] as const
+export type TrackerName = (typeof TRACKERS)[number]
 
 // ------------------------------------------------------------------ AGENTS.md block
 
@@ -56,6 +68,11 @@ export function parseCrewBlock(markdown: string): Partial<CrewConfig> {
   if (raw.verify) out.verify = list(raw.verify)
   if (raw.base) out.base = raw.base
   if (raw.lanes) out.lanes = list(raw.lanes) as Role[]
+  // An unrecognised tracker name is dropped rather than carried: readCrewConfig would then
+  // see "never asked" and ask again, which is the safe direction. Silently accepting
+  // `tracker: jyra` would mean a typo disables tracking with no signal.
+  if (raw.tracker && (TRACKERS as readonly string[]).includes(raw.tracker))
+    out.tracker = raw.tracker as TrackerName
   return out
 }
 
@@ -65,6 +82,7 @@ export function renderCrewBlock(cfg: CrewConfig): string {
     `verify: ${cfg.verify.join(", ")}`,
     `base: ${cfg.base}`,
     `lanes: ${cfg.lanes.join(", ")}`,
+    ...(cfg.tracker ? [`tracker: ${cfg.tracker}`] : []),
     "```",
   ].join("\n")
 }
@@ -382,7 +400,7 @@ export function readCrewConfig(root: string): CrewConfig | null {
   if (!existsSync(path)) return null
   const c = parseCrewBlock(readFileSync(path, "utf8"))
   if (!c.verify?.length || !c.base || !c.lanes?.length) return null
-  return { verify: c.verify, base: c.base, lanes: c.lanes }
+  return { verify: c.verify, base: c.base, lanes: c.lanes, ...(c.tracker ? { tracker: c.tracker } : {}) }
 }
 
 export function proposeInit(root: string, branch: string): InitProposal {
@@ -439,6 +457,17 @@ export function renderInitProposal(p: InitProposal): string {
       "  planning against it would be confidently wrong; rebuild with `graphify extract . --code-only`",
     )
   else out.push(`  fresh (${p.graph.builtAt.toISOString()})`)
+
+  out.push("", "**Tracking**:")
+  if (p.existing.tracker) out.push(`  \`${p.existing.tracker}\` (already recorded)`)
+  else {
+    const others = availableTrackers().filter((t) => t !== "none")
+    out.push(
+      others.length
+        ? `  not recorded — options: ${["none", ...others].map((t) => `\`${t}\``).join(", ")}`
+        : "  not recorded — only `none` is implemented today, so runs report to the terminal only",
+    )
+  }
 
   if (p.ignores.length)
     out.push("", `**.git/info/exclude** will gain: ${p.ignores.join(", ")}  (per-clone, never committed)`)
@@ -586,6 +615,105 @@ export async function runIntake(
     dropped,
     instructionBytes: Buffer.byteLength(input.instructions),
     calls,
+  }
+}
+
+// ------------------------------------------------------------------ tracker
+
+/**
+ * Where a run is mirrored while it happens.
+ *
+ * Four calls, all optional to implement meaningfully. The crew works with none of them
+ * doing anything, which is the point: tracking is a mirror, not a component. A tracker that
+ * breaks must never be able to stop the work.
+ */
+export type Tracker = {
+  name: TrackerName
+  /** the run has a plan and a branch; nothing is built yet */
+  start(input: { directive: string; items: WorkItem[]; branch: string }): Promise<void>
+  /** a step happened. Called often; must be cheap and must not throw. */
+  step(message: string): void
+  /** one item reached a terminal state */
+  itemDone(outcome: ItemOutcome): Promise<void>
+  /** the run ended, however it ended */
+  finish(result: RunResult): Promise<void>
+}
+
+/**
+ * The default, and not a no-op.
+ *
+ * With no tracker configured a run would otherwise be twenty silent minutes, which is
+ * indistinguishable from a hang. Progress goes to the terminal whether or not anything
+ * else is listening.
+ */
+export function stdoutTracker(onStep: (m: string) => void = (m) => console.log(m)): Tracker {
+  const t0 = Date.now()
+  const stamp = () => `[${String(Math.floor((Date.now() - t0) / 60000)).padStart(2, "0")}:${String(Math.floor(((Date.now() - t0) / 1000) % 60)).padStart(2, "0")}]`
+  return {
+    name: "none",
+    async start({ items, branch }) {
+      onStep(`${stamp()} ${items.length} item(s) on ${branch}`)
+    },
+    step: (m) => onStep(`${stamp()} ${m}`),
+    async itemDone() {},
+    async finish() {},
+  }
+}
+
+/**
+ * Never lets a tracker failure become a run failure.
+ *
+ * The work is real; the mirror is not. A Linear outage, an expired token or a schema change
+ * in a preview API must cost you a warning line, never a branch.
+ */
+export function guarded(inner: Tracker, onStep: (m: string) => void): Tracker {
+  const attempt = async (what: string, fn: () => Promise<void>) => {
+    try {
+      await fn()
+    } catch (e: any) {
+      onStep(`  tracker(${inner.name}) ${what} failed: ${String(e?.message ?? e).slice(0, 160)}`)
+    }
+  }
+  return {
+    name: inner.name,
+    start: (i) => attempt("start", () => inner.start(i)),
+    step: (m) => {
+      try {
+        inner.step(m)
+      } catch {
+        /* a progress line is never worth failing over */
+      }
+    },
+    itemDone: (o) => attempt("itemDone", () => inner.itemDone(o)),
+    finish: (r) => attempt("finish", () => inner.finish(r)),
+  }
+}
+
+/**
+ * Trackers that actually work today, so init never offers one it cannot deliver.
+ *
+ * `linear` appears here only once Phase 5 lands. Listing it earlier would have init ask a
+ * question whose answer it cannot honour — the human picks it, nothing mirrors, and the
+ * config now lies about what this repo does.
+ */
+export function availableTrackers(): TrackerName[] {
+  return ["none"]
+}
+
+export function trackerFor(name: TrackerName | undefined, onStep: (m: string) => void): Tracker {
+  const stdout = stdoutTracker(onStep)
+  if (!name || name === "none" || !availableTrackers().includes(name)) return stdout
+  return stdout
+}
+
+/** Both trackers get the terminal; a mirror never replaces the local signal. */
+export function fanout(...trackers: Tracker[]): Tracker {
+  return {
+    name: trackers[trackers.length - 1]?.name ?? "none",
+    start: async (i) => void (await Promise.all(trackers.map((t) => t.start(i)))),
+    step: (m) => trackers.forEach((t) => t.step(m)),
+    itemDone: async (o) => void (await Promise.all(trackers.map((t) => t.itemDone(o)))),
+    finish: async (r) => void (await Promise.all(trackers.map((t) => t.finish(r)))),
   }
 }
 
@@ -1049,15 +1177,19 @@ export async function runExecute(
     instructions: string
     directive: string
     onStep?: (msg: string) => void
+    /** defaults to stdout only; a configured tracker is fanned out alongside it */
+    tracker?: Tracker
     maxSeconds?: number
   },
 ): Promise<RunResult> {
-  const say = input.onStep ?? (() => {})
+  const tracker = input.tracker ?? stdoutTracker(input.onStep)
+  const say = (m: string) => tracker.step(m)
   const t0 = Date.now()
   const maxSeconds = input.maxSeconds ?? 60 * 60
   const slug = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
   const { path: worktree, branch } = openWorktree(input.root, slug)
   const outcomes: ItemOutcome[] = []
+  await tracker.start({ directive: input.directive, items: input.items, branch })
 
   const cycles: RunResult["cycles"] = []
   let stoppedBy: RunResult["stoppedBy"] = "complete"
@@ -1099,6 +1231,7 @@ export async function runExecute(
           onStep: say,
         })
         outcomes.push(outcome)
+        await tracker.itemDone(outcome)
         if (outcome.state !== "done") {
           // Items are ordered and share a worktree. Continuing would pile work on a base
           // already known to be broken, and every later failure would be a consequence of
@@ -1144,7 +1277,12 @@ export async function runExecute(
       }
     }
 
-    return { branch, worktree, outcomes, cycles, prUrl, prError, pushed, stoppedBy, seconds: (Date.now() - t0) / 1000 }
+    const result: RunResult = {
+      branch, worktree, outcomes, cycles, prUrl, prError, pushed, stoppedBy,
+      seconds: (Date.now() - t0) / 1000,
+    }
+    await tracker.finish(result)
+    return result
   } catch (e: any) {
     // A crashed run with no commits leaves a directory git will later refuse to reuse the
     // branch name for. Commits are the deliverable, so those are kept.
@@ -1348,6 +1486,9 @@ export function renderGate(intake: Intake, cfg: CrewConfig, scope: { root: strin
     `Repo \`${scope.root}\` on \`${scope.branch}\` → PR into \`${cfg.base}\``,
     `Verify: ${cfg.verify.map((v) => `\`${v}\``).join(" && ")}`,
     `Intake cost: ${intake.calls} call(s), ${humanBytes(intake.instructionBytes)} of repo instructions per prompt`,
+    cfg.tracker && cfg.tracker !== "none"
+      ? `Tracking: ${cfg.tracker}`
+      : "Tracking: terminal only — nothing is mirrored to a tracker.",
     "",
     "**Nothing has been written.** Approve to start, or tell me what to change.",
   )

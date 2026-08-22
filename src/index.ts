@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { readdirSync, readFileSync, existsSync, mkdirSync, writeFileSync, appendFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { dirname, join, basename } from "node:path"
 import { execFileSync } from "node:child_process"
@@ -15,6 +15,7 @@ import {
   renderGate,
   runExecute,
   renderRun,
+  trackerFor,
   listWorktrees,
   renderWorktrees,
   type CrewConfig,
@@ -183,16 +184,31 @@ export const CouncilPlugin = async (input: any) => ({
             const saved = JSON.parse(readFileSync(join(root, prev, "plan.json"), "utf8"))
             if (!saved.items?.length) return `The last plan (${prev}) had no items — nothing to run.`
 
+            // A tool call returns once, at the end, so a 20-minute run would otherwise be
+            // completely silent - indistinguishable from a hang. Progress is appended to a
+            // file as it happens so it can be tailed while the run is still going.
+            const dir = artifactDir(cwd, "crew-run")
+            const logPath = join(dir, "run.log")
+            const log: string[] = []
+            const say = (m: string) => {
+              log.push(m)
+              try {
+                appendFileSync(logPath, `${m}\n`)
+              } catch {
+                /* a progress line is never worth failing the run over */
+              }
+            }
+
             const result = await runExecute(ctxFor(input), {
               root: scope.root,
               items: saved.items,
               cfg,
               instructions: readInstructions(scope.root).text,
               directive: saved.directive ?? "",
+              tracker: trackerFor(cfg.tracker, say),
             })
-            const dir = artifactDir(cwd, "crew-run")
             writeFileSync(join(dir, "run.json"), JSON.stringify(result, null, 2))
-            return renderRun(result, cfg)
+            return `${renderRun(result, cfg)}\n\nStep log: ${logPath}`
           }
 
           const directive = (args.directive ?? "").trim()

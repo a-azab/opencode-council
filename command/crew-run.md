@@ -12,7 +12,11 @@ Only run this after the user has seen a plan and approved it. If they have not, 
 show them `/crew <directive>` first — the gate exists so nothing gets built from a
 misread instruction.
 
-While it runs, the tool reports each item as it lands. When it finishes, report:
+A run takes minutes, and a tool call returns only once — so tell the user up front that
+they can watch it with `tail -f` on the step log printed at the end, or find it under
+`council-artifacts/`. Silence for twenty minutes is indistinguishable from a hang.
+
+When it finishes, report:
 
 - **which items landed and which did not.** Never round an incomplete run up to a success.
   The PR body says the same thing, deliberately.

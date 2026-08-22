@@ -28,6 +28,11 @@ import {
   type ItemOutcome,
   type RunResult,
   CREW_IGNORES,
+  TRACKERS,
+  availableTrackers,
+  stdoutTracker,
+  guarded,
+  type Tracker,
   type CrewConfig,
   type WorkItem,
 } from "./crew.ts"
@@ -208,6 +213,61 @@ test("applyInit preserves prose the user wrote in AGENTS.md", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// ---------------------------------------------------------------- tracker
+
+test("a tracker is only offered once it can actually be honoured", () => {
+  // Listing a tracker before it works means init asks a question it cannot deliver on:
+  // the human picks it, nothing mirrors, and the config now lies about what this repo does.
+  for (const name of availableTrackers()) assert.ok(TRACKERS.includes(name), `${name} is not a known tracker`)
+  assert.ok(availableTrackers().includes("none"), "terminal-only must always be available")
+})
+
+test("an unrecognised tracker name is dropped, not silently honoured", () => {
+  // A typo must read as "never asked" so init asks again. Accepting `tracker: jyra` would
+  // disable tracking with no signal at all.
+  assert.equal(parseCrewBlock("```crew\nverify: x\nbase: m\nlanes: qa\ntracker: jyra\n```").tracker, undefined)
+  assert.equal(parseCrewBlock("```crew\nverify: x\nbase: m\nlanes: qa\ntracker: none\n```").tracker, "none")
+})
+
+test("absent and 'none' are different states", () => {
+  // Absent means init never asked. `none` means the human said no. Re-asking someone who
+  // already declined is the behaviour this distinction exists to prevent.
+  assert.equal(parseCrewBlock(renderCrewBlock({ ...CFG, tracker: "none" })).tracker, "none")
+  assert.equal(parseCrewBlock(renderCrewBlock(CFG)).tracker, undefined)
+})
+
+test("the default tracker reports progress rather than staying silent", () => {
+  // Twenty silent minutes is indistinguishable from a hang.
+  const lines: string[] = []
+  const t = stdoutTracker((m) => lines.push(m))
+  t.step("doing a thing")
+  assert.equal(lines.length, 1)
+  assert.match(lines[0], /doing a thing/)
+  assert.match(lines[0], /^\[\d\d:\d\d\]/, "must carry elapsed time, so a stall is visible")
+})
+
+test("a broken tracker cannot break the run", async () => {
+  // The work is real; the mirror is not. An expired token must cost a warning line, never
+  // a branch.
+  const lines: string[] = []
+  const broken: Tracker = {
+    name: "linear",
+    async start() { throw new Error("token expired") },
+    step() { throw new Error("nope") },
+    async itemDone() { throw new Error("429") },
+    async finish() { throw new Error("gone") },
+  }
+  const g = guarded(broken, (m) => lines.push(m))
+
+  await g.start({ directive: "d", items: [], branch: "b" })
+  g.step("x")
+  await g.itemDone({ item: item(), state: "done", attempts: 1 })
+  await g.finish({} as any)
+
+  assert.equal(lines.length, 3, "each async failure warns; a failed progress line stays silent")
+  for (const l of lines) assert.match(l, /tracker\(linear\).*failed/)
 })
 
 // ---------------------------------------------------------------- phase 2
