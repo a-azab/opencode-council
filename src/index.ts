@@ -16,6 +16,7 @@ import {
   runExecute,
   renderRun,
   trackerFor,
+  availableTrackers,
   listWorktrees,
   renderWorktrees,
   type CrewConfig,
@@ -109,11 +110,42 @@ function ctxFor(input: any) {
   }
 }
 
-function artifactDir(cwd: string, kind: string): string {
+/**
+ * Artifacts belong to the repo, not to wherever the session happens to be standing.
+ *
+ * Using the session cwd meant `/crew` run from `apps/api/` wrote its plan somewhere `run`
+ * would never look, and — worse — that any directory the user happened to be in became a
+ * place plans could be read from.
+ */
+function artifactRoot(repoRoot: string): string {
+  return join(repoRoot, "council-artifacts")
+}
+
+function artifactDir(repoRoot: string, kind: string): string {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
-  const dir = join(cwd, "council-artifacts", `${stamp}-${kind}`)
+  const dir = join(artifactRoot(repoRoot), `${stamp}-${kind}`)
   mkdirSync(dir, { recursive: true })
   return dir
+}
+
+/**
+ * The most recent artifact of a kind, by the timestamp WE wrote into its name.
+ *
+ * `.sort().pop()` over every directory name was the bug: it took the lexicographic maximum
+ * of arbitrary strings, so a committed or hand-made `council-artifacts/zzz/plan.json` won
+ * over every real run — and `run` executes that plan with the implementer's edit+bash
+ * grant. Restricting to our own `<stamp>-<kind>` shape means only something this tool
+ * wrote can be selected.
+ */
+function latestArtifact(repoRoot: string, kind: string, file: string): { dir: string; path: string } | null {
+  const root = artifactRoot(repoRoot)
+  if (!existsSync(root)) return null
+  const shape = new RegExp(`^\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-${kind}$`)
+  const dir = readdirSync(root)
+    .filter((d) => shape.test(d) && existsSync(join(root, d, file)))
+    .sort()
+    .pop()
+  return dir ? { dir, path: join(root, dir, file) } : null
 }
 
 export const CouncilPlugin = async (input: any) => ({
@@ -178,21 +210,14 @@ export const CouncilPlugin = async (input: any) => ({
             // produce a DIFFERENT list - intake is nondeterministic - so what they approved
             // and what gets built would not correspond. Same reason `fix` replays the last
             // review instead of running a fresh one.
-            const root = join(cwd, "council-artifacts")
-            const prev = existsSync(root)
-              ? readdirSync(root)
-                  .filter((d) => existsSync(join(root, d, "plan.json")))
-                  .sort()
-                  .pop()
-              : undefined
-            if (!prev) return "No approved plan found. Run `/crew <directive>` first and approve the plan."
-            const saved = JSON.parse(readFileSync(join(root, prev, "plan.json"), "utf8"))
-            if (!saved.items?.length) return `The last plan (${prev}) had no items — nothing to run.`
-
+            const found = latestArtifact(scope.root, "crew-plan", "plan.json")
+            if (!found) return "No approved plan found. Run `/crew <directive>` first and approve the plan."
+            const saved = JSON.parse(readFileSync(found.path, "utf8"))
+            if (!saved.items?.length) return `The last plan (${found.dir}) had no items — nothing to run.`
             // A tool call returns once, at the end, so a 20-minute run would otherwise be
             // completely silent - indistinguishable from a hang. Progress is appended to a
             // file as it happens so it can be tailed while the run is still going.
-            const dir = artifactDir(cwd, "crew-run")
+            const dir = artifactDir(scope.root, "crew-run")
             const logPath = join(dir, "run.log")
             const log: string[] = []
             const say = (m: string) => {
@@ -203,6 +228,11 @@ export const CouncilPlugin = async (input: any) => ({
                 /* a progress line is never worth failing the run over */
               }
             }
+
+            // This plan is about to be executed with edit+bash. Record which one and what
+            // it says, so an unexpected directive is visible in the log from the first line
+            // rather than inferred from the diff afterwards.
+            say(`plan ${found.dir}: ${String(saved.directive ?? "(no directive recorded)").slice(0, 120)}`)
 
             const result = await runExecute(ctxFor(input), {
               root: scope.root,
@@ -243,7 +273,7 @@ export const CouncilPlugin = async (input: any) => ({
             directive,
             instructions: instructions.text,
           })
-          const dir = artifactDir(cwd, "crew-plan")
+          const dir = artifactDir(scope.root, "crew-plan")
           writeFileSync(join(dir, "plan.json"), JSON.stringify({ directive, ...intake }, null, 2))
           return renderGate(intake, cfg, scope)
         }
@@ -364,16 +394,11 @@ export const CouncilPlugin = async (input: any) => ({
           // produce a DIFFERENT set - reviews are nondeterministic, models time out - so
           // the report they approved and the patches they get back would not correspond.
           // It also pays for a second full review nobody asked for.
-          const root = join(cwd, "council-artifacts")
-          const prev = existsSync(root)
-            ? readdirSync(root)
-                .filter((d) => existsSync(join(root, d, "findings.json")))
-                .sort()
-                .pop()
-            : undefined
-          if (!prev) return "No previous review found. Run council({ mode: 'review' }) first."
-          const kept = JSON.parse(readFileSync(join(root, prev, "findings.json"), "utf8")).kept ?? []
-          if (!kept.length) return `The last review (${prev}) kept no findings — nothing to fix.`
+          const found = latestArtifact(cwd, "review", "findings.json")
+          if (!found) return "No previous review found. Run council({ mode: 'review' }) first."
+          const kept = JSON.parse(readFileSync(found.path, "utf8")).kept ?? []
+          if (!kept.length) return `The last review (${found.dir}) kept no findings — nothing to fix.`
+          const prev = found.dir
 
           const patches = await runFix(ctx, { findings: kept, diff, cwd })
           const dir = artifactDir(cwd, "fix")

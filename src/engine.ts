@@ -213,7 +213,7 @@ async function askOnce<T>(
   const modelID = rest.join("/")
   const qs = opts.directory ? `?directory=${encodeURIComponent(opts.directory)}` : ""
   try {
-    const s = await fetch(`${base}/session${qs}`, {
+    const sessionRes = await fetch(`${base}/session${qs}`, {
       method: "POST",
       headers: headers(ctx),
       body: JSON.stringify({
@@ -246,7 +246,31 @@ async function askOnce<T>(
         ],
       }),
     })
-    const session = await s.json()
+    // Same defensive parse as the message call below. This one was missed when that was
+    // fixed: an auth failure or a 5xx here returns no body, so `.json()` threw
+    // "Unexpected end of JSON input" and the node reported a parser fault for what was
+    // really a rejected session.
+    const sessionRaw = await sessionRes.text()
+    if (sessionRes.status >= 300)
+      return {
+        ok: false,
+        state: sessionRes.status === 401 || sessionRes.status === 403 ? "autherror" : "failed",
+        detail: `session create http ${sessionRes.status}: ${sessionRaw.slice(0, 160) || "(empty body)"}`,
+        ms: Date.now() - t0,
+      }
+    let session: any
+    try {
+      session = JSON.parse(sessionRaw)
+    } catch {
+      return {
+        ok: false,
+        state: "malformed",
+        detail: `session create returned unparseable body: ${sessionRaw.slice(0, 160)}`,
+        ms: Date.now() - t0,
+      }
+    }
+    if (!session?.id)
+      return { ok: false, state: "failed", detail: "session create returned no id", ms: Date.now() - t0 }
     if (!session?.id)
       return { ok: false, state: "failed", detail: `session create: ${JSON.stringify(session).slice(0, 160)}`, ms: Date.now() - t0 }
 
@@ -526,7 +550,20 @@ export type Review = {
   convergence: string
 }
 
-export const DEFAULT_MAX_ROUNDS = 2
+/**
+ * Debate is OFF by default (§6c P0-B).
+ *
+ * Huang et al. (ICLR 2024) re-ran multi-agent debate at matched budget on full GSM8K: at 6
+ * responses debate scores 83.2 against self-consistency's 85.3, and round 2 is *worse* than
+ * round 1 - which is exactly the range a default of 2 operated in. Our own measurement
+ * agreed and was recorded without being acted on: "1 round, 6 re-judgements, **0 changed
+ * position**", while wall time went 74s -> 212s. It tripled the cost of a review and moved
+ * nothing.
+ *
+ * The code stays because turning it back on is a one-line experiment. Keeping it ON needed
+ * a positive result, and there has never been one.
+ */
+export const DEFAULT_MAX_ROUNDS = 0
 
 export async function runReview(
   ctx: Ctx,

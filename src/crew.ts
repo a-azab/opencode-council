@@ -2,8 +2,12 @@
 // verification and review, to a PR. See PLAN.md §9.
 //
 // This file is Phase 1a: everything `/crew init` needs to work out what a repo is and
-// write that down. No model calls live here - it is deliberately all deterministic, which
-// is why it is the part that gets tests.
+// write that down.
+//
+// The init and config half of this file is deterministic and is where the tests
+// concentrate. The run half (intake, execute, review) makes model calls and cannot be
+// tested that way; what is testable there is the arithmetic around them - scheduling,
+// stop rules, and how a result is reported.
 import { execFileSync, execSync } from "node:child_process"
 import { existsSync, readFileSync, statSync, writeFileSync, symlinkSync, rmSync } from "node:fs"
 import { join } from "node:path"
@@ -339,9 +343,19 @@ function graphify(root: string, args: string[]): string | null {
       cwd: root,
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
+      // A minimal environment, not the parent's. `graphify --code-only` is a local
+      // tree-sitter parse; it has no business receiving ANTHROPIC_API_KEY, LINEAR_API_TOKEN
+      // or anything else this process happens to hold. PATH and HOME are what it needs to
+      // run and find its own config.
+      //
       // The query log is off for a reason: graphify's own docs disagree with themselves
       // about whether it defaults on, and this runs against private codebases.
-      env: { ...process.env, GRAPHIFY_QUERY_LOG_DISABLE: "1" },
+      env: {
+        PATH: process.env.PATH ?? "",
+        HOME: process.env.HOME ?? "",
+        LANG: process.env.LANG ?? "C.UTF-8",
+        GRAPHIFY_QUERY_LOG_DISABLE: "1",
+      },
       timeout: 60_000,
     }).trim()
   } catch {
@@ -1050,7 +1064,10 @@ something as undefined merely because its definition is not in this diff.
     ].join("\n"),
     schema: VERDICT_SCHEMA,
   })
-  if (!v.ok) return { met: true, reason: `judge did not run (${v.detail}); accepted on the checks alone`, judge: judge.slug }
+  // Deliberately fails OPEN - a judge that cannot be reached must not block work - but it
+  // must NOT report a judge. Returning `judge: judge.slug` here made an unjudged item
+  // render as "accepted by fable", which is the precise lie renderRun exists to prevent.
+  if (!v.ok) return { met: true, reason: `no independent judgement: ${judge.slug} did not run (${v.detail})` }
   return { met: v.value.real === false, reason: v.value.reason, judge: judge.slug }
 }
 
@@ -1253,7 +1270,9 @@ export type RunResult = {
   pushed: boolean
   seconds: number
   /** why the run ended - computed, never asserted by a model (C7) */
-  stoppedBy: "complete" | "item-stuck" | "review-cycles" | "wall-clock"
+  stoppedBy: "complete" | "item-stuck" | "review-cycles" | "wall-clock" | "crashed"
+  /** set only when stoppedBy is "crashed" */
+  error?: string
 }
 
 /**
@@ -1412,6 +1431,16 @@ export async function runExecute(
     // A crashed run with no commits leaves a directory git will later refuse to reuse the
     // branch name for. Commits are the deliverable, so those are kept.
     if (!outcomes.some((o) => o.state === "done")) closeWorktree(input.root, worktree)
+
+    // Close the tracker out before the error propagates. Without this a Linear session sits
+    // in `active` forever after a crash - the one state that means "still working" - so the
+    // failure is invisible exactly where someone is watching for it.
+    const crashed: RunResult = {
+      branch, worktree, outcomes, cycles, pushed: false, stoppedBy: "crashed",
+      seconds: (Date.now() - t0) / 1000,
+      error: String(e?.message ?? e).slice(0, 300),
+    }
+    await tracker.finish(crashed).catch(() => {})
     throw e
   }
 }
@@ -1488,6 +1517,7 @@ const WHY_STOPPED: Record<RunResult["stoppedBy"], string> = {
   "item-stuck": "an item could not be finished; the run stopped rather than build on a broken base",
   "review-cycles": `review still had blockers after ${MAX_REVIEW_CYCLES} fix cycles`,
   "wall-clock": "the run hit its wall-clock budget",
+  crashed: "the run crashed",
 }
 
 export function renderRun(r: RunResult, cfg: CrewConfig): string {

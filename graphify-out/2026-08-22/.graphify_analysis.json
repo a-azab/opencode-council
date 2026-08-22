@@ -395,41 +395,8 @@
       "why": "bridges separate communities"
     }
   ],
-  "questions": [
-    {
-      "type": "bridge_node",
-      "question": "Why does `dedupe()` connect `decide.ts` to `engine.ts`?",
-      "why": "High betweenness centrality (0.023) - this node is a cross-community bridge."
-    },
-    {
-      "type": "bridge_node",
-      "question": "Why does `runReview()` connect `runReview` to `index.ts`, `crew.ts`, `engine.ts`, `git`, `roster.ts`, `failover.test.ts`?",
-      "why": "High betweenness centrality (0.010) - this node is a cross-community bridge."
-    },
-    {
-      "type": "bridge_node",
-      "question": "Why does `ask()` connect `runReview` to `crew.ts`, `engine.ts`?",
-      "why": "High betweenness centrality (0.006) - this node is a cross-community bridge."
-    },
-    {
-      "type": "isolated_nodes",
-      "question": "What connects `name`, `version`, `description` to the rest of the system?",
-      "why": "44 weakly-connected nodes found - possible documentation gaps or missing edges."
-    },
-    {
-      "type": "low_cohesion",
-      "question": "Should `index.ts` be split into smaller, more focused modules?",
-      "why": "Cohesion score 0.07899159663865546 - nodes in this community are weakly interconnected."
-    },
-    {
-      "type": "low_cohesion",
-      "question": "Should `decide.ts` be split into smaller, more focused modules?",
-      "why": "Cohesion score 0.12433862433862433 - nodes in this community are weakly interconnected."
-    },
-    {
-      "type": "low_cohesion",
-      "question": "Should `crew.ts` be split into smaller, more focused modules?",
-      "why": "Cohesion score 0.11333333333333333 - nodes in this community are weakly interconnected."
-    }
-  ]
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
 }
