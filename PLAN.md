@@ -725,7 +725,7 @@ nothing during construction. One worker, one item, in order.
 | **C12** | The implementer carries **ponytail** discipline inline in `agent/crew-dev.md`. | User directive. Includes the never-simplify-away list: validation at trust boundaries, error handling preventing data loss, security, accessibility, understanding the problem. |
 | **C13** | **graphify** supplies codebase understanding at intake; the crew reads, updates and uses it for impact analysis. | Replaces a per-run explore lane with a persistent graph. Measured on thiqwave-platform 2026-08-21: 903 code files → 6130 nodes / 10170 edges / 460 communities in **13.6s, zero LLM calls** (`--code-only`, tree-sitter AST). Cheap enough to rebuild every run. |
 | **C14** | Config lives in a fenced `crew` block in the repo's `AGENTS.md`. | One file, already loaded in every session, human-editable, no second source of truth. Parsed by the flat `key: value` parser already in `index.ts`. |
-| **C15** | The worker gets `bash`, **confined to the worktree**. Read-only review lanes keep `edit: deny, bash: deny`. | Without it the implementer writes blind and its only signal is pass/fail. C5's escalation loop is worthless if nothing can run a failing test and read the trace. |
+| **C15** | The worker gets `bash`, **confined to the worktree by `external_directory: deny`** — a runtime rule, not a prompt sentence. Read-only lanes keep `edit: deny, bash: deny` and also get the confinement. | Without `bash` the implementer writes blind and its only signal is pass/fail; C5's escalation is worthless if nothing can run a failing test and read the trace. The confinement half was **claimed but not implemented until 2026-08-22** — see §9.7. |
 | **C16** | No spend cap. | User declined one. C7's floors still guarantee termination. Run summary reports call count and `AGENTS.md` token overhead so the cost is visible. |
 | **C18** | A lane never drops while a usable model remains: on failure it substitutes, preferring an unassigned model that carries the role, then any unassigned one, then reusing a model already working another lane. | User directive. Measured 2026-08-21: a full-panel review reported **24 of 56 lanes**, with `code` having no working model at all (kimi quota exhausted) and four models returning `malformed` on every slice. Restricting substitutes to *unassigned* models offered zero stand-ins on a full panel — precisely when coverage was being lost. Reuse costs correlation, so `substituted` is recorded and the report names it. |
 | **C19** | Model-level failures bench for the whole run; call-level ones do not. | `malformed` means the model cannot emit a forced tool call and will fail identically on all 14 lanes; a quota error will not refill mid-run. A timeout might just be a large slice, so it is not benchable. Without a bench, failover retries a quota-dead model once per node. |
@@ -802,7 +802,10 @@ plausible guesses, and a guessed path costs a whole implementation round.
 - [x] `agent/crew-dev.md` with ponytail inline (C12), incl. the never-simplify-away list
 - [x] Worktree per run, `prune` on start, cleanup on failure, kept on success
 - [x] Implement → verify → commit per item; conventional commit scope from the item's path
-- [x] Secret exclusion named in the implement prompt
+- [x] ~~Secret exclusion named in the implement prompt~~ — a sentence in a prompt is not a
+      control. Superseded by `external_directory: deny` (§9.7), which is enforced by the
+      runtime. Note a git worktree contains only *tracked* files, so a gitignored `.env`
+      is not present in it to begin with.
 - [x] `gh pr create`; PR body carries the directive, per-item status, and **what did not
       land** — an incomplete run must not read as a complete one
 - [x] Manifest change in an item → real install before the check
@@ -964,6 +967,38 @@ It cannot prove Linear accepts these mutations. Only a real workspace can.
 `actor=app` and the `app:assignable` scope (**workspace admin required**), then export
 `LINEAR_API_TOKEN`. Until then `availableTrackers()` correctly omits `linear` and init will
 not offer it.
+
+### 9.7 Confinement — claimed, then actually measured (2026-08-22)
+
+C15 said the worker's `bash` was "confined to the worktree". A full-panel council review
+raised it as a BLOCKER, and it was right: the session sent `pattern: "*"` on every rule and
+`?directory=` only governs *relative* path resolution. The claim was untested — verifying
+`pwd` had been mistaken for verifying confinement, and `pwd` is not evidence of anything.
+Worse, `crew-dev.md` told the model outright that "nothing you do here can reach the user's
+checkout", so an unenforced control was also a false statement to the agent relying on it.
+
+Probed against a worktree-pinned session, `cat` of a path outside it:
+
+| permissions sent | result |
+|---|---|
+| `edit:*allow, bash:*allow` (what shipped) | **session hung** — raised a permission prompt with no human attached |
+| `+ external_directory:*deny` | **"denied by the permission rules"**, immediately |
+| `+ external_directory:*deny`, work *inside* the worktree | read, write and `npm test` all fine |
+
+So the shipped behaviour was not a silent leak — it was a **silent stall**, which the run's
+wall clock would eventually trip. Still a real defect, and a less obvious one.
+
+`external_directory: deny` is now unconditional on every session the engine creates,
+including read-only lanes: none of them has cause to reach outside, and a lane that hangs
+on a prompt is a dropped lane. Verified through `ask()` itself, not a hand-rolled request —
+outside refused, inside unaffected.
+
+Two consequences worth keeping:
+- **A git worktree contains only tracked files.** A gitignored `.env` is not in it at all,
+  so the `SECRETS` prompt list was guarding against something largely absent while the real
+  exposure — everything outside the worktree — went unguarded.
+- **`pwd` is not confinement.** The original verification looked convincing and proved
+  nothing about what the process could reach.
 
 ### 9.5 Explicitly NOT building
 

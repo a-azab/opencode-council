@@ -225,10 +225,22 @@ async function askOnce<T>(
         // `edit` and `bash` are denied unless the caller opts in, and a caller may only
         // sensibly opt in together with `directory` - otherwise the grant applies to the
         // user's own checkout. runExecute is the only caller that does.
+        //
+        // `external_directory: deny` is what actually makes that true, and it is
+        // unconditional. Measured 2026-08-21 against a worktree-pinned session:
+        //   - without it, `cat` of a path outside the directory does not leak - it raises
+        //     a permission PROMPT, and with no human attached the session hangs until the
+        //     run's wall clock trips. A silent stall, not a silent leak.
+        //   - with it, the same call returns "denied by the permission rules" immediately.
+        //   - reading, writing and `npm test` INSIDE the worktree are unaffected. The
+        //     confinement costs the worker nothing it legitimately needs.
+        // Applied to read-only lanes too: none of them has any reason to reach outside,
+        // and a lane that hangs on a prompt is a dropped lane.
         permission: [
           { permission: "council", pattern: "*", action: "deny" },
           { permission: "crew", pattern: "*", action: "deny" },
           { permission: "task", pattern: "*", action: "deny" },
+          { permission: "external_directory", pattern: "*", action: "deny" },
           ...(opts.allow?.includes("edit") ? [] : [{ permission: "edit", pattern: "*", action: "deny" }]),
           ...(opts.allow?.includes("bash") ? [] : [{ permission: "bash", pattern: "*", action: "deny" }]),
         ],
