@@ -1,8 +1,7 @@
 // Crew: a human directive taken through intake, an approved plan, implementation,
 // verification and review, to a PR. See PLAN.md §9.
 //
-// This file is Phase 1a: everything `/crew init` needs to work out what a repo is and
-// write that down.
+// Config and detection, intake, execution, and the tracker seam.
 //
 // The init and config half of this file is deterministic and is where the tests
 // concentrate. The run half (intake, execute, review) makes model calls and cannot be
@@ -228,24 +227,34 @@ export function detectVerifyCandidates(root: string, base = "main"): VerifyCandi
  * `origin/HEAD` is the obvious answer and is regularly wrong: it says `main` while the team
  * merges to `develop`. So this returns candidates and init asks, rather than picking.
  */
-export function detectBaseCandidates(root: string): string[] {
-  const out: string[] = []
+export type BaseCandidates = { names: string[]; fromOriginHead: string | null }
+
+export function detectBaseCandidates(root: string): BaseCandidates {
+  const names: string[] = []
+  let fromOriginHead: string | null = null
   try {
-    const head = git(root, ["symbolic-ref", "refs/remotes/origin/HEAD"])
-    const name = head.split("/").pop()
-    if (name) out.push(name)
+    const name = git(root, ["symbolic-ref", "refs/remotes/origin/HEAD"]).split("/").pop()
+    if (name) {
+      fromOriginHead = name
+      names.push(name)
+    }
   } catch {
     /* no origin/HEAD is normal in a fresh or local-only repo */
   }
-  for (const guess of ["develop", "main", "master"]) {
-    try {
-      git(root, ["rev-parse", "--verify", `refs/heads/${guess}`])
-      if (!out.includes(guess)) out.push(guess)
-    } catch {
-      /* branch does not exist */
+  // Remote branches as well as local ones. Checking only `refs/heads` missed the common
+  // case of a fresh clone: `origin/develop` exists, no local `develop` has been created
+  // yet, and the branch the team actually merges to was therefore never offered.
+  for (const guess of ["develop", "main", "master"])
+    for (const ref of [`refs/heads/${guess}`, `refs/remotes/origin/${guess}`]) {
+      if (names.includes(guess)) continue
+      try {
+        git(root, ["rev-parse", "--verify", "--quiet", ref])
+        names.push(guess)
+      } catch {
+        /* ref does not exist */
+      }
     }
-  }
-  return out
+  return { names, fromOriginHead }
 }
 
 /**
@@ -408,7 +417,7 @@ export type InitProposal = {
   branch: string
   stack: string[]
   verify: VerifyCandidate[]
-  bases: string[]
+  bases: BaseCandidates
   lanes: Role[]
   graph: GraphState
   ignores: string[]
@@ -434,7 +443,7 @@ export function proposeInit(root: string, branch: string): InitProposal {
     root,
     branch,
     stack: detectStack(root),
-    verify: detectVerifyCandidates(root, bases[0] ?? "main"),
+    verify: detectVerifyCandidates(root, bases.names[0] ?? "main"),
     bases,
     lanes: proposeLanes(root),
     graph: graphState(root),
@@ -463,12 +472,18 @@ export function renderInitProposal(p: InitProposal): string {
   else p.verify.forEach((c, i) => out.push(`  ${i + 1}. \`${c.command}\`  (${c.why})`))
 
   out.push("", "**Base branch** — the PR target:")
-  if (p.bases.length > 1)
+  if (p.bases.names.length > 1) {
+    out.push(`  candidates: ${p.bases.names.map((b) => `\`${b}\``).join(", ")}`)
+    // Only claim origin/HEAD when it actually said something. It is absent in a fresh or
+    // local-only repo, and asserting it anyway put a fabricated fact in front of the human
+    // at the exact moment they were being asked to trust the detection.
     out.push(
-      `  candidates: ${p.bases.map((b) => `\`${b}\``).join(", ")}`,
-      `  \`origin/HEAD\` says \`${p.bases[0]}\` but you are on \`${p.branch}\` — which do PRs target?`,
+      p.bases.fromOriginHead
+        ? `  \`origin/HEAD\` says \`${p.bases.fromOriginHead}\` but you are on \`${p.branch}\` — which do PRs target?`
+        : `  no \`origin/HEAD\` to go on, so these are guesses from branch names — you are on \`${p.branch}\`. Which do PRs target?`,
     )
-  else out.push(`  \`${p.bases[0] ?? "main"}\``)
+  } else if (p.bases.names.length === 1) out.push(`  \`${p.bases.names[0]}\``)
+  else out.push(`  none detected — you are on \`${p.branch}\`. What should PRs target?`)
 
   out.push("", `**Lanes**: ${p.lanes.join(", ")}`, "  (from the repo's file mix; edit to force one on or off)")
 
@@ -504,19 +519,25 @@ export function renderInitProposal(p: InitProposal): string {
 }
 
 /**
- * Write the config. Only ever touches our own fence in AGENTS.md and the per-clone
- * exclude file - never the user's prose, never `.gitignore`.
+ * Write the config.
+ *
+ * Touches exactly two things: our own fenced block in AGENTS.md - never prose around it -
+ * and `.git/info/exclude`, which is per-clone and never committed. `.gitignore` is the
+ * user's file and is not modified.
  */
 // ------------------------------------------------------------------ intake
 
 /**
- * Intake lane models, in order of preference, first to answer wins.
+ * Models the crew drives directly - intake lanes AND the implementer - in order of
+ * preference, first to answer wins.
  *
  * A list rather than one pick for the same reason `WORKERS` is a list: hardcoding a single
  * model makes it a single point of failure, and a run that dies at intake has produced
  * nothing at all.
  */
-export const INTAKE_MODELS = ["opus5", "gpt55", "glm52", "minimax", "kimik3"] as const
+export const CREW_MODELS = ["opus5", "gpt55", "glm52", "minimax", "kimik3"] as const
+/** @deprecated name kept only so an external caller does not break; use CREW_MODELS. */
+export const INTAKE_MODELS = CREW_MODELS
 
 export type WorkItem = { title: string; detail: string; files: string[]; acceptance: string }
 
@@ -605,7 +626,7 @@ export async function runIntake(
 
   const askAny = async <T>(agent: string, text: string, schema?: unknown): Promise<T | null> => {
     let last = { state: "failed" as NodeState, detail: "no model in INTAKE_MODELS resolved" }
-    for (const slug of INTAKE_MODELS) {
+    for (const slug of CREW_MODELS) {
       const member = bySlug(slug)
       if (!member) continue
       calls++
@@ -621,10 +642,15 @@ export async function runIntake(
     return null
   }
 
-  const cpo = await askAny<{ text: string }>("crew-cpo", cpoPrompt(input.directive, input.instructions))
+  // `ask` without a schema resolves to the reply TEXT, a plain string. Typing it as an
+  // object here meant `cpo?.text` was always undefined, so `outcomes` was always "" and the
+  // CTO silently fell back to the raw directive - the CPO lane has been paid for and
+  // discarded on every run since intake landed. Nothing failed loudly; the plans just came
+  // from one lane instead of two.
+  const cpo = await askAny<string>("crew-cpo", cpoPrompt(input.directive, input.instructions))
   // The CTO can still work from the raw directive, but the plan will be weaker and the
   // gate must show that rather than present a confident-looking list.
-  const outcomes = cpo?.text ?? ""
+  const outcomes = cpo ?? ""
 
   const graph = graphContext(input.root, input.directive)
   const plan = await askAny<{ items: WorkItem[] }>(
@@ -803,7 +829,7 @@ export function linearTracker(
             : `Done — ${done} item(s), ${Math.round(result.seconds)}s.`,
           "",
           ...stuck.map((o) => `- **${o.item.title}** — ${o.state}${o.detail ? `: ${o.detail}` : ""}`),
-          stuck.length ? "" : "",
+          "",
           where,
         ]
           .filter((l) => l !== undefined)
@@ -984,7 +1010,7 @@ const SECRETS = ["**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/id_rsa*", "
 
 export type ItemOutcome = {
   item: WorkItem
-  state: "done" | "failed-check" | "unmet" | "no-change" | "model-failed"
+  state: "done" | "failed-check" | "unmet" | "no-change" | "model-failed" | "not-attempted"
   attempts: number
   /** last verify output, kept whether it passed or failed - a pass is evidence too */
   checkOutput?: string
@@ -1084,7 +1110,7 @@ async function diagnose(
   const lane = skepticPool(input.exclude, 1)[0] ?? ROSTER.find((m) => m.roles.includes("reviewer"))
   if (!lane) return input.failure
 
-  const r = await ask<{ text: string }>(ctx, {
+  const r = await ask<string>(ctx, {
     model: lane.model,
     agent: "council-reviewer",
     text: [
@@ -1190,7 +1216,7 @@ export async function runItem(
     say(`  attempt ${attempt}/${total}: implementing`)
 
     let answered = false
-    for (const slug of INTAKE_MODELS) {
+    for (const slug of CREW_MODELS) {
       const member = bySlug(slug)
       if (!member) continue
       const r = await ask<string>(ctx, {
@@ -1218,6 +1244,15 @@ export async function runItem(
       say("  no files changed")
       return { ...last, state: "no-change", detail: "the worker reported success but changed nothing" }
     }
+
+    // Keyed off what the worker ACTUALLY changed, and run before the check.
+    // This used to run before the worker, against the item's *predicted* files: at that
+    // point no manifest had been edited, so it either installed nothing or installed the
+    // unchanged manifest - and the check then ran against the parent's dependency versions
+    // through the symlink, which is exactly the wrong-for-the-right-reason pass the symlink
+    // comment warns about.
+    const note = installIfDepsChanged(input.worktree, changed.map((c) => c.replace(/^\S+\s+/, "")))
+    if (note) say(`  ${note}`)
 
     say(`  running: ${input.cfg.verify.join(" && ")}`)
     const check = runVerify(input.worktree, input.cfg.verify)
@@ -1329,7 +1364,7 @@ export async function runExecute(
   const tracker = input.tracker ?? stdoutTracker(input.onStep)
   const say = (m: string) => tracker.step(m)
   const t0 = Date.now()
-  const maxSeconds = input.maxSeconds ?? 60 * 60
+  const maxSeconds = input.maxSeconds ?? MAX_RUN_SECONDS
   const slug = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
   const { path: worktree, branch } = openWorktree(input.root, slug)
   const outcomes: ItemOutcome[] = []
@@ -1337,6 +1372,17 @@ export async function runExecute(
 
   const cycles: RunResult["cycles"] = []
   let stoppedBy: RunResult["stoppedBy"] = "complete"
+
+  /**
+   * Queued items that never ran still belong in the report.
+   *
+   * Breaking out of the loop without recording them meant a 6-item plan that stopped at
+   * item 2 reported "1/2 landed" - true of what was attempted, and a lie about the plan the
+   * human approved. Four items simply vanished.
+   */
+  const notAttempted = (items: WorkItem[], why: string) => {
+    for (const item of items) outcomes.push({ item, state: "not-attempted", attempts: 0, detail: why })
+  }
 
   try {
     let queue = input.items
@@ -1351,20 +1397,14 @@ export async function runExecute(
           // missing stopping conditions, and a run that never ends is indistinguishable
           // from one that is working.
           say(`wall clock ${Math.round(elapsed)}s exceeded ${maxSeconds}s — stopping`)
-          outcomes.push({
-            item,
-            state: "model-failed",
-            attempts: 0,
-            detail: `not attempted — run exceeded its ${maxSeconds}s budget`,
-          })
+          notAttempted([item], `not attempted — run exceeded its ${maxSeconds}s budget`)
           stoppedBy = "wall-clock"
           stuck = true
+          notAttempted(queue.slice(i + 1), `not attempted — run exceeded its ${maxSeconds}s budget`)
           break
         }
 
         say(`[${i + 1}/${queue.length}] ${item.title}`)
-        const note = installIfDepsChanged(worktree, item.files)
-        if (note) say(`  ${note}`)
 
         const outcome = await runItem(ctx, {
           item,
@@ -1383,6 +1423,7 @@ export async function runExecute(
           say(`  stopped: ${outcome.state}`)
           stoppedBy = "item-stuck"
           stuck = true
+          notAttempted(queue.slice(i + 1), `not attempted — stopped at "${item.title}"`)
           break
         }
       }

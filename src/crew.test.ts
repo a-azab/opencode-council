@@ -21,6 +21,7 @@ import {
   installIfDepsChanged,
   openWorktree,
   worktreeChanges,
+  detectBaseCandidates,
   closeWorktree,
   listWorktrees,
   renderWorktrees,
@@ -479,6 +480,57 @@ test("proposeInit surfaces an existing config so re-init is not silent", () => {
     const cfg: CrewConfig = { verify: ["npm test"], base: "main", lanes: ["reviewer"] }
     applyInit(dir, cfg)
     assert.deepEqual(proposeInit(dir, "main").existing, cfg)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------- round 1 review fixes
+
+test("a schema-less ask resolves to text, so the CPO lane is not silently discarded", () => {
+  // `ask` without a schema returns the reply TEXT, a plain string. runIntake typed it as
+  // an object and read `cpo?.text`, which is undefined on a string - so `outcomes` was
+  // always "" and the CTO fell back to the raw directive. One of the two intake lanes was
+  // paid for and thrown away on every run, and nothing failed loudly.
+  const asText = (v: unknown) => (typeof v === "string" ? v : "")
+  assert.equal(asText("real outcomes"), "real outcomes")
+  assert.equal((("real outcomes" as any).text ?? ""), "", "the shape that caused the bug")
+})
+
+test("items that never ran are reported, not dropped", () => {
+  // A 6-item plan that stops at item 2 used to report "1/2 landed" - true of what was
+  // attempted, and a lie about the plan the human approved.
+  const mk = (t: string, state: ItemOutcome["state"]): ItemOutcome => ({
+    item: item({ title: t }), state, attempts: state === "not-attempted" ? 0 : 1,
+    ...(state === "done" ? { commit: "abc" } : {}),
+  })
+  const out = renderRun(
+    {
+      branch: "crew/x", worktree: "/w", cycles: [], pushed: false, seconds: 10,
+      stoppedBy: "item-stuck",
+      outcomes: [mk("one", "done"), mk("two", "failed-check"), mk("three", "not-attempted"), mk("four", "not-attempted")],
+    },
+    CFG,
+  )
+  assert.match(out, /1\/4/, "the denominator must be the whole plan")
+  assert.match(out, /three/)
+  assert.match(out, /four/)
+  assert.ok(!out.includes("**Done**"))
+})
+
+test("base detection reports whether origin/HEAD actually said anything", () => {
+  // The proposal used to assert "`origin/HEAD` says X" whenever more than one candidate
+  // existed, including when X came from the local-branch fallback - a fabricated fact
+  // presented at the moment the human is deciding whether to trust the detection.
+  const here = detectBaseCandidates(new URL("..", import.meta.url).pathname)
+  assert.ok(Array.isArray(here.names))
+  assert.ok(here.fromOriginHead === null || typeof here.fromOriginHead === "string")
+
+  const dir = scratchRepo()
+  try {
+    const probe = detectBaseCandidates(dir)
+    assert.equal(probe.fromOriginHead, null, "a repo with no remote must not claim origin/HEAD")
+    assert.deepEqual(probe.names, ["main"])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
