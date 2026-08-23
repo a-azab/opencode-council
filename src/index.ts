@@ -4,6 +4,7 @@ import { dirname, join, basename } from "node:path"
 import { execFileSync } from "node:child_process"
 import { z } from "zod"
 import { runReview, runFix, runPlan, runIndependent } from "./engine.ts"
+import { localMcpServers } from "./mcp.ts"
 import {
   resolveScope,
   proposeInit,
@@ -242,6 +243,8 @@ export const CouncilPlugin = async (input: any) => ({
               directive: saved.directive ?? "",
               tracker: trackerFor(cfg.tracker, say, {
                 issueRef: issueIdentifierIn(saved.directive ?? ""),
+                repoRoot: scope.root,
+                mcp: cfg.mcp,
               }),
             })
             writeFileSync(join(dir, "run.json"), JSON.stringify(result, null, 2))
@@ -301,8 +304,15 @@ export const CouncilPlugin = async (input: any) => ({
           return `Not writing — still unconfirmed:\n${missing.map((m) => `  • ${m}`).join("\n")}`
 
         const tracker = (args.tracker ?? "").trim()
-        if (tracker && !availableTrackers().includes(tracker as any))
-          return `Unknown or unavailable tracker \`${tracker}\`. Available here: ${availableTrackers().join(", ")}.${tracker === "linear" ? " Linear needs LINEAR_API_TOKEN set." : ""}`
+        if (tracker && !availableTrackers(process.env, scope.root).includes(tracker as any))
+          return `Unknown or unavailable tracker \`${tracker}\`. Available here: ${availableTrackers(process.env, scope.root).join(", ")}. \`mcp\` needs a local \`mcpServers\` entry in opencode.json; \`linear\` needs LINEAR_API_TOKEN.`
+        // tracker: mcp additionally needs to name a resolvable server
+        if (tracker === "mcp") {
+          const server = (args.mcpServer ?? "").trim()
+          if (!server) return "`tracker: mcp` also needs `mcpServer` — which mcpServers entry from opencode.json?"
+          if (!localMcpServers(scope.root).has(server))
+            return `\`${server}\` is not a local entry in any opencode.json here. Found: ${[...localMcpServers(scope.root).keys()].map((n) => `\`${n}\``).join(", ") || "(none)"}.`
+        }
 
         const cfg: CrewConfig = { verify, base, lanes, ...(tracker ? { tracker: tracker as any } : {}) }
         const written = applyInit(scope.root, cfg)

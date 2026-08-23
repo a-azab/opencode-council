@@ -212,16 +212,35 @@ and records the answer in the `crew` block.
 |---|---|
 | absent | init never asked — it will ask once, and offer to record your answer |
 | `none` | you declined. It won't ask again. |
-| `linear` | mirrored into a Linear agent session |
+| `mcp` | mirrored through any MCP server configured in opencode.json — Jira, GitHub Issues, Plane, … |
+| `linear` | mirrored into a Linear agent session (native fast path) |
 
 **`none` and absent are different on purpose.** Creating issues in someone's workspace
 uninvited is worse than asking one question, so the crew never guesses.
+
+With `mcp`, the tracker is whatever you already run: name one of your opencode.json
+`mcpServers` entries and map the run's moments to that server's tools. Argument names are
+the server's, not ours — a small template adapts them:
+
+```crew
+tracker: mcp
+mcp-server: jira
+mcp-start: create_issue
+mcp-step: add_comment
+mcp-finish: transition_issue
+mcp-args: {"issueKey": "${issue}", "comment": "${text}"}
+```
+
+`${issue}` (matched from the directive, e.g. `fix ENG-123`), `${directive}`, `${branch}`,
+`${text}` and `${state}` substitute into template values. Every tool is optional — a
+tracker that only posts the final summary is valid. Local (stdio) servers only, resolved
+from opencode.json so the crew adds no server configuration of its own.
 
 With `linear`, the crew registers as a real workspace member and streams into a native
 agent session: a live plan checklist, one entry per item, and the PR link attached when it
 opens. Outbound only — no webhook, no public endpoint, no daemon. Needs `LINEAR_API_TOKEN`
 from an OAuth app installed with `actor=app` (workspace admin required). Without the token
-it isn't offered at all.
+it isn't offered at all. It is an implementation of the same seam, not a privileged one.
 
 **A tracker can never break a run.** An outage, an expired token, or a preview-API change
 costs you a warning line. The work is real; the mirror is not.

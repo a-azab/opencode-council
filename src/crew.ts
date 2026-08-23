@@ -13,6 +13,7 @@ import { existsSync, readFileSync, statSync, writeFileSync, symlinkSync, rmSync 
 import { join } from "node:path"
 import { selectRoles, bySlug, skepticPool, ROSTER, ALL_ROLES, type Role } from "./roster.ts"
 import { ask, runReview, type Ctx, type NodeState } from "./engine.ts"
+import { localMcpServers, mcpTracker } from "./mcp.ts"
 import { WORKITEMS_SCHEMA, VERDICT_SCHEMA } from "./schema.ts"
 import {
   findIssue,
@@ -52,9 +53,26 @@ export type CrewConfig = {
    * uninvited is worse than one question.
    */
   tracker?: TrackerName
+  /**
+   * Wiring for `tracker: mcp` — which MCP server to mirror through and which of its tools
+   * map to the four tracker moments. Only the names configured here are called; argument
+   * names differ per server (`issueKey` vs `issue`), so `args` templates override ours.
+   */
+  mcp?: McpConfig
 }
 
-export const TRACKERS = ["none", "linear"] as const
+export type McpConfig = {
+  /** an entry in opencode.json's `mcpServers`, local/stdio type */
+  server: string
+  start?: string
+  step?: string
+  item?: string
+  finish?: string
+  /** e.g. {"issueKey": "${issue}"} — values may use ${issue} ${directive} ${branch} ${text} ${state} */
+  args?: Record<string, string>
+}
+
+export const TRACKERS = ["none", "linear", "mcp"] as const
 export type TrackerName = (typeof TRACKERS)[number]
 
 // ------------------------------------------------------------------ AGENTS.md block
@@ -113,6 +131,26 @@ export function parseCrewBlock(markdown: string): Partial<CrewConfig> | undefine
   // `tracker: jyra` would mean a typo disables tracking with no signal.
   if (raw.tracker && (TRACKERS as readonly string[]).includes(raw.tracker))
     out.tracker = raw.tracker as TrackerName
+
+  // mcp-* keys, flat like everything else. Only read when the tracker is mcp (or implied
+  // by the presence of mcp-server); a malformed mcp-args JSON fails the whole parse for
+  // the same reason an unknown lane does: silently ignoring it means a configured mirror
+  // that never mirrors.
+  if (raw["mcp-server"] || out.tracker === "mcp") {
+    if (!raw["mcp-server"]) return undefined // tracker: mcp without a server cannot run
+    const mcp: McpConfig = { server: raw["mcp-server"] }
+    for (const k of ["start", "step", "item", "finish"] as const)
+      if (raw[`mcp-${k}`]) (mcp as any)[k] = raw[`mcp-${k}`]
+    if (raw["mcp-args"]) {
+      try {
+        mcp.args = JSON.parse(raw["mcp-args"])
+      } catch {
+        return undefined
+      }
+    }
+    out.mcp = mcp
+    out.tracker ??= "mcp"
+  }
   return out
 }
 
@@ -126,6 +164,16 @@ export function renderCrewBlock(cfg: CrewConfig): string {
     `base: ${cfg.base}`,
     `lanes: ${cfg.lanes.join(", ")}`,
     ...(cfg.tracker ? [`tracker: ${cfg.tracker}`] : []),
+    ...(cfg.mcp
+      ? [
+          `mcp-server: ${cfg.mcp.server}`,
+          ...(cfg.mcp.start ? [`mcp-start: ${cfg.mcp.start}`] : []),
+          ...(cfg.mcp.step ? [`mcp-step: ${cfg.mcp.step}`] : []),
+          ...(cfg.mcp.item ? [`mcp-item: ${cfg.mcp.item}`] : []),
+          ...(cfg.mcp.finish ? [`mcp-finish: ${cfg.mcp.finish}`] : []),
+          ...(cfg.mcp.args ? [`mcp-args: ${JSON.stringify(cfg.mcp.args)}`] : []),
+        ]
+      : []),
     "```",
   ].join("\n")
 }
@@ -455,6 +503,7 @@ export function graphContext(root: string, directive: string): string {
 
 export type InitProposal = {
   root: string
+  env: NodeJS.ProcessEnv
   branch: string
   stack: string[]
   verify: VerifyCandidate[]
@@ -477,12 +526,17 @@ export function readCrewConfig(root: string): CrewConfig | null {
   return { verify: c.verify, base: c.base, lanes: c.lanes, ...(c.tracker ? { tracker: c.tracker } : {}) }
 }
 
-export function proposeInit(root: string, branch: string): InitProposal {
+export function proposeInit(
+  root: string,
+  branch: string,
+  env: NodeJS.ProcessEnv = process.env,
+): InitProposal {
   const bases = detectBaseCandidates(root)
   const agentsPath = join(root, AGENTS)
   return {
     root,
     branch,
+    env,
     stack: detectStack(root),
     verify: detectVerifyCandidates(root, bases.names[0] ?? "main"),
     bases,
@@ -490,6 +544,7 @@ export function proposeInit(root: string, branch: string): InitProposal {
     graph: graphState(root),
     ignores: missingIgnores(root),
     existing: existsSync(agentsPath) ? parseCrewBlock(readFileSync(agentsPath, "utf8")) : {},
+    env,
   }
 }
 
@@ -541,12 +596,24 @@ export function renderInitProposal(p: InitProposal): string {
   out.push("", "**Tracking**:")
   if (p.existing.tracker) out.push(`  \`${p.existing.tracker}\` (already recorded)`)
   else {
-    const others = availableTrackers().filter((t) => t !== "none")
+    const others = availableTrackers(p.env, p.root).filter((t) => t !== "none")
+    const servers = [...localMcpServers(p.root).keys()]
     out.push(
       others.length
         ? `  not recorded — options: ${["none", ...others].map((t) => `\`${t}\``).join(", ")}`
-        : "  not recorded — runs report to the terminal only; `linear` is available when `LINEAR_API_TOKEN` is set",
+        : "  not recorded — runs report to the terminal only",
     )
+    if (servers.length)
+      out.push(
+        `  \`mcp\` mirrors to any MCP server configured in opencode.json — available here: ${servers
+          .slice(0, 6)
+          .map((n) => `\`${n}\``)
+          .join(", ")}${servers.length > 6 ? ", …" : ""} (Jira, GitHub Issues, …)`,
+      )
+    else if (!p.env.LINEAR_API_TOKEN)
+      out.push(
+        "  to mirror runs into a tracker: add an MCP server to opencode.json (`mcpServers`), or set LINEAR_API_TOKEN",
+      )
   }
 
   if (p.ignores.length)
@@ -877,22 +944,36 @@ export function linearTracker(
  * would let someone pick a tracker that silently mirrors nothing while the config claims
  * otherwise.
  */
-export function availableTrackers(env: NodeJS.ProcessEnv = process.env): TrackerName[] {
-  return ["none", ...(env.LINEAR_API_TOKEN ? (["linear"] as const) : [])]
+export function availableTrackers(
+  env: NodeJS.ProcessEnv = process.env,
+  repoRoot?: string,
+): TrackerName[] {
+  // `mcp` is offered the moment ANY local MCP server is configured — it names the generic
+  // path, and the specific server is chosen per-repo in the crew block. Jira, GitHub,
+  // Plane, anything with an MCP server: all one tracker from the crew's side.
+  return [
+    "none",
+    ...(env.LINEAR_API_TOKEN ? (["linear"] as const) : []),
+    ...(localMcpServers(repoRoot).size ? (["mcp"] as const) : []),
+  ]
 }
 
 export function trackerFor(
   name: TrackerName | undefined,
   onStep: (m: string) => void,
-  opts: { issueRef?: string | null; env?: NodeJS.ProcessEnv } = {},
+  opts: { issueRef?: string | null; env?: NodeJS.ProcessEnv; repoRoot?: string; mcp?: McpConfig } = {},
 ): Tracker {
   const env = opts.env ?? process.env
   const stdout = stdoutTracker(onStep)
-  if (!name || name === "none" || !availableTrackers(env).includes(name)) {
-    // Configured-but-unavailable is a state worth a line: `tracker: linear` with no token
-    // used to fall back to terminal-only in silence, which reads as "working as configured".
+  // `mcp` with a recorded config bypasses the env-level availability gate: the gate asks
+  // "is ANY server configured here", but the useful error is the branch below's "the server
+  // you named is not resolvable" — the gate's generic message would hide it.
+  const gated = name === "mcp" && opts.mcp?.server ? true : availableTrackers(env, opts.repoRoot).includes(name!)
+  if (!name || name === "none" || !gated) {
+    // Configured-but-unavailable is a state worth a line: a configured tracker silently
+    // falling back to terminal reads as "working as configured".
     if (name && name !== "none")
-      onStep(`  tracker(${name}): unavailable here (LINEAR_API_TOKEN not set?) — terminal only`)
+      onStep(`  tracker(${name}): unavailable here (token/env not set?) — terminal only`)
     return stdout
   }
 
@@ -904,6 +985,22 @@ export function trackerFor(
       return stdout
     }
     return fanout(stdout, guarded(linearTracker({ token: env.LINEAR_API_TOKEN! }, opts.issueRef, onStep), onStep))
+  }
+
+  if (name === "mcp") {
+    // resolved lazily by the caller passing cfg through opts.mcp — see below
+    if (!opts.mcp?.server) {
+      onStep(`  tracker(mcp): no mcp-server recorded — run /crew-init to configure one`)
+      return stdout
+    }
+    const spec = localMcpServers(opts.repoRoot).get(opts.mcp.server)
+    if (!spec) {
+      onStep(
+        `  tracker(mcp): server \`${opts.mcp.server}\` is not a local entry in any opencode.json — terminal only`,
+      )
+      return stdout
+    }
+    return fanout(stdout, guarded(mcpTracker(spec, opts.mcp, opts.issueRef, onStep), onStep))
   }
   return stdout
 }
