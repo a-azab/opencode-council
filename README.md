@@ -188,12 +188,17 @@ Every loop has a floor: 2 attempts, 3 escalations, 3 review cycles, 60 minutes. 
 trips first stops the run **and says so in prose**. A run that never ends is
 indistinguishable from one that is working.
 
-The worker gets `edit` and `bash` **pinned to the worktree** — it reads the surrounding
-code, greps callers, runs the failing test. Your own checkout is never touched; a bad run
-costs `git worktree remove`, not a recovery.
+The worker gets `edit` and `bash`, **confined to the worktree by a runtime rule** —
+`external_directory: deny`, enforced by the server, not a prompt sentence. It reads the
+surrounding code, greps callers, runs the failing test; a path outside the worktree is
+refused, not merely discouraged. Your own checkout is never touched; a bad run costs
+`git worktree remove`, not a recovery.
 
-An incomplete run reports as incomplete, in the terminal and in the PR body. That is
-enforced by tests, because it is the one lie that would matter.
+An incomplete run reports as incomplete, in the terminal and in the PR body. Items that
+never ran are listed as `not-attempted` with the reason — a plan that stopped at item 2 of
+6 reports "1/6", not "1/2". An item that passed its checks without an independent judge
+says **"NOT independently judged — checks only"**. That is enforced by tests, because the
+one lie that would matter is the report that hides what happened.
 
 ### `/crew-status` — what's still lying around
 
@@ -286,6 +291,7 @@ Artifacts land in `council-artifacts/<timestamp>-<kind>/` — `report.md`, `find
 ```
  diff ──▶ route ──▶ fan-out (parallel, one node per role x model)
                     [security] [systems] [code] [qa] ...
+                    a model dies → substitute (see below), never drop
                          │
                          ▼
                      dedupe ──────────────────────── file + category + line window
@@ -293,10 +299,8 @@ Artifacts land in `council-artifacts/<timestamp>-<kind>/` — `report.md`, `find
               disputed? ─no──────────────────┐
                          │yes                │
                          ▼                   │
-                      debate (only disputing models, only disputed findings)
-                         │                   │
-              converged? ─no & round<MAX─▶ ⟲ │      computed, never declared
-                         │yes                │
+                      debate — OFF by default (see below); only ever wakes for
+                         │                   disputed findings, disputing models
                          ▼                   ▼
                      verify ── skeptics: 3 per BLOCKER, 2 per SUGGESTION
                          │      never the model that raised it
@@ -308,6 +312,23 @@ Artifacts land in `council-artifacts/<timestamp>-<kind>/` — `report.md`, `find
 
 **Routing** wakes only the roles a change implicates. A docs typo costs one node; a
 migration wakes systems and security. `reviewer` always runs.
+
+**Substitution — a lane never drops while a usable model remains.** When a node fails,
+it walks a substitute list: an unassigned model carrying the role, then any unassigned
+model, then a model already working another lane. That third tier matters most: on a full
+panel every model is already assigned, so restricting substitutes to unassigned ones
+offers zero stand-ins at exactly the moment coverage is being lost. Failures that are the
+*model's* fault for the whole run bench it everywhere — `malformed` (cannot emit a forced
+tool call), quota, auth. A timeout is not benchable; it may just be a large diff. The
+report names every stand-in and flags one that reused a busy model, because two lanes
+answered by one model are correlated, not independent — which is the thing a multi-model
+panel buys its way out of.
+
+**Debate is off by default** (`DEFAULT_MAX_ROUNDS = 0`). Huang et al. (ICLR 2024) found
+multi-agent debate *losing* to self-consistency at matched budget with round 2 worse than
+round 1, and our own measurement agreed: one debate round re-judged six findings and
+changed zero positions while wall time tripled. The code remains; turning it back on is a
+one-line experiment that needs a positive result to justify itself.
 
 **Verification** exists because multi-model review generates false positives, and a
 fabricated BLOCKER costs a human real time to disprove. Skeptics are drawn from models that
@@ -349,9 +370,10 @@ applied by code — no model or role holds a veto.
 
 ## Roster
 
-Eleven models, each individually confirmed to emit schema-valid structured output.
-`ms` is measured latency on a trivial structured task — for setting timeouts, not a
-quality signal.
+Fourteen models. `ms` is measured latency on a trivial structured task — for setting
+timeouts, not a quality signal. Every member was smoke-tested on joining; two of the
+fourteen are carried on user directive despite currently failing that smoke (noted below) —
+the bench makes a model-level failure cost one call per run, so they are cheap to carry.
 
 | slug | model | roles | ms |
 |---|---|---|---|
@@ -360,12 +382,18 @@ quality signal.
 | `gpt55` | openai/gpt-5.5 | product, reviewer, security | 4369 |
 | `glm52` | zai-coding-plan/glm-5.2 | systems, reviewer | 8403 |
 | `kimik3` | kimi-for-coding/k3 | code | 21151 |
+| `kimik3go` | opencode-go/kimi-k3 | code | 6782 |
 | `gemini36` | google/gemini-3.6-flash | breadth, docs | 9028 |
 | `grok45` | opencode-go/grok-4.5 | systems, skeptic | 7146 |
 | `mimo` | opencode-go/mimo-v2.5-pro | pragmatist, skeptic | 7027 |
 | `minimax` | opencode-go/minimax-m3 | reviewer, skeptic | 4532 |
 | `nemoultra` | opencode/nemotron-3-ultra-free | reviewer, systems | 7307 · free |
 | `nemolight` | opencode/nemotron-3.5-lightning-free | skeptic, qa, ops | 4672 · free |
+| `musespark` | opencode/muse-spark-1.2-contributor-free | breadth, docs | 8000 · free · **chats but no structured output as of 2026-08-23** |
+| `hy3` | opencode/hy3-free | qa, ops | 5000 · free · **chats but no structured output as of 2026-08-23** |
+
+`kimik3go` exists as the `code` lane's billing-cycle fallback: when kimi-for-coding's
+quota trips, the lane substitutes to it first (same role, same model, other provider).
 
 Model diversity earns its keep in the **skeptic pool**: three votes from one model are
 correlated and near-worthless; three from different models are evidence.
@@ -392,9 +420,10 @@ in the roster; a second parse path for two models is complexity for marginal div
   slowest member, so worst case is roughly 4× the per-node timeout.
 - **`anthropic/*` models only work in your main opencode process.** They route through a
   local proxy that a second server cannot reach.
-- **Nodes fail, and the report says so.** A node that did not run is always listed with its
-  cause and the verdict is marked provisional. This is deliberate: a node that failed must
-  never be indistinguishable from one that found nothing.
+- **Nodes fail, and the report says so.** Failed nodes substitute first (see above); one
+  that still did not run is listed with its cause and the verdict is marked provisional.
+  This is deliberate: a node that failed must never be indistinguishable from one that
+  found nothing.
 - Findings are grounded in the diff only. There is no repo-wide index.
 
 ---
