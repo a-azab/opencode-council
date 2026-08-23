@@ -19,6 +19,7 @@ import {
   commitMessage,
   runVerify,
   installIfDepsChanged,
+  shq,
   openWorktree,
   worktreeChanges,
   detectBaseCandidates,
@@ -142,7 +143,8 @@ test("nx repos are offered the affected-only command first", () => {
     writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "jest" } }))
     const found = detectVerifyCandidates(dir, "develop")
     assert.match(found[0].command, /nx affected/, `first candidate was ${found[0].command}`)
-    assert.match(found[0].command, /--base=develop/, "must target the configured base")
+    // shell-quoted: a branch name is legal git input containing sh metacharacters
+    assert.match(found[0].command, /--base='develop'/, "must target the configured base, quoted")
     assert.ok(
       found.some((c) => c.command === "npm run test"),
       "the whole-workspace fallbacks must still be offered",
@@ -586,6 +588,63 @@ test("a failed dependency install fails the attempt rather than being logged pas
     assert.equal(r!.ok, false)
     if (!r!.ok) assert.ok(r!.output.length > 0, "the failure must carry the install output as feedback")
   } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------- round 3 review fixes
+
+test("a branch name cannot inject through the recommended nx command", async () => {
+  // A git branch name may legally contain `;`, `$`, `&`, `|` — check-ref-format rejects
+  // far less than sh does — and the base is interpolated into a verify command that
+  // runVerify executes through a real shell. Verified against `sh -c` in situ.
+  const { execSync } = await import("node:child_process")
+  const evil = "x;touch /tmp/crew-injected"
+  const out = execSync(`echo ${shq(evil)}`, { shell: "/bin/sh" }).toString().trim()
+  assert.equal(out, evil, "the branch name must arrive as one argument, unexecuted")
+})
+
+test("an unknown lane name fails the parse rather than silently never running", () => {
+  // `lanes: coed` used to cast straight through to Role[], so the typo'd lane matched no
+  // model and never ran — with nothing anywhere saying so.
+  assert.equal(parseCrewBlock("```crew\nverify: npm test\nbase: main\nlanes: coed\n```"), undefined)
+  assert.deepEqual(
+    parseCrewBlock("```crew\nverify: npm test\nbase: main\nlanes: qa, skeptic\n```")?.lanes,
+    ["qa", "skeptic"],
+  )
+})
+
+test("a lockfile-less repo still installs on a manifest change", () => {
+  // Returning null when only package.json changed meant the edit was never installed and
+  // the check ran against the parent's versions through the symlink.
+  const dir = scratchRepo()
+  try {
+    mkdirSync(join(dir, "node_modules"), { recursive: true }) // real dir: rmSync needs recursive
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "x", version: "1.0.0" }))
+    rmSync(join(dir, "package.json")) // scratchRepo committed one; write a dep-free one
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "x", version: "1.0.0" }))
+    const r = installIfDepsChanged(dir, ["package.json"])
+    assert.ok(r, "a package.json change must attempt an install")
+    assert.equal(r!.ok, true, `install should succeed on a valid manifest: ${r!.ok ? "" : r!.note}`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("the worktree branches from the configured base, not session HEAD", () => {
+  // The review and acceptance stages diff `<base>...HEAD`. Branching from HEAD would fold
+  // the user's own unmerged commits into what the reviewer is told the crew did.
+  const dir = scratchRepo()
+  try {
+    execFileSync("git", ["checkout", "-q", "-b", "feature"], { cwd: dir })
+    execFileSync("git", ["commit", "--allow-empty", "-qm", "user work"], { cwd: dir })
+    const { branch } = openWorktree(dir, "base-probe", "main")
+    const merged = execFileSync("git", ["rev-list", "--count", `main...${branch}`], {
+      cwd: join(dir, ".worktrees", "base-probe"),
+    }).toString().trim()
+    assert.equal(merged, "0", `base...branch must contain only crew work, found ${merged} commits`)
+  } finally {
+    execFileSync("git", ["worktree", "remove", "--force", join(dir, ".worktrees", "base-probe")], { cwd: dir }).catch?.(() => {})
     rmSync(dir, { recursive: true, force: true })
   }
 })

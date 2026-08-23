@@ -8,9 +8,10 @@
 // tested that way; what is testable there is the arithmetic around them - scheduling,
 // stop rules, and how a result is reported.
 import { execFileSync, execSync } from "node:child_process"
+import { createHash } from "node:crypto"
 import { existsSync, readFileSync, statSync, writeFileSync, symlinkSync, rmSync } from "node:fs"
 import { join } from "node:path"
-import { selectRoles, bySlug, skepticPool, ROSTER, type Role } from "./roster.ts"
+import { selectRoles, bySlug, skepticPool, ROSTER, ALL_ROLES, type Role } from "./roster.ts"
 import { ask, runReview, type Ctx, type NodeState } from "./engine.ts"
 import { WORKITEMS_SCHEMA, VERDICT_SCHEMA } from "./schema.ts"
 import {
@@ -32,6 +33,9 @@ import {
  * (`nx affected`, `turbo --filter`) than by a scope table we maintain by hand. If a repo
  * turns up that has neither, add the map then.
  */
+/** Every valid lane name — the full Role union, including skeptic. */
+export const KNOWN_ROLES: string[] = [...ALL_ROLES, "skeptic"]
+
 export type CrewConfig = {
   /** run in order; all must pass. */
   verify: string[]
@@ -89,7 +93,13 @@ export function parseCrewBlock(markdown: string): Partial<CrewConfig> {
   const out: Partial<CrewConfig> = {}
   if (verify.length) out.verify = verify.filter(Boolean)
   if (raw.base) out.base = raw.base
-  if (raw.lanes) out.lanes = list(raw.lanes) as Role[]
+  if (raw.lanes) {
+    const known = new Set<string>(KNOWN_ROLES)
+    const wanted = list(raw.lanes)
+    const bad = wanted.filter((l) => !known.has(l))
+    if (bad.length) return undefined // a typo like `coed` must fail loudly, not silently never run
+    out.lanes = wanted as Role[]
+  }
   // An unrecognised tracker name is dropped rather than carried: readCrewConfig would then
   // see "never asked" and ask again, which is the safe direction. Silently accepting
   // `tracker: jyra` would mean a typo disables tracking with no signal.
@@ -212,7 +222,7 @@ export function detectVerifyCandidates(root: string, base = "main"): VerifyCandi
 
   if (existsSync(join(root, "nx.json"))) {
     out.push({
-      command: `npx nx affected -t lint test --base=${base}`,
+      command: `npx nx affected -t lint test --base=${shq(base)}`,
       why: "nx.json - nx computes the affected projects itself",
     })
     out.push({ command: "npx nx run-many -t lint test", why: "nx.json - whole workspace" })
@@ -521,7 +531,7 @@ export function renderInitProposal(p: InitProposal): string {
     out.push(
       others.length
         ? `  not recorded — options: ${["none", ...others].map((t) => `\`${t}\``).join(", ")}`
-        : "  not recorded — only `none` is implemented today, so runs report to the terminal only",
+        : "  not recorded — runs report to the terminal only; `linear` is available when `LINEAR_API_TOKEN` is set",
     )
   }
 
@@ -640,7 +650,7 @@ export async function runIntake(
   let calls = 0
 
   const askAny = async <T>(agent: string, text: string, schema?: unknown): Promise<T | null> => {
-    let last = { state: "failed" as NodeState, detail: "no model in INTAKE_MODELS resolved" }
+    let last = { state: "failed" as NodeState, detail: "no model in CREW_MODELS resolved" }
     for (const slug of CREW_MODELS) {
       const member = bySlug(slug)
       if (!member) continue
@@ -906,16 +916,24 @@ export function fanout(...trackers: Tracker[]): Tracker {
  * reuse the branch name. Pruning is git's own cleanup for exactly this, and it costs
  * nothing when there is nothing to clean.
  */
-export function openWorktree(root: string, slug: string): { path: string; branch: string } {
+export function openWorktree(
+  root: string,
+  slug: string,
+  base?: string,
+): { path: string; branch: string } {
   git(root, ["worktree", "prune"])
   const branch = `crew/${slug}`
   const path = join(root, ".worktrees", slug)
-  git(root, ["worktree", "add", "-b", branch, path, "HEAD"])
+  // From the configured base, NOT session HEAD. The review and acceptance stages diff
+  // `<base>...HEAD`; branching from HEAD would fold the user's own unmerged commits into
+  // what the reviewer is told the crew did, and judge the crew for work it did not do.
+  const from = base ?? "HEAD"
+  git(root, ["worktree", "add", "-b", branch, path, from])
 
   // ponytail: symlink node_modules rather than install. A real install is minutes per run
   // and often impossible offline. The ceiling is real and known: an item that CHANGES
-  // dependencies will verify against the parent's versions and can pass wrongly. runCrew
-  // detects a manifest change and installs for real in that case.
+  // dependencies will verify against the parent's versions and can pass wrongly.
+  // runItem detects a manifest change AFTER the worker edits and installs for real then.
   const deps = join(root, "node_modules")
   if (existsSync(deps) && !existsSync(join(path, "node_modules"))) {
     try {
@@ -1006,13 +1024,29 @@ export function installIfDepsChanged(worktree: string, files: string[]): Install
     ["package-lock.json", "npm ci --silent || npm install --silent"],
     ["pnpm-lock.yaml", "pnpm install --silent"],
     ["yarn.lock", "yarn install --silent"],
+    // A repo with a manifest but no lockfile changed deps too. Returning null there meant
+    // the edit was never installed and the check ran against the parent's versions through
+    // the symlink - the exact wrong pass that guard exists to prevent.
+    ["package.json", "npm install --silent"],
   ] as const) {
     if (existsSync(join(worktree, marker))) {
       try {
-        rmSync(join(worktree, "node_modules"), { force: true }) // drop the symlink, not the target
+        // recursive handles both shapes: a symlink (unlinked, target untouched) and a real
+        // directory (rmSync without recursive throws ERR_FS_EISDIR on one, which the catch
+        // below used to swallow before the guard existed).
+        rmSync(join(worktree, "node_modules"), { force: true, recursive: true })
       } catch {
         /* not a symlink, or absent */
       }
+      // If the symlink survived, installing would write THROUGH it into the parent
+      // checkout - mutating the user's own node_modules, the thing worktree isolation
+      // exists to prevent. Refuse rather than swallow it.
+      if (existsSync(join(worktree, "node_modules")))
+        return {
+          ok: false,
+          note: "node_modules could not be detached from the parent checkout; refusing to install through the symlink",
+          output: "",
+        }
       const r = runVerify(worktree, [cmd])
       // The symlink is already gone by now. Continuing on a failed install means the check
       // runs with NO node_modules at all and fails for a reason that has nothing to do with
@@ -1032,7 +1066,9 @@ const SECRETS = ["**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/id_rsa*", "
 
 export type ItemOutcome = {
   item: WorkItem
-  state: "done" | "failed-check" | "unmet" | "no-change" | "model-failed" | "not-attempted"
+  state:
+    | "done" | "failed-check" | "unmet" | "no-change" | "model-failed" | "not-attempted"
+    | "out-of-time"
   attempts: number
   /** last verify output, kept whether it passed or failed - a pass is evidence too */
   checkOutput?: string
@@ -1229,7 +1265,7 @@ export async function runItem(
   for (let attempt = 1; attempt <= total; attempt++) {
     if (input.deadline && Date.now() > input.deadline) {
       say("  out of time before this attempt")
-      return { ...last, detail: "the run's wall-clock budget ran out mid-item" }
+      return { ...last, state: "out-of-time", detail: "the run's wall-clock budget ran out mid-item" }
     }
     last.attempts = attempt
 
@@ -1272,7 +1308,7 @@ export async function runItem(
     // done, and returned a confident summary is indistinguishable from one that worked -
     // except in the diff. Committing nothing and calling it done is the worst outcome.
     const changed = worktreeChanges(input.worktree)
-    const fingerprint = changed.join("\n") + "\n" + git(input.worktree, ["diff", "HEAD"]).length
+    const fingerprint = createHash("sha256").update(git(input.worktree, ["diff", "HEAD"])).digest("hex")
     if (!changed.length || fingerprint === seen) {
       say("  no files changed")
       return {
@@ -1328,12 +1364,23 @@ export async function runItem(
       continue
     }
 
-    git(input.worktree, ["add", "-A", "--", ".", NOT_WORK])
-    git(input.worktree, [
-      "-c", "user.name=crew", "-c", "user.email=crew@local",
-      "commit", "-m", commitMessage(input.item),
-    ])
-    const commit = git(input.worktree, ["rev-parse", "--short", "HEAD"])
+    // A commit failure is an outcome, not a crash: a crashing run reports nothing, while
+    // this reports the item as check-passed but uncommittable, with the git error as detail.
+    try {
+      git(input.worktree, ["add", "-A", "--", ".", NOT_WORK])
+    } catch (e: any) {
+      return { ...last, state: "failed-check", detail: `staging failed: ${String(e?.message ?? e).slice(0, 200)}` }
+    }
+    let commit: string
+    try {
+      git(input.worktree, [
+        "-c", "user.name=crew", "-c", "user.email=crew@local",
+        "commit", "-m", commitMessage(input.item),
+      ])
+      commit = git(input.worktree, ["rev-parse", "--short", "HEAD"])
+    } catch (e: any) {
+      return { ...last, state: "failed-check", detail: `commit failed: ${String(e?.message ?? e).slice(0, 200)}` }
+    }
     say(`  committed ${commit}`)
     return { ...last, state: "done", commit }
   }
@@ -1414,7 +1461,7 @@ export async function runExecute(
   const t0 = Date.now()
   const maxSeconds = input.maxSeconds ?? MAX_RUN_SECONDS
   const slug = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
-  const { path: worktree, branch } = openWorktree(input.root, slug)
+  const { path: worktree, branch } = openWorktree(input.root, slug, input.cfg.base)
   const outcomes: ItemOutcome[] = []
   await tracker.start({ directive: input.directive, items: input.items, branch })
 
@@ -1661,6 +1708,16 @@ export function renderRun(r: RunResult, cfg: CrewConfig): string {
 }
 
 /** All commands, in order, first failure wins. Output carries which one broke. */
+/**
+ * Single-quote for a shell string. A git branch name may legally contain `;`, `$`, `&`,
+ * `|`, quotes - check-ref-format rejects far less than sh does - and the base is
+ * interpolated into a verify command that runVerify executes through a real shell. An
+ * unquoted `--base=${base}` is command injection from a branch name.
+ */
+export function shq(v: string): string {
+  return `'${v.replace(/'/g, `'\\''`)}'`
+}
+
 export function runVerify(cwd: string, commands: string[]): { ok: boolean; output: string } {
   for (const command of commands) {
     try {
