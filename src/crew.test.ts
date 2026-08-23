@@ -41,6 +41,9 @@ import {
   type WorkItem,
 } from "./crew.ts"
 
+const gitOut = (cwd: string, args: string[]) =>
+  execFileSync("git", args, { cwd, encoding: "utf8" })
+
 const CFG: CrewConfig = {
   verify: ["npm test", "npm run lint"],
   base: "develop",
@@ -696,4 +699,85 @@ test("run slugs do not collide with a branch left by a crashed run", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// ---------------------------------------------------------------- round 5 review fixes
+
+test("the judge's diff includes files created from scratch", () => {
+  // `git diff HEAD` omits untracked files, so an item delivered entirely in NEW files
+  // handed checkAcceptance an empty diff - judged on nothing, three lanes caught it.
+  // Intent-to-add puts them in the diff without staging anything.
+  const dir = scratchRepo()
+  try {
+    const { path: wt } = openWorktree(dir, "untracked-probe", "main")
+    try {
+      writeFileSync(join(wt, "brand-new.ts"), "export const x = 1\n")
+      const blind = gitOut(wt, ["diff", "HEAD"])
+      assert.equal(blind, "", "precondition: plain diff is blind to new files")
+      gitOut(wt, ["add", "--intent-to-add", "--", "."])
+      const seen = gitOut(wt, ["diff", "HEAD"])
+      assert.match(seen, /brand-new\.ts/, "intent-to-add must surface new files to the judge")
+      assert.match(seen, /\+export const x = 1/, "and their contents")
+      // and the real staging path still upgrades the intent entries
+      gitOut(wt, ["add", "-A", "--", "."])
+      gitOut(wt, ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "x"])
+      assert.match(gitOut(wt, ["show", "--name-only", "--pretty=format:"]), /brand-new\.ts/)
+    } finally {
+      execFileSync("git", ["worktree", "remove", "--force", wt], { cwd: dir })
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("origin/HEAD naming a deleted remote branch is not offered", () => {
+  // origin/HEAD can name a branch the remote no longer has; offering it as the PR target
+  // points every diff and PR at a ref that resolves to nothing.
+  const dir = scratchRepo()
+  try {
+    execFileSync("git", ["update-ref", "refs/remotes/origin/HEAD", "HEAD"], { cwd: dir })
+    // origin/HEAD now says `main`, but refs/remotes/origin/main does not exist
+    const probe = detectBaseCandidates(dir)
+    assert.equal(probe.fromOriginHead, null, "origin/HEAD naming a missing ref must not be trusted")
+    // `main` is still offered - from the local branch, where it is real
+    assert.deepEqual(probe.names, ["main"], `names were ${probe.names}`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a CPO lane failure is reported once, by askAny", () => {
+  // The round-4 fix pushed a second `dropped` entry on top of the one askAny already
+  // records, so the gate said the lane failed twice under two names.
+  const dropped = [{ lane: "crew-cpo", state: "failed", detail: "all models exhausted" }]
+  const gate = renderGate(
+    { outcomes: "", items: [item({ title: "x" })], instructionBytes: 10, dropped },
+    CFG,
+    { root: "/repo", branch: "main" },
+  )
+  assert.equal(gate.match(/crew-cpo did not answer/g)?.length, 1)
+})
+
+test("verify candidates are deduped", () => {
+  const dir = mkdtempSync(join(tmpdir(), "crew-py-"))
+  try {
+    writeFileSync(join(dir, "pytest.ini"), "")
+    writeFileSync(join(dir, "pyproject.toml"), "[tool.pytest.ini_options]")
+    const cmds = detectVerifyCandidates(dir, "main").map((c) => c.command)
+    assert.equal(cmds.filter((c) => c === "pytest").length, 1, `got ${cmds}`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a done item carries no stale failure detail", () => {
+  const out = renderRun(
+    {
+      branch: "crew/x", worktree: "/w", cycles: [], pushed: false, seconds: 5, stoppedBy: "complete",
+      outcomes: [{ item: item({ title: "t" }), state: "done", attempts: 2, commit: "abc", judge: "fable", judged: true, detail: undefined }],
+    },
+    CFG,
+  )
+  assert.match(out, /accepted by fable/)
+  assert.ok(!/unmet|not met/.test(out), "a landed item must not echo its earlier failure")
 })

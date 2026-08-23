@@ -84,6 +84,11 @@ export function parseCrewBlock(markdown: string): Partial<CrewConfig> | undefine
     // and the comma-joined form this replaced could not express it. No back-compat shim -
     // the only blocks in existence are ours, and a shim here re-breaks the case it exists
     // to fix.
+    //
+    // Known ceiling: the block is line-oriented, so a verify command that itself spans
+    // multiple lines (heredoc, embedded newline) cannot be represented. ponytail: commands
+    // that complex belong in package.json scripts, referenced here by name; promote to a
+    // real format if a repo ever genuinely needs one.
     if (key === "verify" && value) verify.push(value)
     else raw[key] = value
   }
@@ -94,7 +99,7 @@ export function parseCrewBlock(markdown: string): Partial<CrewConfig> | undefine
       .filter(Boolean)
 
   const out: Partial<CrewConfig> = {}
-  if (verify.length) out.verify = verify.filter(Boolean)
+  if (verify.length) out.verify = verify
   if (raw.base) out.base = raw.base
   if (raw.lanes) {
     const known = new Set<string>(KNOWN_ROLES)
@@ -246,7 +251,10 @@ export function detectVerifyCandidates(root: string, base = "main"): VerifyCandi
   for (const f of ["pytest.ini", "pyproject.toml", "tox.ini"])
     if (existsSync(join(root, f))) out.push({ command: "pytest", why: f })
 
-  return out
+  // A repo with both pytest.ini and pyproject.toml offered `pytest` twice - and the
+  // duplicate pushed the generic candidates off the end of the list shown to the human.
+  const seen = new Set<string>()
+  return out.filter((c) => (seen.has(c.command) ? false : (seen.add(c.command), true)))
 }
 
 /**
@@ -262,7 +270,10 @@ export function detectBaseCandidates(root: string): BaseCandidates {
   let fromOriginHead: string | null = null
   try {
     const name = git(root, ["symbolic-ref", "refs/remotes/origin/HEAD"]).split("/").pop()
-    if (name) {
+    // Verified, unlike before: origin/HEAD can name a branch the remote no longer has, and
+    // offering it as the PR target would send every diff and PR at a ref that resolves to
+    // nothing.
+    if (name && refExists(root, `refs/remotes/origin/${name}`)) {
       fromOriginHead = name
       names.push(name)
     }
@@ -681,11 +692,6 @@ export async function runIntake(
     WORKITEMS_SCHEMA,
   )
 
-  // askAny already tried every model. If none answered, the CTO works from the directive
-  // alone - a degraded plan, and the gate must show that rather than present a
-  // confident-looking list built by half the intake.
-  if (!cpo) dropped.push({ lane: "cpo", state: "failed", detail: "no model answered; plan built by the CTO alone" })
-
   return {
     outcomes,
     items: plan?.items ?? [],
@@ -858,9 +864,7 @@ export function linearTracker(
           ...stuck.map((o) => `- **${o.item.title}** — ${o.state}${o.detail ? `: ${o.detail}` : ""}`),
           "",
           where,
-        ]
-          .filter((l) => l !== undefined)
-          .join("\n"),
+        ].join("\n"),
       })
     },
   }
@@ -924,6 +928,16 @@ export function fanout(...trackers: Tracker[]): Tracker {
  * reuse the branch name. Pruning is git's own cleanup for exactly this, and it costs
  * nothing when there is nothing to clean.
  */
+/** Does a ref exist? Used where a name is only worth offering if it resolves. */
+export function refExists(root: string, ref: string): boolean {
+  try {
+    git(root, ["rev-parse", "--verify", "--quiet", ref])
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** Does the branch already exist? `git worktree add -b` refuses an existing name. */
 export function branchExists(root: string, branch: string): boolean {
   try {
@@ -1083,7 +1097,10 @@ export function installIfDepsChanged(worktree: string, files: string[]): Install
 
 // ------------------------------------------------------------------ execute
 
-/** Never fed to a model. Reading them is pointless and putting them in a prompt is worse. */
+/**
+ * Secret-file globs. The PATHS are told to the implementer as an exclusion list; the
+ * CONTENTS are never read, logged, or put in any prompt - that is the actual rule.
+ */
 const SECRETS = ["**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/id_rsa*", "**/*.p12", "**/*.keystore"]
 
 export type ItemOutcome = {
@@ -1098,6 +1115,15 @@ export type ItemOutcome = {
   detail?: string
   /** who judged the acceptance criteria, so the judgement is attributable */
   judge?: string
+  /**
+   * Did an independent judge actually assess acceptance? The verdict fails open by design -
+   * an unreachable judge must not block work - and this flag is what lets the report say
+   * "NOT independently judged" instead of passing silently. Declared here, not on RunResult:
+   * it varies per item. (Five lanes caught it living on the wrong type, writing an
+   * undeclared property that `npm test` could not see because type stripping is not
+   * typechecking.)
+   */
+  judged?: boolean
 }
 
 /** Plain retries before the crew brings in extra lanes to diagnose (C5). */
@@ -1371,6 +1397,10 @@ export async function runItem(
     }
 
     // Green checks say nothing broke. They do not say the item was delivered (C8).
+    // `git diff HEAD` omits untracked files, so an item delivered entirely in NEW files
+    // handed the judge an empty diff. Intent-to-add puts them in the diff without staging
+    // anything; the real `git add -A` further down upgrades the intent entries.
+    git(input.worktree, ["add", "--intent-to-add", "--", ".", NOT_WORK])
     const verdict = await checkAcceptance(ctx, {
       item: input.item,
       diff: git(input.worktree, ["diff", "HEAD"]),
@@ -1405,7 +1435,7 @@ export async function runItem(
       return { ...last, state: "failed-check", detail: `commit failed: ${String(e?.message ?? e).slice(0, 200)}` }
     }
     say(`  committed ${commit}`)
-    return { ...last, state: "done", commit }
+    return { ...last, state: "done", commit, detail: undefined }
   }
 
   return last
@@ -1422,8 +1452,6 @@ export type RunResult = {
   /** whether the branch reached the remote, independent of whether a PR opened */
   pushed: boolean
   seconds: number
-  /** did an independent judge actually assess acceptance for this item? */
-  judged?: boolean
   /** why the run ended - computed, never asserted by a model (C7) */
   stoppedBy: "complete" | "item-stuck" | "review-cycles" | "wall-clock" | "crashed"
   /** set only when stoppedBy is "crashed" */
