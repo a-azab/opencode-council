@@ -1,6 +1,8 @@
 {
   "communities": {
     "0": [
+      "src_crew_checkacceptance",
+      "src_crew_diagnose",
       "src_engine",
       "src_engine_ask",
       "src_engine_askonce",
@@ -97,13 +99,42 @@
       "src_report_test_finding",
       "src_report_test_patch",
       "src_report_tier_order",
-      "src_roster_role",
+      "src_roster_role"
+    ],
+    "2": [
+      "src_crew_availabletrackers",
+      "src_crew_fanout",
+      "src_crew_itemoutcome",
+      "src_crew_lineartracker",
+      "src_crew_mcpconfig",
+      "src_crew_renderinitproposal",
+      "src_crew_runresult",
+      "src_crew_stdouttracker",
+      "src_crew_trackerfor",
+      "src_crew_workitem",
+      "src_mcp",
+      "src_mcp_localmcpservers",
+      "src_mcp_mcpserverspec",
+      "src_mcp_mcpsession",
+      "src_mcp_mcpsession_call",
+      "src_mcp_mcpsession_constructor",
+      "src_mcp_mcpsession_request",
+      "src_mcp_mcpsession_send",
+      "src_mcp_mcpsession_spawn",
+      "src_mcp_mcpsession_stop",
+      "src_mcp_mcptracker",
+      "src_mcp_parsejsonc",
+      "src_mcp_substitute",
+      "src_mcp_summaryof",
+      "src_mcp_test",
+      "src_mcp_test_fakeserver",
+      "src_mcp_test_scratch",
       "src_tool_test",
       "src_tool_test_scratchrepo",
       "src_tool_test_tool",
       "src_tool_test_withconfig"
     ],
-    "2": [
+    "3": [
       "src_decide",
       "src_decide_applyoutcome",
       "src_decide_applyrevisions",
@@ -133,7 +164,7 @@
       "src_tally_test",
       "src_tally_test_s"
     ],
-    "3": [
+    "4": [
       "src_crew_applyinit",
       "src_crew_crew_ignores",
       "src_crew_detectstack",
@@ -161,35 +192,6 @@
       "src_crew_tracker",
       "src_crew_trackers",
       "src_crew_upsertcrewblock"
-    ],
-    "4": [
-      "src_crew_availabletrackers",
-      "src_crew_fanout",
-      "src_crew_itemoutcome",
-      "src_crew_lineartracker",
-      "src_crew_mcpconfig",
-      "src_crew_renderinitproposal",
-      "src_crew_runresult",
-      "src_crew_stdouttracker",
-      "src_crew_trackerfor",
-      "src_crew_workitem",
-      "src_mcp",
-      "src_mcp_localmcpservers",
-      "src_mcp_mcpserverspec",
-      "src_mcp_mcpsession",
-      "src_mcp_mcpsession_call",
-      "src_mcp_mcpsession_constructor",
-      "src_mcp_mcpsession_request",
-      "src_mcp_mcpsession_send",
-      "src_mcp_mcpsession_spawn",
-      "src_mcp_mcpsession_stop",
-      "src_mcp_mcptracker",
-      "src_mcp_parsejsonc",
-      "src_mcp_substitute",
-      "src_mcp_summaryof",
-      "src_mcp_test",
-      "src_mcp_test_fakeserver",
-      "src_mcp_test_scratch"
     ],
     "5": [
       "src_crew",
@@ -274,9 +276,7 @@
       "src_crew_runexecute"
     ],
     "9": [
-      "src_crew_checkacceptance",
       "src_crew_commitmessage",
-      "src_crew_diagnose",
       "src_crew_implementprompt",
       "src_crew_installifdepschanged",
       "src_crew_runitem",
@@ -286,16 +286,16 @@
     ]
   },
   "cohesion": {
-    "0": 0.06504494976203067,
-    "1": 0.07357357357357357,
-    "2": 0.12433862433862433,
-    "3": 0.10541310541310542,
-    "4": 0.13675213675213677,
+    "0": 0.0625,
+    "1": 0.08522727272727272,
+    "2": 0.11182795698924732,
+    "3": 0.12433862433862433,
+    "4": 0.10541310541310542,
     "5": 0.10869565217391304,
     "6": 0.15204678362573099,
     "7": 0.1111111111111111,
     "8": 0.21794871794871795,
-    "9": 0.25
+    "9": 0.3333333333333333
   },
   "gods": [
     {
@@ -304,18 +304,18 @@
       "degree": 14
     },
     {
+      "id": "src_crew_runitem",
+      "label": "runItem()",
+      "degree": 11
+    },
+    {
       "id": "src_crew_trackerfor",
       "label": "trackerFor()",
       "degree": 10
     },
     {
-      "id": "src_crew_runitem",
-      "label": "runItem()",
-      "degree": 10
-    },
-    {
-      "id": "src_crew_runexecute",
-      "label": "runExecute()",
+      "id": "src_mcp_mcptracker",
+      "label": "mcpTracker()",
       "degree": 10
     },
     {
@@ -329,8 +329,8 @@
       "degree": 9
     },
     {
-      "id": "src_mcp_mcptracker",
-      "label": "mcpTracker()",
+      "id": "src_crew_runexecute",
+      "label": "runExecute()",
       "degree": 9
     },
     {
@@ -344,22 +344,22 @@
       "degree": 8
     },
     {
-      "id": "src_engine_ask",
-      "label": "ask()",
-      "degree": 7
+      "id": "src_roster_roster",
+      "label": "ROSTER",
+      "degree": 8
     }
   ],
   "surprises": [
     {
-      "source": "runExecute()",
-      "target": "item()",
+      "source": "mcpTracker()",
+      "target": "tool()",
       "source_files": [
-        "src/crew.ts",
-        "src/crew.test.ts"
+        "src/mcp.ts",
+        "src/tool.test.ts"
       ],
       "confidence": "INFERRED",
       "relation": "indirect_call",
-      "why": "inferred connection - not explicitly stated in source; bridges separate communities"
+      "why": "inferred connection - not explicitly stated in source; peripheral node `tool()` unexpectedly reaches hub `mcpTracker()`"
     },
     {
       "source": "dedupe()",
@@ -373,37 +373,37 @@
       "why": "inferred connection - not explicitly stated in source"
     },
     {
-      "source": "disputed()",
-      "target": "dedupe()",
+      "source": "proposeLanes()",
+      "target": "selectRoles()",
       "source_files": [
-        "src/decide.test.ts",
-        "src/decide.ts"
-      ],
-      "confidence": "EXTRACTED",
-      "relation": "calls",
-      "why": "cross-file semantic connection"
-    },
-    {
-      "source": "twoReports()",
-      "target": "dedupe()",
-      "source_files": [
-        "src/decide.test.ts",
-        "src/decide.ts"
-      ],
-      "confidence": "EXTRACTED",
-      "relation": "calls",
-      "why": "cross-file semantic connection"
-    },
-    {
-      "source": "debateRound()",
-      "target": "bySlug()",
-      "source_files": [
-        "src/engine.ts",
+        "src/crew.ts",
         "src/roster.ts"
       ],
       "confidence": "EXTRACTED",
       "relation": "calls",
-      "why": "cross-file semantic connection"
+      "why": "bridges separate communities"
+    },
+    {
+      "source": "runIntake()",
+      "target": "bySlug()",
+      "source_files": [
+        "src/crew.ts",
+        "src/roster.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "bridges separate communities"
+    },
+    {
+      "source": "runItem()",
+      "target": "bySlug()",
+      "source_files": [
+        "src/crew.ts",
+        "src/roster.ts"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "calls",
+      "why": "bridges separate communities"
     }
   ],
   "tokens": {
