@@ -65,8 +65,11 @@ const FENCE = /^```crew[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/m
  * Flat `key: value` inside a ```crew fence. Same shape as the agent-file frontmatter
  * parser in index.ts, and flat for the same reason: nothing here needs nesting, and
  * needing a YAML dependency to read four keys would be the tail wagging the dog.
+ *
+ * Returns undefined when a fence exists but its contents are not a valid config - an
+ * unknown lane name, for instance, must fail the parse rather than silently never run.
  */
-export function parseCrewBlock(markdown: string): Partial<CrewConfig> {
+export function parseCrewBlock(markdown: string): Partial<CrewConfig> | undefined {
   const m = FENCE.exec(markdown)
   if (!m) return {}
   const raw: Record<string, string> = {}
@@ -545,13 +548,7 @@ export function renderInitProposal(p: InitProposal): string {
   return out.join("\n")
 }
 
-/**
- * Write the config.
- *
- * Touches exactly two things: our own fenced block in AGENTS.md - never prose around it -
- * and `.git/info/exclude`, which is per-clone and never committed. `.gitignore` is the
- * user's file and is not modified.
- */
+
 // ------------------------------------------------------------------ intake
 
 /**
@@ -683,6 +680,11 @@ export async function runIntake(
     ctoPrompt(input.directive, outcomes || input.directive, graph, input.instructions),
     WORKITEMS_SCHEMA,
   )
+
+  // askAny already tried every model. If none answered, the CTO works from the directive
+  // alone - a degraded plan, and the gate must show that rather than present a
+  // confident-looking list built by half the intake.
+  if (!cpo) dropped.push({ lane: "cpo", state: "failed", detail: "no model answered; plan built by the CTO alone" })
 
   return {
     outcomes,
@@ -882,7 +884,13 @@ export function trackerFor(
 ): Tracker {
   const env = opts.env ?? process.env
   const stdout = stdoutTracker(onStep)
-  if (!name || name === "none" || !availableTrackers(env).includes(name)) return stdout
+  if (!name || name === "none" || !availableTrackers(env).includes(name)) {
+    // Configured-but-unavailable is a state worth a line: `tracker: linear` with no token
+    // used to fall back to terminal-only in silence, which reads as "working as configured".
+    if (name && name !== "none")
+      onStep(`  tracker(${name}): unavailable here (LINEAR_API_TOKEN not set?) — terminal only`)
+    return stdout
+  }
 
   if (name === "linear") {
     if (!opts.issueRef) {
@@ -916,6 +924,16 @@ export function fanout(...trackers: Tracker[]): Tracker {
  * reuse the branch name. Pruning is git's own cleanup for exactly this, and it costs
  * nothing when there is nothing to clean.
  */
+/** Does the branch already exist? `git worktree add -b` refuses an existing name. */
+export function branchExists(root: string, branch: string): boolean {
+  try {
+    git(root, ["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`])
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function openWorktree(
   root: string,
   slug: string,
@@ -931,9 +949,13 @@ export function openWorktree(
   git(root, ["worktree", "add", "-b", branch, path, from])
 
   // ponytail: symlink node_modules rather than install. A real install is minutes per run
-  // and often impossible offline. The ceiling is real and known: an item that CHANGES
-  // dependencies will verify against the parent's versions and can pass wrongly.
-  // runItem detects a manifest change AFTER the worker edits and installs for real then.
+  // and often impossible offline. Two ceilings, both real and known: (1) an item that
+  // CHANGES dependencies verifies against the parent's versions until runItem notices the
+  // manifest change and installs for real — a wrong pass is possible in that window;
+  // (2) the symlink is writeable from inside the worktree, so a worker that writes into
+  // node_modules/ reaches the parent checkout's dependencies. The worker is a reviewed
+  // plan-runner on the user's own machine, same trust as the user's own npm install —
+  // if that stops being true, replace the symlink with a per-worktree install.
   const deps = join(root, "node_modules")
   if (existsSync(deps) && !existsSync(join(path, "node_modules"))) {
     try {
@@ -1260,7 +1282,7 @@ export async function runItem(
   // Compared per attempt. Against HEAD the guard could only ever fire on attempt 1: after
   // a failed attempt the worktree is already dirty, so a worker that then did nothing at
   // all looked like one that worked.
-  let seen = ""
+  let lastFingerprint = ""
 
   for (let attempt = 1; attempt <= total; attempt++) {
     if (input.deadline && Date.now() > input.deadline) {
@@ -1309,7 +1331,7 @@ export async function runItem(
     // except in the diff. Committing nothing and calling it done is the worst outcome.
     const changed = worktreeChanges(input.worktree)
     const fingerprint = createHash("sha256").update(git(input.worktree, ["diff", "HEAD"])).digest("hex")
-    if (!changed.length || fingerprint === seen) {
+    if (!changed.length || fingerprint === lastFingerprint) {
       say("  no files changed")
       return {
         ...last,
@@ -1319,7 +1341,7 @@ export async function runItem(
           : "the worker reported success but changed nothing",
       }
     }
-    seen = fingerprint
+    lastFingerprint = fingerprint
 
     // Keyed off what the worker ACTUALLY changed, and run before the check.
     // This used to run before the worker, against the item's *predicted* files: at that
@@ -1356,6 +1378,7 @@ export async function runItem(
       landed: input.landed ?? [],
     })
     last.judge = verdict.judge
+    last.judged = Boolean(verdict.judge)
     if (!verdict.met) {
       say(`  checks pass but acceptance not met: ${verdict.reason.slice(0, 120)}`)
       feedback = `The project's checks pass, but an independent reviewer says this item is not delivered:\n\n${verdict.reason}\n\nThe acceptance criteria are: ${input.item.acceptance}`
@@ -1399,6 +1422,8 @@ export type RunResult = {
   /** whether the branch reached the remote, independent of whether a PR opened */
   pushed: boolean
   seconds: number
+  /** did an independent judge actually assess acceptance for this item? */
+  judged?: boolean
   /** why the run ended - computed, never asserted by a model (C7) */
   stoppedBy: "complete" | "item-stuck" | "review-cycles" | "wall-clock" | "crashed"
   /** set only when stoppedBy is "crashed" */
@@ -1460,7 +1485,14 @@ export async function runExecute(
   const say = (m: string) => tracker.step(m)
   const t0 = Date.now()
   const maxSeconds = input.maxSeconds ?? MAX_RUN_SECONDS
-  const slug = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 23)
+  // Suffix on collision: a crashed earlier run can leave both the directory and the
+  // branch behind (commits are the deliverable, so the branch is kept), and `git worktree
+  // add -b` refuses an existing branch name. Second-resolution stamps also collided with
+  // any re-run inside the same second.
+  let slug = stamp
+  for (let n = 2; existsSync(join(input.root, ".worktrees", slug)) || branchExists(input.root, `crew/${slug}`); n++)
+    slug = `${stamp}-${n}`
   const { path: worktree, branch } = openWorktree(input.root, slug, input.cfg.base)
   const outcomes: ItemOutcome[] = []
   await tracker.start({ directive: input.directive, items: input.items, branch })
@@ -1674,7 +1706,7 @@ export function renderRun(r: RunResult, cfg: CrewConfig): string {
   for (const o of r.outcomes)
     out.push(
       o.state === "done"
-        ? `- ✓ ${o.item.title} — \`${o.commit}\` (${o.attempts} attempt${o.attempts === 1 ? "" : "s"}${o.judge ? `, accepted by ${o.judge}` : ""})`
+        ? `- ✓ ${o.item.title} — \`${o.commit}\` (${o.attempts} attempt${o.attempts === 1 ? "" : "s"}${o.judge ? `, accepted by ${o.judge}` : o.judged === false ? ", NOT independently judged — checks only" : ""})`
         : `- ✗ ${o.item.title} — ${o.state}${o.detail ? `: ${o.detail}` : ""}`,
     )
 
@@ -1799,6 +1831,14 @@ export function renderGate(intake: Intake, cfg: CrewConfig, scope: { root: strin
   )
   return out.join("\n")
 }
+
+/**
+ * Write the config.
+ *
+ * Touches exactly two things: our own fenced block in AGENTS.md - never prose around it -
+ * and `.git/info/exclude`, which is per-clone and never committed. `.gitignore` is the
+ * user's file and is not modified.
+ */
 
 export function applyInit(root: string, cfg: CrewConfig): string[] {
   const written: string[] = []

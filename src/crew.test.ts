@@ -20,6 +20,8 @@ import {
   runVerify,
   installIfDepsChanged,
   shq,
+  branchExists,
+  renderGate,
   openWorktree,
   worktreeChanges,
   detectBaseCandidates,
@@ -645,6 +647,53 @@ test("the worktree branches from the configured base, not session HEAD", () => {
     assert.equal(merged, "0", `base...branch must contain only crew work, found ${merged} commits`)
   } finally {
     execFileSync("git", ["worktree", "remove", "--force", join(dir, ".worktrees", "base-probe")], { cwd: dir }).catch?.(() => {})
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ---------------------------------------------------------------- round 4 review fixes
+
+test("a done item that no judge assessed says so in the report", () => {
+  // checkAcceptance fails open by design — an unreachable judge must not block work — but
+  // four lanes across rounds flagged that the ✓ then carried no trace of that. The item
+  // line now says "NOT independently judged — checks only" instead of passing silently.
+  const out = renderRun(
+    {
+      branch: "crew/x", worktree: "/w", cycles: [], pushed: false, seconds: 5,
+      stoppedBy: "complete",
+      outcomes: [
+        { item: item({ title: "judged" }), state: "done", attempts: 1, commit: "abc", judge: "fable", judged: true },
+        { item: item({ title: "unjudged" }), state: "done", attempts: 1, commit: "def", judged: false },
+      ],
+    },
+    CFG,
+  )
+  assert.match(out, /accepted by fable/)
+  assert.match(out, /NOT independently judged/)
+})
+
+test("a CPO lane that no model answered is visible in the gate, not silent", () => {
+  // Half the intake quietly producing the whole plan reads as fully-working.
+  const gate = renderGate(
+    {
+      outcomes: "", items: [item({ title: "x" })], instructionBytes: 10,
+      dropped: [{ lane: "cpo", state: "failed", detail: "no model answered; plan built by the CTO alone" }],
+    },
+    CFG,
+    { root: "/repo", branch: "main" },
+  )
+  assert.match(gate, /cpo/)
+  assert.match(gate, /CTO alone/)
+})
+
+test("run slugs do not collide with a branch left by a crashed run", () => {
+  const dir = scratchRepo()
+  try {
+    execFileSync("git", ["branch", "crew/2026-01-01T00-00-00-000"], { cwd: dir })
+    assert.ok(branchExists(dir, "crew/2026-01-01T00-00-00-000"))
+    // ms precision + suffix loop lives in runExecute; branchExists is the primitive
+    assert.ok(!branchExists(dir, "crew/never-existed"))
+  } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 })
