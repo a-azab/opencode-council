@@ -66,10 +66,19 @@ export function parseCrewBlock(markdown: string): Partial<CrewConfig> {
   const m = FENCE.exec(markdown)
   if (!m) return {}
   const raw: Record<string, string> = {}
+  const verify: string[] = []
   for (const line of m[1].split(/\r?\n/)) {
     const i = line.indexOf(":")
     if (i === -1 || line.trimStart().startsWith("#")) continue
-    raw[line.slice(0, i).trim()] = line.slice(i + 1).trim()
+    const key = line.slice(0, i).trim()
+    const value = line.slice(i + 1).trim()
+    // `verify` repeats, one command per line, taken verbatim. Splitting on commas as well
+    // would defeat the point: `nx affected -t lint,test` is ONE command containing a comma,
+    // and the comma-joined form this replaced could not express it. No back-compat shim -
+    // the only blocks in existence are ours, and a shim here re-breaks the case it exists
+    // to fix.
+    if (key === "verify" && value) verify.push(value)
+    else raw[key] = value
   }
   const list = (s?: string) =>
     (s ?? "")
@@ -78,7 +87,7 @@ export function parseCrewBlock(markdown: string): Partial<CrewConfig> {
       .filter(Boolean)
 
   const out: Partial<CrewConfig> = {}
-  if (raw.verify) out.verify = list(raw.verify)
+  if (verify.length) out.verify = verify.filter(Boolean)
   if (raw.base) out.base = raw.base
   if (raw.lanes) out.lanes = list(raw.lanes) as Role[]
   // An unrecognised tracker name is dropped rather than carried: readCrewConfig would then
@@ -92,7 +101,10 @@ export function parseCrewBlock(markdown: string): Partial<CrewConfig> {
 export function renderCrewBlock(cfg: CrewConfig): string {
   return [
     "```crew",
-    `verify: ${cfg.verify.join(", ")}`,
+    // One key per command, so a command containing a comma survives. A single
+    // comma-joined line could not represent `sh -c 'a, b'` and would silently split it
+    // into two commands that both fail.
+    ...cfg.verify.map((v) => `verify: ${v}`),
     `base: ${cfg.base}`,
     `lanes: ${cfg.lanes.join(", ")}`,
     ...(cfg.tracker ? [`tracker: ${cfg.tracker}`] : []),
@@ -111,7 +123,10 @@ const HEADING = "## Crew"
  */
 export function upsertCrewBlock(markdown: string, cfg: CrewConfig): string {
   const block = renderCrewBlock(cfg)
-  if (FENCE.test(markdown)) return markdown.replace(FENCE, block)
+  // A function replacement, not a string: `$&`, "$`", `$'` and `$1` are special in a
+  // replacement string, so a verify command containing any of them would be silently
+  // mangled on write.
+  if (FENCE.test(markdown)) return markdown.replace(FENCE, () => block)
   const body = markdown.trimEnd()
   const section = `${HEADING}\n\nConfig for \`/crew\`. Edit freely - it is read, not regenerated.\n\n${block}\n`
   return body ? `${body}\n\n${section}` : section
@@ -246,10 +261,14 @@ export function detectBaseCandidates(root: string): BaseCandidates {
   // yet, and the branch the team actually merges to was therefore never offered.
   for (const guess of ["develop", "main", "master"])
     for (const ref of [`refs/heads/${guess}`, `refs/remotes/origin/${guess}`]) {
-      if (names.includes(guess)) continue
+      if (names.includes(guess) || names.includes(`origin/${guess}`)) continue
       try {
         git(root, ["rev-parse", "--verify", "--quiet", ref])
-        names.push(guess)
+        // A branch that exists only on the remote must be named `origin/<x>`. Recording
+        // the bare name meant the very case this was added for - a fresh clone with no
+        // local branch - produced a base that does not resolve, so every `git diff
+        // <base>...HEAD` and `nx affected --base=<base>` in the run would fail.
+        names.push(ref.startsWith("refs/remotes/") ? `origin/${guess}` : guess)
       } catch {
         /* ref does not exist */
       }
@@ -374,8 +393,6 @@ function graphify(root: string, args: string[]): string | null {
 
 export const graphQuery = (root: string, question: string, budget = GRAPH_BUDGET) =>
   graphify(root, ["query", question, "--budget", String(budget)])
-export const graphPath = (root: string, from: string, to: string) => graphify(root, ["path", from, to])
-export const graphExplain = (root: string, node: string) => graphify(root, ["explain", node])
 
 /**
  * What the intake lanes get to see of the codebase.
@@ -404,7 +421,7 @@ export function graphContext(root: string, directive: string): string {
 
   const report = join(root, "graphify-out", "GRAPH_REPORT.md")
   const gods = existsSync(report)
-    ? (readFileSync(report, "utf8").match(/## God Nodes[\s\S]*?(?=\n## )/) ?? [""])[0].slice(0, 1500)
+    ? (readFileSync(report, "utf8").match(/## God Nodes[\s\S]*?(?=\n## |$)/) ?? [""])[0].slice(0, 1500)
     : ""
 
   return `<graph>${stale}\n${gods}\n\n<scoped-to-directive>\n${scoped}\n</scoped-to-directive>\n</graph>`
@@ -536,8 +553,6 @@ export function renderInitProposal(p: InitProposal): string {
  * nothing at all.
  */
 export const CREW_MODELS = ["opus5", "gpt55", "glm52", "minimax", "kimik3"] as const
-/** @deprecated name kept only so an external caller does not break; use CREW_MODELS. */
-export const INTAKE_MODELS = CREW_MODELS
 
 export type WorkItem = { title: string; detail: string; files: string[]; acceptance: string }
 
@@ -983,7 +998,9 @@ const MANIFESTS = /(^|\/)(package\.json|go\.mod|Cargo\.toml|pyproject\.toml|Gemf
  * would run against the parent's versions and could pass for the wrong reason. Slow, but
  * only when an item actually touches a manifest.
  */
-export function installIfDepsChanged(worktree: string, files: string[]): string | null {
+export type InstallResult = { ok: true; note: string } | { ok: false; note: string; output: string }
+
+export function installIfDepsChanged(worktree: string, files: string[]): InstallResult | null {
   if (!files.some((f) => MANIFESTS.test(f))) return null
   for (const [marker, cmd] of [
     ["package-lock.json", "npm ci --silent || npm install --silent"],
@@ -997,7 +1014,12 @@ export function installIfDepsChanged(worktree: string, files: string[]): string 
         /* not a symlink, or absent */
       }
       const r = runVerify(worktree, [cmd])
-      return r.ok ? `installed via ${marker}` : `install failed: ${r.output.slice(-400)}`
+      // The symlink is already gone by now. Continuing on a failed install means the check
+      // runs with NO node_modules at all and fails for a reason that has nothing to do with
+      // the item - so this has to be the attempt's failure, not a line in the log.
+      return r.ok
+        ? { ok: true as const, note: `installed via ${marker}` }
+        : { ok: false as const, note: `dependency install failed (${marker}); node_modules is now absent`, output: r.output }
     }
   }
   return null
@@ -1188,6 +1210,8 @@ export async function runItem(
     /** titles of items already committed on this branch, so the judge is not blind to them */
     landed?: string[]
     onStep?: (msg: string) => void
+    /** epoch ms after which no further attempt starts */
+    deadline?: number
   },
 ): Promise<ItemOutcome> {
   const maxAttempts = input.maxAttempts ?? MAX_ATTEMPTS
@@ -1197,8 +1221,16 @@ export async function runItem(
   let feedback: string | undefined
   let last: ItemOutcome = { item: input.item, state: "model-failed", attempts: 0 }
   const wrote: string[] = []
+  // Compared per attempt. Against HEAD the guard could only ever fire on attempt 1: after
+  // a failed attempt the worktree is already dirty, so a worker that then did nothing at
+  // all looked like one that worked.
+  let seen = ""
 
   for (let attempt = 1; attempt <= total; attempt++) {
+    if (input.deadline && Date.now() > input.deadline) {
+      say("  out of time before this attempt")
+      return { ...last, detail: "the run's wall-clock budget ran out mid-item" }
+    }
     last.attempts = attempt
 
     // Plain retries first; only once those are spent is it worth paying another lane to
@@ -1240,10 +1272,18 @@ export async function runItem(
     // done, and returned a confident summary is indistinguishable from one that worked -
     // except in the diff. Committing nothing and calling it done is the worst outcome.
     const changed = worktreeChanges(input.worktree)
-    if (!changed.length) {
+    const fingerprint = changed.join("\n") + "\n" + git(input.worktree, ["diff", "HEAD"]).length
+    if (!changed.length || fingerprint === seen) {
       say("  no files changed")
-      return { ...last, state: "no-change", detail: "the worker reported success but changed nothing" }
+      return {
+        ...last,
+        state: "no-change",
+        detail: changed.length
+          ? "the worker reported success but changed nothing since the previous attempt"
+          : "the worker reported success but changed nothing",
+      }
     }
+    seen = fingerprint
 
     // Keyed off what the worker ACTUALLY changed, and run before the check.
     // This used to run before the worker, against the item's *predicted* files: at that
@@ -1251,8 +1291,16 @@ export async function runItem(
     // unchanged manifest - and the check then ran against the parent's dependency versions
     // through the symlink, which is exactly the wrong-for-the-right-reason pass the symlink
     // comment warns about.
-    const note = installIfDepsChanged(input.worktree, changed.map((c) => c.replace(/^\S+\s+/, "")))
-    if (note) say(`  ${note}`)
+    const install = installIfDepsChanged(input.worktree, changed.map((c) => c.replace(/^\S+\s+/, "")))
+    if (install) {
+      say(`  ${install.note}`)
+      if (!install.ok) {
+        feedback = `The dependency install failed after your change:\n\n${install.output.slice(-2000)}`
+        last.state = "failed-check"
+        last.detail = install.note
+        continue
+      }
+    }
 
     say(`  running: ${input.cfg.verify.join(" && ")}`)
     const check = runVerify(input.worktree, input.cfg.verify)
@@ -1413,6 +1461,10 @@ export async function runExecute(
           instructions: input.instructions,
           landed: outcomes.filter((o) => o.state === "done").map((o) => o.item.title),
           onStep: say,
+          // Checked between attempts as well as between items. Sampled only at the top of
+          // this loop, one item with five attempts and a long verify could overrun the
+          // whole budget several times over and the ceiling would never notice.
+          deadline: t0 + maxSeconds * 1000,
         })
         outcomes.push(outcome)
         await tracker.itemDone(outcome)
@@ -1440,7 +1492,7 @@ export async function runExecute(
         for (const item of queue)
           outcomes.push({
             item,
-            state: "failed-check",
+            state: "not-attempted",
             attempts: 0,
             detail: `raised by review but not attempted — hit the ${MAX_REVIEW_CYCLES}-cycle ceiling`,
           })

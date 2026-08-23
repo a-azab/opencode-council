@@ -535,3 +535,57 @@ test("base detection reports whether origin/HEAD actually said anything", () => 
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+// ---------------------------------------------------------------- round 2 review fixes
+
+test("a verify command containing a comma survives the round trip", () => {
+  // `nx affected -t lint,test` is ONE command containing a comma. The comma-joined form
+  // could not represent it, and a back-compat shim that still split on commas re-broke the
+  // exact case the fix existed for.
+  const cfg: CrewConfig = { verify: ["npx nx affected -t lint,test", "npm run check"], base: "main", lanes: ["qa"] }
+  assert.deepEqual(parseCrewBlock(renderCrewBlock(cfg)).verify, cfg.verify)
+})
+
+test("config survives replacement-string metacharacters", () => {
+  // `String.replace` treats `$&`, "$`", `$'` and `$1` specially in a replacement STRING, so
+  // a verify command containing any of them was silently mangled on write.
+  const cfg: CrewConfig = { verify: ["echo $& $1 $` $'"], base: "main", lanes: ["qa"] }
+  const once = upsertCrewBlock("# A\n\nprose\n", cfg)
+  assert.deepEqual(parseCrewBlock(once).verify, cfg.verify)
+  assert.deepEqual(parseCrewBlock(upsertCrewBlock(once, cfg)).verify, cfg.verify)
+})
+
+test("a base that exists only on the remote is named so it resolves", () => {
+  // Recording the bare name broke the very case remote lookup was added for: a fresh clone
+  // with no local branch produced a base that no `git diff <base>...HEAD` could resolve.
+  const dir = scratchRepo()
+  try {
+    execFileSync("git", ["update-ref", "refs/remotes/origin/develop", "HEAD"], { cwd: dir })
+    const { names } = detectBaseCandidates(dir)
+    assert.ok(names.includes("origin/develop"), `expected origin/develop in ${names}`)
+    assert.ok(!names.includes("develop"), "the bare name would not resolve")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a failed dependency install fails the attempt rather than being logged past", () => {
+  // installIfDepsChanged removes the node_modules symlink before installing. Continuing
+  // after a failure means the check runs with no node_modules at all and fails for a
+  // reason unrelated to the item.
+  const dir = scratchRepo()
+  try {
+    mkdirSync(join(dir, "node_modules"), { recursive: true })
+    writeFileSync(join(dir, "package-lock.json"), "{}")
+    // Both `npm ci` and its `npm install` fallback have to fail, or the `||` in the
+    // install command recovers — which is the behaviour we want and why a broken lockfile
+    // alone is not enough to test this.
+    writeFileSync(join(dir, "package.json"), "{ not valid json at all")
+    const r = installIfDepsChanged(dir, ["package.json"])
+    assert.ok(r, "a manifest change must trigger an install")
+    assert.equal(r!.ok, false)
+    if (!r!.ok) assert.ok(r!.output.length > 0, "the failure must carry the install output as feedback")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
