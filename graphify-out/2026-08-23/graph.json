@@ -539,7 +539,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "retry.test.ts",
-      "community_name": "engine.ts",
+      "community_name": "runReview",
       "id": "src_retry_test"
     },
     {
@@ -550,7 +550,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "roster.test.ts",
-      "community_name": "engine.ts",
+      "community_name": "roster.ts",
       "id": "src_roster_test"
     },
     {
@@ -627,7 +627,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "timeoutfor()",
-      "community_name": "engine.ts",
+      "community_name": "runReview",
       "id": "src_engine_timeoutfor"
     },
     {
@@ -671,7 +671,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "default_retry",
-      "community_name": "engine.ts",
+      "community_name": "runReview",
       "id": "src_engine_default_retry"
     },
     {
@@ -682,7 +682,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "isretryable()",
-      "community_name": "engine.ts",
+      "community_name": "runReview",
       "id": "src_engine_isretryable"
     },
     {
@@ -693,7 +693,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "backoffms()",
-      "community_name": "engine.ts",
+      "community_name": "runReview",
       "id": "src_engine_backoffms"
     },
     {
@@ -704,7 +704,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "sleep()",
-      "community_name": "engine.ts",
+      "community_name": "runReview",
       "id": "src_engine_sleep"
     },
     {
@@ -726,7 +726,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "ask()",
-      "community_name": "engine.ts",
+      "community_name": "runReview",
       "id": "src_engine_ask"
     },
     {
@@ -748,7 +748,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "reviewprompt()",
-      "community_name": "engine.ts",
+      "community_name": "failover.test.ts",
       "id": "src_engine_reviewprompt"
     },
     {
@@ -759,7 +759,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "skepticprompt()",
-      "community_name": "engine.ts",
+      "community_name": "runReview",
       "id": "src_engine_skepticprompt"
     },
     {
@@ -770,7 +770,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "bench",
-      "community_name": "engine.ts",
+      "community_name": "failover.test.ts",
       "id": "src_engine_bench"
     },
     {
@@ -781,7 +781,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "substitutesfor()",
-      "community_name": "engine.ts",
+      "community_name": "failover.test.ts",
       "id": "src_engine_substitutesfor"
     },
     {
@@ -792,7 +792,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "benchable()",
-      "community_name": "engine.ts",
+      "community_name": "failover.test.ts",
       "id": "src_engine_benchable"
     },
     {
@@ -803,7 +803,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "fanout()",
-      "community_name": "engine.ts",
+      "community_name": "failover.test.ts",
       "id": "src_engine_fanout"
     },
     {
@@ -814,7 +814,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "debateprompt()",
-      "community_name": "engine.ts",
+      "community_name": "runReview",
       "id": "src_engine_debateprompt"
     },
     {
@@ -825,7 +825,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "debateround()",
-      "community_name": "engine.ts",
+      "community_name": "runReview",
       "id": "src_engine_debateround"
     },
     {
@@ -836,7 +836,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "verifygroup()",
-      "community_name": "engine.ts",
+      "community_name": "runReview",
       "id": "src_engine_verifygroup"
     },
     {
@@ -858,7 +858,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "runreview()",
-      "community_name": "engine.ts",
+      "community_name": "runReview",
       "id": "src_engine_runreview"
     },
     {
@@ -880,7 +880,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "fixprompt()",
-      "community_name": "engine.ts",
+      "community_name": "fixOne",
       "id": "src_engine_fixprompt"
     },
     {
@@ -891,7 +891,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "patchapplies()",
-      "community_name": "engine.ts",
+      "community_name": "fixOne",
       "id": "src_engine_patchapplies"
     },
     {
@@ -902,7 +902,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "computediff()",
-      "community_name": "engine.ts",
+      "community_name": "fixOne",
       "id": "src_engine_computediff"
     },
     {
@@ -913,7 +913,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "verifyfixprompt()",
-      "community_name": "engine.ts",
+      "community_name": "fixOne",
       "id": "src_engine_verifyfixprompt"
     },
     {
@@ -924,7 +924,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "fixone()",
-      "community_name": "engine.ts",
+      "community_name": "fixOne",
       "id": "src_engine_fixone"
     },
     {
@@ -946,7 +946,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "runindependent()",
-      "community_name": "engine.ts",
+      "community_name": "runReview",
       "id": "src_engine_runindependent"
     },
     {
@@ -957,7 +957,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "proposal",
-      "community_name": "engine.ts",
+      "community_name": "fixOne",
       "id": "src_engine_proposal"
     },
     {
@@ -1023,7 +1023,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "runfix()",
-      "community_name": "engine.ts",
+      "community_name": "fixOne",
       "id": "src_engine_runfix"
     },
     {
@@ -1034,7 +1034,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "failover.test.ts",
-      "community_name": "engine.ts",
+      "community_name": "failover.test.ts",
       "id": "src_failover_test"
     },
     {
@@ -1045,7 +1045,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "round",
-      "community_name": "engine.ts",
+      "community_name": "failover.test.ts",
       "id": "src_failover_test_round"
     },
     {
@@ -1386,7 +1386,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "roster.ts",
-      "community_name": "engine.ts",
+      "community_name": "roster.ts",
       "id": "src_roster"
     },
     {
@@ -1397,7 +1397,7 @@
       "_origin": "ast",
       "community": 1,
       "norm_label": "role",
-      "community_name": "index.ts",
+      "community_name": "roster.ts",
       "id": "src_roster_role"
     },
     {
@@ -1408,7 +1408,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "member",
-      "community_name": "engine.ts",
+      "community_name": "roster.ts",
       "id": "src_roster_member"
     },
     {
@@ -1419,7 +1419,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "roster",
-      "community_name": "engine.ts",
+      "community_name": "roster.ts",
       "id": "src_roster_roster"
     },
     {
@@ -1430,7 +1430,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "byslug()",
-      "community_name": "engine.ts",
+      "community_name": "roster.ts",
       "id": "src_roster_byslug"
     },
     {
@@ -1441,7 +1441,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "all_roles",
-      "community_name": "engine.ts",
+      "community_name": "failover.test.ts",
       "id": "src_roster_all_roles"
     },
     {
@@ -1452,7 +1452,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "routes",
-      "community_name": "engine.ts",
+      "community_name": "roster.ts",
       "id": "src_roster_routes"
     },
     {
@@ -1463,7 +1463,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "models_per_role",
-      "community_name": "engine.ts",
+      "community_name": "roster.ts",
       "id": "src_roster_models_per_role"
     },
     {
@@ -1474,7 +1474,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "selectroles()",
-      "community_name": "engine.ts",
+      "community_name": "roster.ts",
       "id": "src_roster_selectroles"
     },
     {
@@ -1485,7 +1485,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "node",
-      "community_name": "engine.ts",
+      "community_name": "roster.ts",
       "id": "src_roster_node"
     },
     {
@@ -1496,7 +1496,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "selectnodes()",
-      "community_name": "engine.ts",
+      "community_name": "roster.ts",
       "id": "src_roster_selectnodes"
     },
     {
@@ -1507,7 +1507,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "skepticpool()",
-      "community_name": "engine.ts",
+      "community_name": "roster.ts",
       "id": "src_roster_skepticpool"
     },
     {
@@ -1518,7 +1518,7 @@
       "_origin": "ast",
       "community": 0,
       "norm_label": "skeptics_per_tier",
-      "community_name": "engine.ts",
+      "community_name": "roster.ts",
       "id": "src_roster_skeptics_per_tier"
     },
     {
@@ -1670,10 +1670,9 @@
       "source_file": "src/crew.test.ts",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "crew.test.ts",
       "id": "src_crew_test",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "crew.test.ts"
     },
     {
       "label": "gitOut()",
@@ -1681,10 +1680,9 @@
       "source_file": "src/crew.test.ts",
       "source_location": "L44",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "gitout()",
       "id": "src_crew_test_gitout",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "gitout()"
     },
     {
       "label": "CFG",
@@ -1692,10 +1690,9 @@
       "source_file": "src/crew.test.ts",
       "source_location": "L47",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "cfg",
       "id": "src_crew_test_cfg",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "cfg"
     },
     {
       "label": "scratchRepo()",
@@ -1703,10 +1700,9 @@
       "source_file": "src/crew.test.ts",
       "source_location": "L181",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "scratchrepo()",
       "id": "src_crew_test_scratchrepo",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "scratchrepo()"
     },
     {
       "label": "start()",
@@ -1714,10 +1710,9 @@
       "source_file": "src/crew.test.ts",
       "source_location": "L265",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "start()",
       "id": "src_crew_test_start",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "start()"
     },
     {
       "label": "step()",
@@ -1725,10 +1720,9 @@
       "source_file": "src/crew.test.ts",
       "source_location": "L266",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "step()",
       "id": "src_crew_test_step",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "step()"
     },
     {
       "label": "itemDone()",
@@ -1736,10 +1730,9 @@
       "source_file": "src/crew.test.ts",
       "source_location": "L267",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "itemdone()",
       "id": "src_crew_test_itemdone",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "itemdone()"
     },
     {
       "label": "finish()",
@@ -1747,10 +1740,9 @@
       "source_file": "src/crew.test.ts",
       "source_location": "L268",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "finish()",
       "id": "src_crew_test_finish",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "finish()"
     },
     {
       "label": "item()",
@@ -1758,10 +1750,9 @@
       "source_file": "src/crew.test.ts",
       "source_location": "L283",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "item()",
       "id": "src_crew_test_item",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "item()"
     },
     {
       "label": "CFG3",
@@ -1769,10 +1760,9 @@
       "source_file": "src/crew.test.ts",
       "source_location": "L391",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "cfg3",
       "id": "src_crew_test_cfg3",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "cfg3"
     },
     {
       "label": "run()",
@@ -1780,10 +1770,9 @@
       "source_file": "src/crew.test.ts",
       "source_location": "L392",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "run()",
       "id": "src_crew_test_run",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "run()"
     },
     {
       "label": "done()",
@@ -1791,10 +1780,9 @@
       "source_file": "src/crew.test.ts",
       "source_location": "L402",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "done()",
       "id": "src_crew_test_done",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "done()"
     },
     {
       "label": "crew.ts",
@@ -1802,10 +1790,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "crew.ts",
       "id": "src_crew",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "crew.ts"
     },
     {
       "label": "KNOWN_ROLES",
@@ -1813,10 +1800,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L38",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "known_roles",
       "id": "src_crew_known_roles",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "known_roles"
     },
     {
       "label": "CrewConfig",
@@ -1824,10 +1810,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L40",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "crewconfig",
       "id": "src_crew_crewconfig",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "crewconfig"
     },
     {
       "label": "McpConfig",
@@ -1835,10 +1820,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L64",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "mcpconfig",
       "id": "src_crew_mcpconfig",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "mcpconfig"
     },
     {
       "label": "TRACKERS",
@@ -1846,10 +1830,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L75",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "trackers",
       "id": "src_crew_trackers",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "trackers"
     },
     {
       "label": "TrackerName",
@@ -1857,10 +1840,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L76",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "trackername",
       "id": "src_crew_trackername",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "trackername"
     },
     {
       "label": "parseCrewBlock()",
@@ -1868,10 +1850,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L90",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "parsecrewblock()",
       "id": "src_crew_parsecrewblock",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "parsecrewblock()"
     },
     {
       "label": "renderCrewBlock()",
@@ -1879,10 +1860,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L157",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "rendercrewblock()",
       "id": "src_crew_rendercrewblock",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "rendercrewblock()"
     },
     {
       "label": "upsertCrewBlock()",
@@ -1890,10 +1870,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L190",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "upsertcrewblock()",
       "id": "src_crew_upsertcrewblock",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "upsertcrewblock()"
     },
     {
       "label": "git()",
@@ -1901,10 +1880,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L203",
       "_origin": "ast",
-      "community": 8,
-      "norm_label": "git()",
       "id": "src_crew_git",
-      "community_name": "git"
+      "community": 8,
+      "norm_label": "git()"
     },
     {
       "label": "Scope",
@@ -1912,10 +1890,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L206",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "scope",
       "id": "src_crew_scope",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "scope"
     },
     {
       "label": "resolveScope()",
@@ -1923,10 +1900,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L215",
       "_origin": "ast",
-      "community": 8,
-      "norm_label": "resolvescope()",
       "id": "src_crew_resolvescope",
-      "community_name": "git"
+      "community": 8,
+      "norm_label": "resolvescope()"
     },
     {
       "label": "detectStack()",
@@ -1934,10 +1910,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L232",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "detectstack()",
       "id": "src_crew_detectstack",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "detectstack()"
     },
     {
       "label": "VerifyCandidate",
@@ -1945,10 +1920,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L253",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "verifycandidate",
       "id": "src_crew_verifycandidate",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "verifycandidate"
     },
     {
       "label": "detectVerifyCandidates()",
@@ -1956,10 +1930,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L266",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "detectverifycandidates()",
       "id": "src_crew_detectverifycandidates",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "detectverifycandidates()"
     },
     {
       "label": "BaseCandidates",
@@ -1967,10 +1940,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L314",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "basecandidates",
       "id": "src_crew_basecandidates",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "basecandidates"
     },
     {
       "label": "detectBaseCandidates()",
@@ -1978,10 +1950,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L316",
       "_origin": "ast",
-      "community": 8,
-      "norm_label": "detectbasecandidates()",
       "id": "src_crew_detectbasecandidates",
-      "community_name": "git"
+      "community": 8,
+      "norm_label": "detectbasecandidates()"
     },
     {
       "label": "proposeLanes()",
@@ -1989,10 +1960,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L358",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "proposelanes()",
       "id": "src_crew_proposelanes",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "proposelanes()"
     },
     {
       "label": "GraphState",
@@ -2000,10 +1970,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L370",
       "_origin": "ast",
-      "community": 8,
-      "norm_label": "graphstate",
       "id": "src_crew_graphstate",
-      "community_name": "git"
+      "community": 8,
+      "norm_label": "graphstate"
     },
     {
       "label": "CREW_IGNORES",
@@ -2011,10 +1980,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L396",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "crew_ignores",
       "id": "src_crew_crew_ignores",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "crew_ignores"
     },
     {
       "label": "missingIgnores()",
@@ -2022,10 +1990,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L404",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "missingignores()",
       "id": "src_crew_missingignores",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "missingignores()"
     },
     {
       "label": "readInstructions()",
@@ -2033,10 +2000,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L423",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "readinstructions()",
       "id": "src_crew_readinstructions",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "readinstructions()"
     },
     {
       "label": "graphify()",
@@ -2044,10 +2010,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L440",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "graphify()",
       "id": "src_crew_graphify",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "graphify()"
     },
     {
       "label": "graphQuery()",
@@ -2055,10 +2020,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L466",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "graphquery()",
       "id": "src_crew_graphquery",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "graphquery()"
     },
     {
       "label": "graphContext()",
@@ -2066,10 +2030,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L480",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "graphcontext()",
       "id": "src_crew_graphcontext",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "graphcontext()"
     },
     {
       "label": "InitProposal",
@@ -2077,10 +2040,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L504",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "initproposal",
       "id": "src_crew_initproposal",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "initproposal"
     },
     {
       "label": "readCrewConfig()",
@@ -2088,10 +2050,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L521",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "readcrewconfig()",
       "id": "src_crew_readcrewconfig",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "readcrewconfig()"
     },
     {
       "label": "proposeInit()",
@@ -2099,10 +2060,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L529",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "proposeinit()",
       "id": "src_crew_proposeinit",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "proposeinit()"
     },
     {
       "label": "renderInitProposal()",
@@ -2110,10 +2070,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L552",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "renderinitproposal()",
       "id": "src_crew_renderinitproposal",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "renderinitproposal()"
     },
     {
       "label": "CREW_MODELS",
@@ -2121,10 +2080,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L640",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "crew_models",
       "id": "src_crew_crew_models",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "crew_models"
     },
     {
       "label": "WorkItem",
@@ -2132,10 +2090,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L642",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "workitem",
       "id": "src_crew_workitem",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "workitem"
     },
     {
       "label": "Intake",
@@ -2143,10 +2100,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L644",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "intake",
       "id": "src_crew_intake",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "intake"
     },
     {
       "label": "cpoPrompt()",
@@ -2154,10 +2110,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L660",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "cpoprompt()",
       "id": "src_crew_cpoprompt",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "cpoprompt()"
     },
     {
       "label": "ctoPrompt()",
@@ -2165,10 +2120,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L679",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "ctoprompt()",
       "id": "src_crew_ctoprompt",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "ctoprompt()"
     },
     {
       "label": "runIntake()",
@@ -2176,10 +2130,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L720",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "runintake()",
       "id": "src_crew_runintake",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "runintake()"
     },
     {
       "label": "Tracker",
@@ -2187,10 +2140,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L780",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "tracker",
       "id": "src_crew_tracker",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "tracker"
     },
     {
       "label": "stdoutTracker()",
@@ -2198,10 +2150,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L799",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "stdouttracker()",
       "id": "src_crew_stdouttracker",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "stdouttracker()"
     },
     {
       "label": "guarded()",
@@ -2209,10 +2160,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L819",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "guarded()",
       "id": "src_crew_guarded",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "guarded()"
     },
     {
       "label": "linearTracker()",
@@ -2220,10 +2170,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L853",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "lineartracker()",
       "id": "src_crew_lineartracker",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "lineartracker()"
     },
     {
       "label": "availableTrackers()",
@@ -2231,10 +2180,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L947",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "availabletrackers()",
       "id": "src_crew_availabletrackers",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "availabletrackers()"
     },
     {
       "label": "trackerFor()",
@@ -2242,10 +2190,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L961",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "trackerfor()",
       "id": "src_crew_trackerfor",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "trackerfor()"
     },
     {
       "label": "fanout()",
@@ -2253,10 +2200,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1009",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "fanout()",
       "id": "src_crew_fanout",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "fanout()"
     },
     {
       "label": "refExists()",
@@ -2264,10 +2210,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1029",
       "_origin": "ast",
-      "community": 8,
-      "norm_label": "refexists()",
       "id": "src_crew_refexists",
-      "community_name": "git"
+      "community": 8,
+      "norm_label": "refexists()"
     },
     {
       "label": "branchExists()",
@@ -2275,10 +2220,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1039",
       "_origin": "ast",
-      "community": 8,
-      "norm_label": "branchexists()",
       "id": "src_crew_branchexists",
-      "community_name": "git"
+      "community": 8,
+      "norm_label": "branchexists()"
     },
     {
       "label": "openWorktree()",
@@ -2286,10 +2230,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1048",
       "_origin": "ast",
-      "community": 8,
-      "norm_label": "openworktree()",
       "id": "src_crew_openworktree",
-      "community_name": "git"
+      "community": 8,
+      "norm_label": "openworktree()"
     },
     {
       "label": "closeWorktree()",
@@ -2297,10 +2240,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1081",
       "_origin": "ast",
-      "community": 8,
-      "norm_label": "closeworktree()",
       "id": "src_crew_closeworktree",
-      "community_name": "git"
+      "community": 8,
+      "norm_label": "closeworktree()"
     },
     {
       "label": "CrewWorktree",
@@ -2308,10 +2250,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1089",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "crewworktree",
       "id": "src_crew_crewworktree",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "crewworktree"
     },
     {
       "label": "listWorktrees()",
@@ -2319,10 +2260,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1100",
       "_origin": "ast",
-      "community": 8,
-      "norm_label": "listworktrees()",
       "id": "src_crew_listworktrees",
-      "community_name": "git"
+      "community": 8,
+      "norm_label": "listworktrees()"
     },
     {
       "label": "humanAge()",
@@ -2330,10 +2270,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1114",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "humanage()",
       "id": "src_crew_humanage",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "humanage()"
     },
     {
       "label": "renderWorktrees()",
@@ -2341,10 +2280,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1122",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "renderworktrees()",
       "id": "src_crew_renderworktrees",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "renderworktrees()"
     },
     {
       "label": "worktreeChanges()",
@@ -2352,10 +2290,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1138",
       "_origin": "ast",
-      "community": 9,
-      "norm_label": "worktreechanges()",
       "id": "src_crew_worktreechanges",
-      "community_name": "runItem"
+      "community": 9,
+      "norm_label": "worktreechanges()"
     },
     {
       "label": "InstallResult",
@@ -2363,10 +2300,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1152",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "installresult",
       "id": "src_crew_installresult",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "installresult"
     },
     {
       "label": "installIfDepsChanged()",
@@ -2374,10 +2310,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1154",
       "_origin": "ast",
-      "community": 9,
-      "norm_label": "installifdepschanged()",
       "id": "src_crew_installifdepschanged",
-      "community_name": "runItem"
+      "community": 9,
+      "norm_label": "installifdepschanged()"
     },
     {
       "label": "SECRETS",
@@ -2385,10 +2320,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1201",
       "_origin": "ast",
-      "community": 9,
-      "norm_label": "secrets",
       "id": "src_crew_secrets",
-      "community_name": "runItem"
+      "community": 9,
+      "norm_label": "secrets"
     },
     {
       "label": "ItemOutcome",
@@ -2396,10 +2330,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1203",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "itemoutcome",
       "id": "src_crew_itemoutcome",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "itemoutcome"
     },
     {
       "label": "checkAcceptance()",
@@ -2407,10 +2340,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1250",
       "_origin": "ast",
-      "community": 9,
-      "norm_label": "checkacceptance()",
       "id": "src_crew_checkacceptance",
-      "community_name": "runItem"
+      "community": 9,
+      "norm_label": "checkacceptance()"
     },
     {
       "label": "diagnose()",
@@ -2418,10 +2350,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1309",
       "_origin": "ast",
-      "community": 9,
-      "norm_label": "diagnose()",
       "id": "src_crew_diagnose",
-      "community_name": "runItem"
+      "community": 9,
+      "norm_label": "diagnose()"
     },
     {
       "label": "implementPrompt()",
@@ -2429,10 +2360,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1339",
       "_origin": "ast",
-      "community": 9,
-      "norm_label": "implementprompt()",
       "id": "src_crew_implementprompt",
-      "community_name": "runItem"
+      "community": 9,
+      "norm_label": "implementprompt()"
     },
     {
       "label": "runItem()",
@@ -2440,10 +2370,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1382",
       "_origin": "ast",
-      "community": 9,
-      "norm_label": "runitem()",
       "id": "src_crew_runitem",
-      "community_name": "runItem"
+      "community": 9,
+      "norm_label": "runitem()"
     },
     {
       "label": "RunResult",
@@ -2451,10 +2380,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1541",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "runresult",
       "id": "src_crew_runresult",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "runresult"
     },
     {
       "label": "reviewBranch()",
@@ -2462,10 +2390,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1564",
       "_origin": "ast",
-      "community": 8,
-      "norm_label": "reviewbranch()",
       "id": "src_crew_reviewbranch",
-      "community_name": "git"
+      "community": 8,
+      "norm_label": "reviewbranch()"
     },
     {
       "label": "runExecute()",
@@ -2473,10 +2400,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1595",
       "_origin": "ast",
-      "community": 8,
-      "norm_label": "runexecute()",
       "id": "src_crew_runexecute",
-      "community_name": "git"
+      "community": 8,
+      "norm_label": "runexecute()"
     },
     {
       "label": "prBody()",
@@ -2484,10 +2410,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1745",
       "_origin": "ast",
-      "community": 8,
-      "norm_label": "prbody()",
       "id": "src_crew_prbody",
-      "community_name": "git"
+      "community": 8,
+      "norm_label": "prbody()"
     },
     {
       "label": "openPr()",
@@ -2495,10 +2420,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1773",
       "_origin": "ast",
-      "community": 8,
-      "norm_label": "openpr()",
       "id": "src_crew_openpr",
-      "community_name": "git"
+      "community": 8,
+      "norm_label": "openpr()"
     },
     {
       "label": "WHY_STOPPED",
@@ -2506,10 +2430,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1812",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "why_stopped",
       "id": "src_crew_why_stopped",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "why_stopped"
     },
     {
       "label": "renderRun()",
@@ -2517,10 +2440,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1820",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "renderrun()",
       "id": "src_crew_renderrun",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "renderrun()"
     },
     {
       "label": "shq()",
@@ -2528,10 +2450,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1874",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "shq()",
       "id": "src_crew_shq",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "shq()"
     },
     {
       "label": "runVerify()",
@@ -2539,10 +2460,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1878",
       "_origin": "ast",
-      "community": 9,
-      "norm_label": "runverify()",
       "id": "src_crew_runverify",
-      "community_name": "runItem"
+      "community": 9,
+      "norm_label": "runverify()"
     },
     {
       "label": "commitMessage()",
@@ -2550,10 +2470,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1897",
       "_origin": "ast",
-      "community": 9,
-      "norm_label": "commitmessage()",
       "id": "src_crew_commitmessage",
-      "community_name": "runItem"
+      "community": 9,
+      "norm_label": "commitmessage()"
     },
     {
       "label": "humanBytes()",
@@ -2561,10 +2480,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1911",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "humanbytes()",
       "id": "src_crew_humanbytes",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "humanbytes()"
     },
     {
       "label": "renderGate()",
@@ -2572,10 +2490,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1914",
       "_origin": "ast",
-      "community": 5,
-      "norm_label": "rendergate()",
       "id": "src_crew_rendergate",
-      "community_name": "crew.ts"
+      "community": 5,
+      "norm_label": "rendergate()"
     },
     {
       "label": "applyInit()",
@@ -2583,10 +2500,9 @@
       "source_file": "src/crew.ts",
       "source_location": "L1968",
       "_origin": "ast",
-      "community": 3,
-      "norm_label": "applyinit()",
       "id": "src_crew_applyinit",
-      "community_name": "crew.test.ts"
+      "community": 3,
+      "norm_label": "applyinit()"
     },
     {
       "label": "index.ts",
@@ -2594,10 +2510,9 @@
       "source_file": "src/index.ts",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "index.ts",
       "id": "src_index",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "index.ts"
     },
     {
       "label": "PKG",
@@ -2605,10 +2520,9 @@
       "source_file": "src/index.ts",
       "source_location": "L28",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "pkg",
       "id": "src_index_pkg",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "pkg"
     },
     {
       "label": "parseFrontmatter()",
@@ -2616,10 +2530,9 @@
       "source_file": "src/index.ts",
       "source_location": "L36",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "parsefrontmatter()",
       "id": "src_index_parsefrontmatter",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "parsefrontmatter()"
     },
     {
       "label": "readMarkdownDir()",
@@ -2627,10 +2540,9 @@
       "source_file": "src/index.ts",
       "source_location": "L51",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "readmarkdowndir()",
       "id": "src_index_readmarkdowndir",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "readmarkdowndir()"
     },
     {
       "label": "AGENT_DEFAULTS",
@@ -2638,10 +2550,9 @@
       "source_file": "src/index.ts",
       "source_location": "L67",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "agent_defaults",
       "id": "src_index_agent_defaults",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "agent_defaults"
     },
     {
       "label": "permissionsFor()",
@@ -2649,10 +2560,9 @@
       "source_file": "src/index.ts",
       "source_location": "L80",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "permissionsfor()",
       "id": "src_index_permissionsfor",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "permissionsfor()"
     },
     {
       "label": "gitDiff()",
@@ -2660,10 +2570,9 @@
       "source_file": "src/index.ts",
       "source_location": "L88",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "gitdiff()",
       "id": "src_index_gitdiff",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "gitdiff()"
     },
     {
       "label": "ctxFor()",
@@ -2671,10 +2580,9 @@
       "source_file": "src/index.ts",
       "source_location": "L105",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "ctxfor()",
       "id": "src_index_ctxfor",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "ctxfor()"
     },
     {
       "label": "artifactRoot()",
@@ -2682,10 +2590,9 @@
       "source_file": "src/index.ts",
       "source_location": "L121",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "artifactroot()",
       "id": "src_index_artifactroot",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "artifactroot()"
     },
     {
       "label": "artifactDir()",
@@ -2693,10 +2600,9 @@
       "source_file": "src/index.ts",
       "source_location": "L125",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "artifactdir()",
       "id": "src_index_artifactdir",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "artifactdir()"
     },
     {
       "label": "latestArtifact()",
@@ -2704,10 +2610,9 @@
       "source_file": "src/index.ts",
       "source_location": "L141",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "latestartifact()",
       "id": "src_index_latestartifact",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "latestartifact()"
     },
     {
       "label": "CouncilPlugin()",
@@ -2715,10 +2620,9 @@
       "source_file": "src/index.ts",
       "source_location": "L152",
       "_origin": "ast",
-      "community": 1,
-      "norm_label": "councilplugin()",
       "id": "src_index_councilplugin",
-      "community_name": "index.ts"
+      "community": 1,
+      "norm_label": "councilplugin()"
     },
     {
       "label": "mcp.test.ts",
@@ -2726,10 +2630,9 @@
       "source_file": "src/mcp.test.ts",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "mcp.test.ts",
       "id": "src_mcp_test",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "mcp.test.ts"
     },
     {
       "label": "scratch()",
@@ -2737,10 +2640,9 @@
       "source_file": "src/mcp.test.ts",
       "source_location": "L15",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "scratch()",
       "id": "src_mcp_test_scratch",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "scratch()"
     },
     {
       "label": "fakeServer()",
@@ -2748,10 +2650,9 @@
       "source_file": "src/mcp.test.ts",
       "source_location": "L23",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "fakeserver()",
       "id": "src_mcp_test_fakeserver",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "fakeserver()"
     },
     {
       "label": "mcp.ts",
@@ -2759,10 +2660,9 @@
       "source_file": "src/mcp.ts",
       "source_location": "L1",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "mcp.ts",
       "id": "src_mcp",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "mcp.ts"
     },
     {
       "label": "McpServerSpec",
@@ -2770,10 +2670,9 @@
       "source_file": "src/mcp.ts",
       "source_location": "L19",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "mcpserverspec",
       "id": "src_mcp_mcpserverspec",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "mcpserverspec"
     },
     {
       "label": "parseJsonc()",
@@ -2781,10 +2680,9 @@
       "source_file": "src/mcp.ts",
       "source_location": "L33",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "parsejsonc()",
       "id": "src_mcp_parsejsonc",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "parsejsonc()"
     },
     {
       "label": "localMcpServers()",
@@ -2792,10 +2690,9 @@
       "source_file": "src/mcp.ts",
       "source_location": "L70",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "localmcpservers()",
       "id": "src_mcp_localmcpservers",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "localmcpservers()"
     },
     {
       "label": "McpSession",
@@ -2803,10 +2700,9 @@
       "source_file": "src/mcp.ts",
       "source_location": "L114",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "mcpsession",
       "id": "src_mcp_mcpsession",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "mcpsession"
     },
     {
       "label": ".constructor()",
@@ -2814,10 +2710,9 @@
       "source_file": "src/mcp.ts",
       "source_location": "L120",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": ".constructor()",
       "id": "src_mcp_mcpsession_constructor",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": ".constructor()"
     },
     {
       "label": ".spawn()",
@@ -2825,10 +2720,9 @@
       "source_file": "src/mcp.ts",
       "source_location": "L151",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": ".spawn()",
       "id": "src_mcp_mcpsession_spawn",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": ".spawn()"
     },
     {
       "label": ".send()",
@@ -2836,10 +2730,9 @@
       "source_file": "src/mcp.ts",
       "source_location": "L172",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": ".send()",
       "id": "src_mcp_mcpsession_send",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": ".send()"
     },
     {
       "label": ".request()",
@@ -2847,10 +2740,9 @@
       "source_file": "src/mcp.ts",
       "source_location": "L177",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": ".request()",
       "id": "src_mcp_mcpsession_request",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": ".request()"
     },
     {
       "label": ".call()",
@@ -2858,10 +2750,9 @@
       "source_file": "src/mcp.ts",
       "source_location": "L205",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": ".call()",
       "id": "src_mcp_mcpsession_call",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": ".call()"
     },
     {
       "label": ".stop()",
@@ -2869,10 +2760,9 @@
       "source_file": "src/mcp.ts",
       "source_location": "L215",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": ".stop()",
       "id": "src_mcp_mcpsession_stop",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": ".stop()"
     },
     {
       "label": "substitute()",
@@ -2880,10 +2770,9 @@
       "source_file": "src/mcp.ts",
       "source_location": "L227",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "substitute()",
       "id": "src_mcp_substitute",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "substitute()"
     },
     {
       "label": "summaryOf()",
@@ -2891,10 +2780,9 @@
       "source_file": "src/mcp.ts",
       "source_location": "L231",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "summaryof()",
       "id": "src_mcp_summaryof",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "summaryof()"
     },
     {
       "label": "mcpTracker()",
@@ -2902,10 +2790,9 @@
       "source_file": "src/mcp.ts",
       "source_location": "L249",
       "_origin": "ast",
-      "community": 4,
-      "norm_label": "mcptracker()",
       "id": "src_mcp_mcptracker",
-      "community_name": "mcp.ts"
+      "community": 4,
+      "norm_label": "mcptracker()"
     }
   ],
   "links": [
@@ -4054,9 +3941,9 @@
       "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_engine"
+      "target": "src_engine",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -4722,9 +4609,9 @@
       "source_location": "L6",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_engine"
+      "target": "src_engine",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports_from",
@@ -4746,9 +4633,9 @@
       "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_engine_nodestate"
+      "target": "src_engine_nodestate",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -4758,9 +4645,9 @@
       "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_engine_ctx"
+      "target": "src_engine_ctx",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -4854,9 +4741,9 @@
       "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_engine_ask"
+      "target": "src_engine_ask",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -5070,9 +4957,9 @@
       "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_engine_runreview"
+      "target": "src_engine_runreview",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -5106,9 +4993,9 @@
       "source_location": "L6",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_engine_runreview"
+      "target": "src_engine_runreview",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -5214,9 +5101,9 @@
       "source_location": "L6",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_engine_runindependent"
+      "target": "src_engine_runindependent",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -5262,9 +5149,9 @@
       "source_location": "L6",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_engine_runplan"
+      "target": "src_engine_runplan",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -5274,9 +5161,9 @@
       "source_location": "L6",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_engine_runfix"
+      "target": "src_engine_runfix",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -5541,9 +5428,9 @@
       "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_linear"
+      "target": "src_linear",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -5674,9 +5561,9 @@
       "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_linear_linearctx"
+      "target": "src_linear_linearctx",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -5722,9 +5609,9 @@
       "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_linear_findissue"
+      "target": "src_linear_findissue",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -5734,9 +5621,9 @@
       "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_linear_createsessiononissue"
+      "target": "src_linear_createsessiononissue",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -5746,9 +5633,9 @@
       "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_linear_createactivity"
+      "target": "src_linear_createactivity",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -5758,9 +5645,9 @@
       "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_linear_planstep"
+      "target": "src_linear_planstep",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -5770,9 +5657,9 @@
       "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_linear_updateplan"
+      "target": "src_linear_updateplan",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -5782,9 +5669,9 @@
       "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_linear_addexternalurl"
+      "target": "src_linear_addexternalurl",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -5794,9 +5681,9 @@
       "source_location": "L18",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_linear_issueidentifierin"
+      "target": "src_linear_issueidentifierin",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports_from",
@@ -5806,9 +5693,9 @@
       "source_location": "L26",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_report"
+      "target": "src_report",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -5907,9 +5794,9 @@
       "source_location": "L26",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_report_renderreport"
+      "target": "src_report_renderreport",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -5919,9 +5806,9 @@
       "source_location": "L26",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_report_rendersummary"
+      "target": "src_report_rendersummary",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -5931,9 +5818,9 @@
       "source_location": "L26",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_report_renderplan"
+      "target": "src_report_renderplan",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -5943,9 +5830,9 @@
       "source_location": "L26",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_report_rendertakesindex"
+      "target": "src_report_rendertakesindex",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -5955,9 +5842,9 @@
       "source_location": "L26",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_report_renderpatches"
+      "target": "src_report_renderpatches",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports_from",
@@ -5967,9 +5854,9 @@
       "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_roster"
+      "target": "src_roster",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports_from",
@@ -5979,9 +5866,9 @@
       "source_location": "L25",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_roster"
+      "target": "src_roster",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6123,9 +6010,9 @@
       "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_roster_role"
+      "target": "src_roster_role",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6135,9 +6022,9 @@
       "source_location": "L25",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_roster_role"
+      "target": "src_roster_role",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6147,9 +6034,9 @@
       "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_roster_roster"
+      "target": "src_roster_roster",
+      "confidence_score": 1.0
     },
     {
       "relation": "references",
@@ -6171,9 +6058,9 @@
       "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_roster_byslug"
+      "target": "src_roster_byslug",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6183,9 +6070,9 @@
       "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_roster_all_roles"
+      "target": "src_roster_all_roles",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6195,9 +6082,9 @@
       "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_roster_selectroles"
+      "target": "src_roster_selectroles",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6207,9 +6094,9 @@
       "source_location": "L14",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_roster_skepticpool"
+      "target": "src_roster_skepticpool",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports_from",
@@ -6219,9 +6106,9 @@
       "source_location": "L17",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_schema"
+      "target": "src_schema",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6319,9 +6206,9 @@
       "source_location": "L17",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_schema_workitems_schema"
+      "target": "src_schema_workitems_schema",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6331,9 +6218,9 @@
       "source_location": "L17",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_schema_verdict_schema"
+      "target": "src_schema_verdict_schema",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports_from",
@@ -6388,9 +6275,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew"
+      "target": "src_crew",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6400,9 +6287,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_applyinit"
+      "target": "src_crew_applyinit",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6412,9 +6299,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_availabletrackers"
+      "target": "src_crew_availabletrackers",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6424,9 +6311,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_branchexists"
+      "target": "src_crew_branchexists",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6436,9 +6323,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_closeworktree"
+      "target": "src_crew_closeworktree",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6448,9 +6335,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_commitmessage"
+      "target": "src_crew_commitmessage",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6460,9 +6347,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_crew_ignores"
+      "target": "src_crew_crew_ignores",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6472,9 +6359,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_crewconfig"
+      "target": "src_crew_crewconfig",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6484,9 +6371,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_detectbasecandidates"
+      "target": "src_crew_detectbasecandidates",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6496,9 +6383,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_detectstack"
+      "target": "src_crew_detectstack",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6508,9 +6395,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_detectverifycandidates"
+      "target": "src_crew_detectverifycandidates",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6520,9 +6407,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_graphstate"
+      "target": "src_crew_graphstate",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6532,9 +6419,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_guarded"
+      "target": "src_crew_guarded",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6544,9 +6431,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_installifdepschanged"
+      "target": "src_crew_installifdepschanged",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6556,9 +6443,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_itemoutcome"
+      "target": "src_crew_itemoutcome",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6568,9 +6455,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_listworktrees"
+      "target": "src_crew_listworktrees",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6580,9 +6467,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_missingignores"
+      "target": "src_crew_missingignores",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6592,9 +6479,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_openworktree"
+      "target": "src_crew_openworktree",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6604,9 +6491,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_parsecrewblock"
+      "target": "src_crew_parsecrewblock",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6616,9 +6503,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_proposeinit"
+      "target": "src_crew_proposeinit",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6628,9 +6515,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_proposelanes"
+      "target": "src_crew_proposelanes",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6640,9 +6527,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_rendercrewblock"
+      "target": "src_crew_rendercrewblock",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6652,9 +6539,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_rendergate"
+      "target": "src_crew_rendergate",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6664,9 +6551,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_renderrun"
+      "target": "src_crew_renderrun",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6676,9 +6563,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_renderworktrees"
+      "target": "src_crew_renderworktrees",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6688,9 +6575,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_resolvescope"
+      "target": "src_crew_resolvescope",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6700,9 +6587,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_runresult"
+      "target": "src_crew_runresult",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6712,9 +6599,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_runverify"
+      "target": "src_crew_runverify",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6724,9 +6611,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_shq"
+      "target": "src_crew_shq",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6736,9 +6623,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_stdouttracker"
+      "target": "src_crew_stdouttracker",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6747,9 +6634,9 @@
       "source_location": "L47",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_test_cfg"
+      "target": "src_crew_test_cfg",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6758,9 +6645,9 @@
       "source_location": "L391",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_test_cfg3"
+      "target": "src_crew_test_cfg3",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6769,9 +6656,9 @@
       "source_location": "L402",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_test_done"
+      "target": "src_crew_test_done",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6780,9 +6667,9 @@
       "source_location": "L268",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_test_finish"
+      "target": "src_crew_test_finish",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6791,9 +6678,9 @@
       "source_location": "L44",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_test_gitout"
+      "target": "src_crew_test_gitout",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6802,9 +6689,9 @@
       "source_location": "L283",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_test_item"
+      "target": "src_crew_test_item",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6813,9 +6700,9 @@
       "source_location": "L267",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_test_itemdone"
+      "target": "src_crew_test_itemdone",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6824,9 +6711,9 @@
       "source_location": "L392",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_test_run"
+      "target": "src_crew_test_run",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6835,9 +6722,9 @@
       "source_location": "L181",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_test_scratchrepo"
+      "target": "src_crew_test_scratchrepo",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6846,9 +6733,9 @@
       "source_location": "L265",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_test_start"
+      "target": "src_crew_test_start",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6857,9 +6744,9 @@
       "source_location": "L266",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_test_step"
+      "target": "src_crew_test_step",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6869,9 +6756,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_tracker"
+      "target": "src_crew_tracker",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6881,9 +6768,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_trackers"
+      "target": "src_crew_trackers",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6893,9 +6780,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_upsertcrewblock"
+      "target": "src_crew_upsertcrewblock",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6905,9 +6792,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_workitem"
+      "target": "src_crew_workitem",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -6917,9 +6804,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test",
-      "target": "src_crew_worktreechanges"
+      "target": "src_crew_worktreechanges",
+      "confidence_score": 1.0
     },
     {
       "relation": "indirect_call",
@@ -6941,9 +6828,9 @@
       "source_location": "L402",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_test_done",
-      "target": "src_crew_test_item"
+      "target": "src_crew_test_item",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6952,9 +6839,9 @@
       "source_location": "L1968",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_applyinit"
+      "target": "src_crew_applyinit",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6963,9 +6850,9 @@
       "source_location": "L947",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_availabletrackers"
+      "target": "src_crew_availabletrackers",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6974,9 +6861,9 @@
       "source_location": "L314",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_basecandidates"
+      "target": "src_crew_basecandidates",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6985,9 +6872,9 @@
       "source_location": "L1039",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_branchexists"
+      "target": "src_crew_branchexists",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -6996,9 +6883,9 @@
       "source_location": "L1250",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_checkacceptance"
+      "target": "src_crew_checkacceptance",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7007,9 +6894,9 @@
       "source_location": "L1081",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_closeworktree"
+      "target": "src_crew_closeworktree",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7018,9 +6905,9 @@
       "source_location": "L1897",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_commitmessage"
+      "target": "src_crew_commitmessage",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7029,9 +6916,9 @@
       "source_location": "L660",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_cpoprompt"
+      "target": "src_crew_cpoprompt",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7040,9 +6927,9 @@
       "source_location": "L396",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_crew_ignores"
+      "target": "src_crew_crew_ignores",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7051,9 +6938,9 @@
       "source_location": "L640",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_crew_models"
+      "target": "src_crew_crew_models",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7062,9 +6949,9 @@
       "source_location": "L40",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_crewconfig"
+      "target": "src_crew_crewconfig",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7073,9 +6960,9 @@
       "source_location": "L1089",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_crewworktree"
+      "target": "src_crew_crewworktree",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7084,9 +6971,9 @@
       "source_location": "L679",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_ctoprompt"
+      "target": "src_crew_ctoprompt",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7095,9 +6982,9 @@
       "source_location": "L316",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_detectbasecandidates"
+      "target": "src_crew_detectbasecandidates",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7106,9 +6993,9 @@
       "source_location": "L232",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_detectstack"
+      "target": "src_crew_detectstack",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7117,9 +7004,9 @@
       "source_location": "L266",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_detectverifycandidates"
+      "target": "src_crew_detectverifycandidates",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7128,9 +7015,9 @@
       "source_location": "L1309",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_diagnose"
+      "target": "src_crew_diagnose",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7139,9 +7026,9 @@
       "source_location": "L1009",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_fanout"
+      "target": "src_crew_fanout",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7150,9 +7037,9 @@
       "source_location": "L203",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_git"
+      "target": "src_crew_git",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7161,9 +7048,9 @@
       "source_location": "L480",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_graphcontext"
+      "target": "src_crew_graphcontext",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7172,9 +7059,9 @@
       "source_location": "L440",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_graphify"
+      "target": "src_crew_graphify",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7183,9 +7070,9 @@
       "source_location": "L466",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_graphquery"
+      "target": "src_crew_graphquery",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7194,9 +7081,9 @@
       "source_location": "L380",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_graphstate"
+      "target": "src_crew_graphstate",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7205,9 +7092,9 @@
       "source_location": "L819",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_guarded"
+      "target": "src_crew_guarded",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7216,9 +7103,9 @@
       "source_location": "L1114",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_humanage"
+      "target": "src_crew_humanage",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7227,9 +7114,9 @@
       "source_location": "L1911",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_humanbytes"
+      "target": "src_crew_humanbytes",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7238,9 +7125,9 @@
       "source_location": "L1339",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_implementprompt"
+      "target": "src_crew_implementprompt",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7249,9 +7136,9 @@
       "source_location": "L504",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_initproposal"
+      "target": "src_crew_initproposal",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7260,9 +7147,9 @@
       "source_location": "L1154",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_installifdepschanged"
+      "target": "src_crew_installifdepschanged",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7271,9 +7158,9 @@
       "source_location": "L1152",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_installresult"
+      "target": "src_crew_installresult",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7282,9 +7169,9 @@
       "source_location": "L644",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_intake"
+      "target": "src_crew_intake",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7293,9 +7180,9 @@
       "source_location": "L1203",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_itemoutcome"
+      "target": "src_crew_itemoutcome",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7304,9 +7191,9 @@
       "source_location": "L38",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_known_roles"
+      "target": "src_crew_known_roles",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7315,9 +7202,9 @@
       "source_location": "L853",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_lineartracker"
+      "target": "src_crew_lineartracker",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7326,9 +7213,9 @@
       "source_location": "L1100",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_listworktrees"
+      "target": "src_crew_listworktrees",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7337,9 +7224,9 @@
       "source_location": "L64",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_mcpconfig"
+      "target": "src_crew_mcpconfig",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7348,9 +7235,9 @@
       "source_location": "L404",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_missingignores"
+      "target": "src_crew_missingignores",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7359,9 +7246,9 @@
       "source_location": "L1773",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_openpr"
+      "target": "src_crew_openpr",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7370,9 +7257,9 @@
       "source_location": "L1048",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_openworktree"
+      "target": "src_crew_openworktree",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7381,9 +7268,9 @@
       "source_location": "L90",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_parsecrewblock"
+      "target": "src_crew_parsecrewblock",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7392,9 +7279,9 @@
       "source_location": "L1745",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_prbody"
+      "target": "src_crew_prbody",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7403,9 +7290,9 @@
       "source_location": "L529",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_proposeinit"
+      "target": "src_crew_proposeinit",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7414,9 +7301,9 @@
       "source_location": "L358",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_proposelanes"
+      "target": "src_crew_proposelanes",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7425,9 +7312,9 @@
       "source_location": "L521",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_readcrewconfig"
+      "target": "src_crew_readcrewconfig",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7436,9 +7323,9 @@
       "source_location": "L423",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_readinstructions"
+      "target": "src_crew_readinstructions",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7447,9 +7334,9 @@
       "source_location": "L1029",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_refexists"
+      "target": "src_crew_refexists",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7458,9 +7345,9 @@
       "source_location": "L157",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_rendercrewblock"
+      "target": "src_crew_rendercrewblock",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7469,9 +7356,9 @@
       "source_location": "L1914",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_rendergate"
+      "target": "src_crew_rendergate",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7480,9 +7367,9 @@
       "source_location": "L552",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_renderinitproposal"
+      "target": "src_crew_renderinitproposal",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7491,9 +7378,9 @@
       "source_location": "L1820",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_renderrun"
+      "target": "src_crew_renderrun",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7502,9 +7389,9 @@
       "source_location": "L1122",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_renderworktrees"
+      "target": "src_crew_renderworktrees",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7513,9 +7400,9 @@
       "source_location": "L215",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_resolvescope"
+      "target": "src_crew_resolvescope",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7524,9 +7411,9 @@
       "source_location": "L1564",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_reviewbranch"
+      "target": "src_crew_reviewbranch",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7535,9 +7422,9 @@
       "source_location": "L1595",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_runexecute"
+      "target": "src_crew_runexecute",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7546,9 +7433,9 @@
       "source_location": "L720",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_runintake"
+      "target": "src_crew_runintake",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7557,9 +7444,9 @@
       "source_location": "L1382",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_runitem"
+      "target": "src_crew_runitem",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7568,9 +7455,9 @@
       "source_location": "L1541",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_runresult"
+      "target": "src_crew_runresult",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7579,9 +7466,9 @@
       "source_location": "L1878",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_runverify"
+      "target": "src_crew_runverify",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7590,9 +7477,9 @@
       "source_location": "L206",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_scope"
+      "target": "src_crew_scope",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7601,9 +7488,9 @@
       "source_location": "L1201",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_secrets"
+      "target": "src_crew_secrets",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7612,9 +7499,9 @@
       "source_location": "L1874",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_shq"
+      "target": "src_crew_shq",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7623,9 +7510,9 @@
       "source_location": "L799",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_stdouttracker"
+      "target": "src_crew_stdouttracker",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7634,9 +7521,9 @@
       "source_location": "L780",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_tracker"
+      "target": "src_crew_tracker",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7645,9 +7532,9 @@
       "source_location": "L961",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_trackerfor"
+      "target": "src_crew_trackerfor",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7656,9 +7543,9 @@
       "source_location": "L76",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_trackername"
+      "target": "src_crew_trackername",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7667,9 +7554,9 @@
       "source_location": "L75",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_trackers"
+      "target": "src_crew_trackers",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7678,9 +7565,9 @@
       "source_location": "L190",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_upsertcrewblock"
+      "target": "src_crew_upsertcrewblock",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7689,9 +7576,9 @@
       "source_location": "L253",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_verifycandidate"
+      "target": "src_crew_verifycandidate",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7700,9 +7587,9 @@
       "source_location": "L1812",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_why_stopped"
+      "target": "src_crew_why_stopped",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7711,9 +7598,9 @@
       "source_location": "L642",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_workitem"
+      "target": "src_crew_workitem",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -7722,9 +7609,9 @@
       "source_location": "L1138",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_crew_worktreechanges"
+      "target": "src_crew_worktreechanges",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports_from",
@@ -7734,9 +7621,9 @@
       "source_location": "L16",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_mcp"
+      "target": "src_mcp",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -7746,9 +7633,9 @@
       "source_location": "L16",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_mcp_localmcpservers"
+      "target": "src_mcp_localmcpservers",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -7758,9 +7645,9 @@
       "source_location": "L16",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew",
-      "target": "src_mcp_mcptracker"
+      "target": "src_mcp_mcptracker",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports_from",
@@ -7770,9 +7657,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew"
+      "target": "src_crew",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports_from",
@@ -7782,9 +7669,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_test",
-      "target": "src_crew"
+      "target": "src_crew",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -7794,9 +7681,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_crewconfig"
+      "target": "src_crew_crewconfig",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -7806,9 +7693,9 @@
       "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp",
-      "target": "src_crew_mcpconfig"
+      "target": "src_crew_mcpconfig",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -7818,9 +7705,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_test",
-      "target": "src_crew_mcpconfig"
+      "target": "src_crew_mcpconfig",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -7830,9 +7717,9 @@
       "source_location": "L546",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_proposeinit",
-      "target": "src_crew_parsecrewblock"
+      "target": "src_crew_parsecrewblock",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -7842,9 +7729,9 @@
       "source_location": "L524",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_readcrewconfig",
-      "target": "src_crew_parsecrewblock"
+      "target": "src_crew_parsecrewblock",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -7854,9 +7741,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_test",
-      "target": "src_crew_parsecrewblock"
+      "target": "src_crew_parsecrewblock",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -7866,9 +7753,9 @@
       "source_location": "L191",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_upsertcrewblock",
-      "target": "src_crew_rendercrewblock"
+      "target": "src_crew_rendercrewblock",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -7878,9 +7765,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_test",
-      "target": "src_crew_rendercrewblock"
+      "target": "src_crew_rendercrewblock",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -7890,9 +7777,9 @@
       "source_location": "L1973",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_applyinit",
-      "target": "src_crew_upsertcrewblock"
+      "target": "src_crew_upsertcrewblock",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -7902,9 +7789,9 @@
       "source_location": "L1041",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_branchexists",
-      "target": "src_crew_git"
+      "target": "src_crew_git",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -7914,9 +7801,9 @@
       "source_location": "L1083",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_closeworktree",
-      "target": "src_crew_git"
+      "target": "src_crew_git",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -7926,9 +7813,9 @@
       "source_location": "L320",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_detectbasecandidates",
-      "target": "src_crew_git"
+      "target": "src_crew_git",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -7938,9 +7825,9 @@
       "source_location": "L385",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_graphstate",
-      "target": "src_crew_git"
+      "target": "src_crew_git",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -7950,9 +7837,9 @@
       "source_location": "L1102",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_listworktrees",
-      "target": "src_crew_git"
+      "target": "src_crew_git",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -7962,9 +7849,9 @@
       "source_location": "L1782",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_openpr",
-      "target": "src_crew_git"
+      "target": "src_crew_git",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -7974,9 +7861,9 @@
       "source_location": "L1053",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_openworktree",
-      "target": "src_crew_git"
+      "target": "src_crew_git",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -7986,9 +7873,9 @@
       "source_location": "L361",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_proposelanes",
-      "target": "src_crew_git"
+      "target": "src_crew_git",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -7998,9 +7885,9 @@
       "source_location": "L1031",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_refexists",
-      "target": "src_crew_git"
+      "target": "src_crew_git",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8010,9 +7897,9 @@
       "source_location": "L217",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_resolvescope",
-      "target": "src_crew_git"
+      "target": "src_crew_git",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8022,9 +7909,9 @@
       "source_location": "L1568",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_reviewbranch",
-      "target": "src_crew_git"
+      "target": "src_crew_git",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8034,9 +7921,9 @@
       "source_location": "L1424",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runitem",
-      "target": "src_crew_git"
+      "target": "src_crew_git",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8046,9 +7933,9 @@
       "source_location": "L1139",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_worktreechanges",
-      "target": "src_crew_git"
+      "target": "src_crew_git",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8058,9 +7945,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_resolvescope"
+      "target": "src_crew_resolvescope",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8070,9 +7957,9 @@
       "source_location": "L540",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_proposeinit",
-      "target": "src_crew_detectstack"
+      "target": "src_crew_detectstack",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8082,9 +7969,9 @@
       "source_location": "L281",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_detectverifycandidates",
-      "target": "src_crew_shq"
+      "target": "src_crew_shq",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8094,9 +7981,9 @@
       "source_location": "L541",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_proposeinit",
-      "target": "src_crew_detectverifycandidates"
+      "target": "src_crew_detectverifycandidates",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8106,9 +7993,9 @@
       "source_location": "L324",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_detectbasecandidates",
-      "target": "src_crew_refexists"
+      "target": "src_crew_refexists",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8118,9 +8005,9 @@
       "source_location": "L534",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_proposeinit",
-      "target": "src_crew_detectbasecandidates"
+      "target": "src_crew_detectbasecandidates",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8130,9 +8017,9 @@
       "source_location": "L543",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_proposeinit",
-      "target": "src_crew_proposelanes"
+      "target": "src_crew_proposelanes",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8142,9 +8029,9 @@
       "source_location": "L1979",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_applyinit",
-      "target": "src_crew_missingignores"
+      "target": "src_crew_missingignores",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8154,9 +8041,9 @@
       "source_location": "L545",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_proposeinit",
-      "target": "src_crew_missingignores"
+      "target": "src_crew_missingignores",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8166,9 +8053,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_readinstructions"
+      "target": "src_crew_readinstructions",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8178,9 +8065,9 @@
       "source_location": "L467",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_graphquery",
-      "target": "src_crew_graphify"
+      "target": "src_crew_graphify",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8190,9 +8077,9 @@
       "source_location": "L490",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_graphcontext",
-      "target": "src_crew_graphquery"
+      "target": "src_crew_graphquery",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8202,9 +8089,9 @@
       "source_location": "L755",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runintake",
-      "target": "src_crew_graphcontext"
+      "target": "src_crew_graphcontext",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8214,9 +8101,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_readcrewconfig"
+      "target": "src_crew_readcrewconfig",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8226,9 +8113,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_proposeinit"
+      "target": "src_crew_proposeinit",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8238,9 +8125,9 @@
       "source_location": "L599",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_renderinitproposal",
-      "target": "src_crew_availabletrackers"
+      "target": "src_crew_availabletrackers",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8262,9 +8149,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_renderinitproposal"
+      "target": "src_crew_renderinitproposal",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8274,9 +8161,9 @@
       "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp",
-      "target": "src_crew_workitem"
+      "target": "src_crew_workitem",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8286,9 +8173,9 @@
       "source_location": "L750",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runintake",
-      "target": "src_crew_cpoprompt"
+      "target": "src_crew_cpoprompt",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8298,9 +8185,9 @@
       "source_location": "L758",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runintake",
-      "target": "src_crew_ctoprompt"
+      "target": "src_crew_ctoprompt",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8310,9 +8197,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_runintake"
+      "target": "src_crew_runintake",
+      "confidence_score": 1.0
     },
     {
       "relation": "references",
@@ -8334,9 +8221,9 @@
       "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp",
-      "target": "src_crew_tracker"
+      "target": "src_crew_tracker",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8346,9 +8233,9 @@
       "source_location": "L1609",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runexecute",
-      "target": "src_crew_stdouttracker"
+      "target": "src_crew_stdouttracker",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8358,9 +8245,9 @@
       "source_location": "L967",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_trackerfor",
-      "target": "src_crew_stdouttracker"
+      "target": "src_crew_stdouttracker",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8370,9 +8257,9 @@
       "source_location": "L987",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_trackerfor",
-      "target": "src_crew_guarded"
+      "target": "src_crew_guarded",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8382,9 +8269,9 @@
       "source_location": "L987",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_trackerfor",
-      "target": "src_crew_lineartracker"
+      "target": "src_crew_lineartracker",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8406,9 +8293,9 @@
       "source_location": "L971",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_trackerfor",
-      "target": "src_crew_availabletrackers"
+      "target": "src_crew_availabletrackers",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8418,9 +8305,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_availabletrackers"
+      "target": "src_crew_availabletrackers",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8430,9 +8317,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_test",
-      "target": "src_crew_availabletrackers"
+      "target": "src_crew_availabletrackers",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8442,9 +8329,9 @@
       "source_location": "L987",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_trackerfor",
-      "target": "src_crew_fanout"
+      "target": "src_crew_fanout",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8478,9 +8365,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_trackerfor"
+      "target": "src_crew_trackerfor",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8490,9 +8377,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_test",
-      "target": "src_crew_trackerfor"
+      "target": "src_crew_trackerfor",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8502,9 +8389,9 @@
       "source_location": "L1619",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runexecute",
-      "target": "src_crew_branchexists"
+      "target": "src_crew_branchexists",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8514,9 +8401,9 @@
       "source_location": "L1621",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runexecute",
-      "target": "src_crew_openworktree"
+      "target": "src_crew_openworktree",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8526,9 +8413,9 @@
       "source_location": "L1730",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runexecute",
-      "target": "src_crew_closeworktree"
+      "target": "src_crew_closeworktree",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8538,9 +8425,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_listworktrees"
+      "target": "src_crew_listworktrees",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8550,9 +8437,9 @@
       "source_location": "L1125",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_renderworktrees",
-      "target": "src_crew_humanage"
+      "target": "src_crew_humanage",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8562,9 +8449,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_renderworktrees"
+      "target": "src_crew_renderworktrees",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8574,9 +8461,9 @@
       "source_location": "L1455",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runitem",
-      "target": "src_crew_worktreechanges"
+      "target": "src_crew_worktreechanges",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8586,9 +8473,9 @@
       "source_location": "L1183",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_installifdepschanged",
-      "target": "src_crew_runverify"
+      "target": "src_crew_runverify",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8598,9 +8485,9 @@
       "source_location": "L1475",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runitem",
-      "target": "src_crew_installifdepschanged"
+      "target": "src_crew_installifdepschanged",
+      "confidence_score": 1.0
     },
     {
       "relation": "references",
@@ -8622,9 +8509,9 @@
       "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp",
-      "target": "src_crew_itemoutcome"
+      "target": "src_crew_itemoutcome",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8634,9 +8521,9 @@
       "source_location": "L1501",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runitem",
-      "target": "src_crew_checkacceptance"
+      "target": "src_crew_checkacceptance",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8646,9 +8533,9 @@
       "source_location": "L1421",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runitem",
-      "target": "src_crew_diagnose"
+      "target": "src_crew_diagnose",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8658,9 +8545,9 @@
       "source_location": "L1438",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runitem",
-      "target": "src_crew_implementprompt"
+      "target": "src_crew_implementprompt",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8670,9 +8557,9 @@
       "source_location": "L1661",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runexecute",
-      "target": "src_crew_runitem"
+      "target": "src_crew_runitem",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8682,9 +8569,9 @@
       "source_location": "L1528",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runitem",
-      "target": "src_crew_commitmessage"
+      "target": "src_crew_commitmessage",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8694,9 +8581,9 @@
       "source_location": "L1487",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runitem",
-      "target": "src_crew_runverify"
+      "target": "src_crew_runverify",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8706,9 +8593,9 @@
       "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp",
-      "target": "src_crew_runresult"
+      "target": "src_crew_runresult",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8718,9 +8605,9 @@
       "source_location": "L1689",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runexecute",
-      "target": "src_crew_reviewbranch"
+      "target": "src_crew_reviewbranch",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8730,9 +8617,9 @@
       "source_location": "L1711",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_runexecute",
-      "target": "src_crew_openpr"
+      "target": "src_crew_openpr",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8742,9 +8629,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_runexecute"
+      "target": "src_crew_runexecute",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8754,9 +8641,9 @@
       "source_location": "L1797",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_openpr",
-      "target": "src_crew_prbody"
+      "target": "src_crew_prbody",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8766,9 +8653,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_renderrun"
+      "target": "src_crew_renderrun",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8778,9 +8665,9 @@
       "source_location": "L1950",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_crew_rendergate",
-      "target": "src_crew_humanbytes"
+      "target": "src_crew_humanbytes",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8790,9 +8677,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_rendergate"
+      "target": "src_crew_rendergate",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8802,9 +8689,9 @@
       "source_location": "L8",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_crew_applyinit"
+      "target": "src_crew_applyinit",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -8813,9 +8700,9 @@
       "source_location": "L67",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_index_agent_defaults"
+      "target": "src_index_agent_defaults",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -8824,9 +8711,9 @@
       "source_location": "L125",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_index_artifactdir"
+      "target": "src_index_artifactdir",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -8835,9 +8722,9 @@
       "source_location": "L121",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_index_artifactroot"
+      "target": "src_index_artifactroot",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -8846,9 +8733,9 @@
       "source_location": "L152",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_index_councilplugin"
+      "target": "src_index_councilplugin",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -8857,9 +8744,9 @@
       "source_location": "L105",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_index_ctxfor"
+      "target": "src_index_ctxfor",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -8868,9 +8755,9 @@
       "source_location": "L88",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_index_gitdiff"
+      "target": "src_index_gitdiff",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -8879,9 +8766,9 @@
       "source_location": "L141",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_index_latestartifact"
+      "target": "src_index_latestartifact",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -8890,9 +8777,9 @@
       "source_location": "L36",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_index_parsefrontmatter"
+      "target": "src_index_parsefrontmatter",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -8901,9 +8788,9 @@
       "source_location": "L80",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_index_permissionsfor"
+      "target": "src_index_permissionsfor",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -8912,9 +8799,9 @@
       "source_location": "L28",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_index_pkg"
+      "target": "src_index_pkg",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -8923,9 +8810,9 @@
       "source_location": "L51",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_index_readmarkdowndir"
+      "target": "src_index_readmarkdowndir",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports_from",
@@ -8935,9 +8822,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_mcp"
+      "target": "src_mcp",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -8947,9 +8834,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index",
-      "target": "src_mcp_localmcpservers"
+      "target": "src_mcp_localmcpservers",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8959,9 +8846,9 @@
       "source_location": "L58",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index_readmarkdowndir",
-      "target": "src_index_parsefrontmatter"
+      "target": "src_index_parsefrontmatter",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8971,9 +8858,9 @@
       "source_location": "L449",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index_councilplugin",
-      "target": "src_index_readmarkdowndir"
+      "target": "src_index_readmarkdowndir",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8983,9 +8870,9 @@
       "source_location": "L464",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index_councilplugin",
-      "target": "src_index_permissionsfor"
+      "target": "src_index_permissionsfor",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -8995,9 +8882,9 @@
       "source_location": "L127",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index_artifactdir",
-      "target": "src_index_artifactroot"
+      "target": "src_index_artifactroot",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -9007,9 +8894,9 @@
       "source_location": "L142",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_index_latestartifact",
-      "target": "src_index_artifactroot"
+      "target": "src_index_artifactroot",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports_from",
@@ -9019,9 +8906,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_test",
-      "target": "src_mcp"
+      "target": "src_mcp",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -9031,9 +8918,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_test",
-      "target": "src_mcp_localmcpservers"
+      "target": "src_mcp_localmcpservers",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -9043,9 +8930,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_test",
-      "target": "src_mcp_mcptracker"
+      "target": "src_mcp_mcptracker",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -9055,9 +8942,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_test",
-      "target": "src_mcp_parsejsonc"
+      "target": "src_mcp_parsejsonc",
+      "confidence_score": 1.0
     },
     {
       "relation": "imports",
@@ -9067,9 +8954,9 @@
       "source_location": "L7",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_test",
-      "target": "src_mcp_substitute"
+      "target": "src_mcp_substitute",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -9078,9 +8965,9 @@
       "source_location": "L23",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_test",
-      "target": "src_mcp_test_fakeserver"
+      "target": "src_mcp_test_fakeserver",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -9089,9 +8976,9 @@
       "source_location": "L15",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_test",
-      "target": "src_mcp_test_scratch"
+      "target": "src_mcp_test_scratch",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -9100,9 +8987,9 @@
       "source_location": "L70",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp",
-      "target": "src_mcp_localmcpservers"
+      "target": "src_mcp_localmcpservers",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -9111,9 +8998,9 @@
       "source_location": "L19",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp",
-      "target": "src_mcp_mcpserverspec"
+      "target": "src_mcp_mcpserverspec",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -9122,9 +9009,9 @@
       "source_location": "L114",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp",
-      "target": "src_mcp_mcpsession"
+      "target": "src_mcp_mcpsession",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -9133,9 +9020,9 @@
       "source_location": "L249",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp",
-      "target": "src_mcp_mcptracker"
+      "target": "src_mcp_mcptracker",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -9144,9 +9031,9 @@
       "source_location": "L33",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp",
-      "target": "src_mcp_parsejsonc"
+      "target": "src_mcp_parsejsonc",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -9155,9 +9042,9 @@
       "source_location": "L227",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp",
-      "target": "src_mcp_substitute"
+      "target": "src_mcp_substitute",
+      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -9166,9 +9053,9 @@
       "source_location": "L231",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp",
-      "target": "src_mcp_summaryof"
+      "target": "src_mcp_summaryof",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -9178,9 +9065,9 @@
       "source_location": "L85",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_localmcpservers",
-      "target": "src_mcp_parsejsonc"
+      "target": "src_mcp_parsejsonc",
+      "confidence_score": 1.0
     },
     {
       "relation": "method",
@@ -9189,9 +9076,9 @@
       "source_location": "L205",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcpsession",
-      "target": "src_mcp_mcpsession_call"
+      "target": "src_mcp_mcpsession_call",
+      "confidence_score": 1.0
     },
     {
       "relation": "method",
@@ -9200,9 +9087,9 @@
       "source_location": "L120",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcpsession",
-      "target": "src_mcp_mcpsession_constructor"
+      "target": "src_mcp_mcpsession_constructor",
+      "confidence_score": 1.0
     },
     {
       "relation": "method",
@@ -9211,9 +9098,9 @@
       "source_location": "L177",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcpsession",
-      "target": "src_mcp_mcpsession_request"
+      "target": "src_mcp_mcpsession_request",
+      "confidence_score": 1.0
     },
     {
       "relation": "method",
@@ -9222,9 +9109,9 @@
       "source_location": "L172",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcpsession",
-      "target": "src_mcp_mcpsession_send"
+      "target": "src_mcp_mcpsession_send",
+      "confidence_score": 1.0
     },
     {
       "relation": "method",
@@ -9233,9 +9120,9 @@
       "source_location": "L151",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcpsession",
-      "target": "src_mcp_mcpsession_spawn"
+      "target": "src_mcp_mcpsession_spawn",
+      "confidence_score": 1.0
     },
     {
       "relation": "method",
@@ -9244,9 +9131,9 @@
       "source_location": "L215",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcpsession",
-      "target": "src_mcp_mcpsession_stop"
+      "target": "src_mcp_mcpsession_stop",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -9256,9 +9143,9 @@
       "source_location": "L140",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcpsession_constructor",
-      "target": "src_mcp_mcpsession_send"
+      "target": "src_mcp_mcpsession_send",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -9268,9 +9155,9 @@
       "source_location": "L159",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcpsession_spawn",
-      "target": "src_mcp_mcpsession_request"
+      "target": "src_mcp_mcpsession_request",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -9280,9 +9167,9 @@
       "source_location": "L164",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcpsession_spawn",
-      "target": "src_mcp_mcpsession_send"
+      "target": "src_mcp_mcpsession_send",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -9292,9 +9179,9 @@
       "source_location": "L167",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcpsession_spawn",
-      "target": "src_mcp_mcpsession_stop"
+      "target": "src_mcp_mcpsession_stop",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -9316,9 +9203,9 @@
       "source_location": "L195",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcpsession_request",
-      "target": "src_mcp_mcpsession_send"
+      "target": "src_mcp_mcpsession_send",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -9328,9 +9215,9 @@
       "source_location": "L206",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcpsession_call",
-      "target": "src_mcp_mcpsession_request"
+      "target": "src_mcp_mcpsession_request",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -9340,9 +9227,9 @@
       "source_location": "L270",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcptracker",
-      "target": "src_mcp_mcpsession_call"
+      "target": "src_mcp_mcpsession_call",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -9352,9 +9239,9 @@
       "source_location": "L302",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcptracker",
-      "target": "src_mcp_mcpsession_stop"
+      "target": "src_mcp_mcpsession_stop",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -9364,9 +9251,9 @@
       "source_location": "L262",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcptracker",
-      "target": "src_mcp_substitute"
+      "target": "src_mcp_substitute",
+      "confidence_score": 1.0
     },
     {
       "relation": "calls",
@@ -9376,9 +9263,9 @@
       "source_location": "L298",
       "weight": 1.0,
       "_origin": "ast",
-      "confidence_score": 1.0,
       "source": "src_mcp_mcptracker",
-      "target": "src_mcp_summaryof"
+      "target": "src_mcp_summaryof",
+      "confidence_score": 1.0
     }
   ],
   "hyperedges": [],

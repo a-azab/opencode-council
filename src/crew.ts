@@ -523,7 +523,13 @@ export function readCrewConfig(root: string): CrewConfig | null {
   if (!existsSync(path)) return null
   const c = parseCrewBlock(readFileSync(path, "utf8"))
   if (!c.verify?.length || !c.base || !c.lanes?.length) return null
-  return { verify: c.verify, base: c.base, lanes: c.lanes, ...(c.tracker ? { tracker: c.tracker } : {}) }
+  // `mcp` rides along with its tracker: dropping it here meant a written tracker: mcp
+  // config came back as "mcp" with no server, which runCmd then reports as unrecorded —
+  // the config existed end to end except where it was read back.
+  return {
+    verify: c.verify, base: c.base, lanes: c.lanes,
+    ...(c.tracker ? { tracker: c.tracker } : {}), ...(c.mcp ? { mcp: c.mcp } : {}),
+  }
 }
 
 export function proposeInit(
@@ -544,7 +550,6 @@ export function proposeInit(
     graph: graphState(root),
     ignores: missingIgnores(root),
     existing: existsSync(agentsPath) ? parseCrewBlock(readFileSync(agentsPath, "utf8")) : {},
-    env,
   }
 }
 
@@ -943,6 +948,10 @@ export function linearTracker(
  * Linear needs a token, so it is only offered where one exists. Listing it unconditionally
  * would let someone pick a tracker that silently mirrors nothing while the config claims
  * otherwise.
+ */
+/**
+ * Trackers honourable in THIS environment: terminal always; `linear` with its token;
+ * `mcp` the moment any local MCP server is configured in opencode.json (global or repo).
  */
 export function availableTrackers(
   env: NodeJS.ProcessEnv = process.env,
@@ -1497,7 +1506,9 @@ export async function runItem(
     // `git diff HEAD` omits untracked files, so an item delivered entirely in NEW files
     // handed the judge an empty diff. Intent-to-add puts them in the diff without staging
     // anything; the real `git add -A` further down upgrades the intent entries.
-    git(input.worktree, ["add", "--intent-to-add", "--", ".", NOT_WORK])
+    // Secret globs are excluded here as everywhere else: intent-to-add would otherwise
+    // pull a worker-created .env's CONTENTS into the prompt sent to the judge.
+    git(input.worktree, ["add", "--intent-to-add", "--", ".", NOT_WORK, ...SECRETS.map((g) => `:!${g}`)])
     const verdict = await checkAcceptance(ctx, {
       item: input.item,
       diff: git(input.worktree, ["diff", "HEAD"]),

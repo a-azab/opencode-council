@@ -41,7 +41,10 @@ test("pragmatist only joins above the line threshold", () => {
 test("security gets a wider panel than other roles", () => {
   const nodes = selectNodes(["security", "code"])
   assert.equal(nodes.filter((n) => n.role === "security").length, 3)
-  assert.equal(nodes.filter((n) => n.role === "code").length, 1) // only kimik3 has `code`
+  // two carriers since kimik3go joined: kimi-for-coding primary, opencode-go the
+  // billing-cycle fallback the user asked for. A lane with one model is a lane that
+  // vanishes when that model's quota does.
+  assert.equal(nodes.filter((n) => n.role === "code").length, 2)
 })
 
 test("selection prefers models not already used this round", () => {

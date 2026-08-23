@@ -28,12 +28,25 @@ export const ROSTER: Member[] = [
   { slug: "gpt55",     model: "openai/gpt-5.5",                         roles: ["product", "reviewer", "security"], ms: 4369 },
   { slug: "glm52",     model: "zai-coding-plan/glm-5.2",                roles: ["systems", "reviewer"],    ms: 8403 },
   { slug: "kimik3",    model: "kimi-for-coding/k3",                     roles: ["code"],                   ms: 21151 },
+  // The requested quota fallback: when kimi-for-coding/k3 hits its billing-cycle limit, the
+  // code lane substitutes here first (same role) before borrowing another model. Measured
+  // 2026-08-23: emits schema-valid structured output, 6782ms on a trivial task.
+  { slug: "kimik3go",  model: "opencode-go/kimi-k3",                    roles: ["code"],                   ms: 6782 },
   { slug: "gemini36",  model: "google/gemini-3.6-flash",                roles: ["breadth", "docs"],        ms: 9028 },
   { slug: "grok45",    model: "opencode-go/grok-4.5",                   roles: ["systems", "skeptic"],     ms: 7146 },
   { slug: "mimo",      model: "opencode-go/mimo-v2.5-pro",              roles: ["pragmatist", "skeptic"],  ms: 7027 },
   { slug: "minimax",   model: "opencode-go/minimax-m3",                 roles: ["reviewer", "skeptic"],    ms: 4532 },
   { slug: "nemoultra", model: "opencode/nemotron-3-ultra-free",         roles: ["reviewer", "systems"],    ms: 7307, free: true },
   { slug: "nemolight", model: "opencode/nemotron-3.5-lightning-free",   roles: ["skeptic", "qa", "ops"],   ms: 4672, free: true },
+  // Added on user directive 2026-08-23, with the D11 smoke measurement recorded rather
+  // than hidden: these two CHAT fine through opencode but did not emit a forced tool call
+  // in 3/3 attempts on 2026-08-23 (muse-spark: http 500 from the gateway; hy3: `malformed`
+  // every time). They are carried because the user insists they work interactively and the
+  // bench machinery makes a model-level failure cost exactly one call per run — `benchable`
+  // benches `malformed` and http-failed quota/auth on first sight. If a gateway fix lets
+  // them hold the schema, they earn their lanes like everyone else.
+  { slug: "musespark", model: "opencode/muse-spark-1.2-contributor-free", roles: ["breadth", "docs"],        ms: 8000, free: true },
+  { slug: "hy3",       model: "opencode/hy3-free",                       roles: ["qa", "ops"],              ms: 5000, free: true },
 ]
 
 export const bySlug = (slug: string) => ROSTER.find((m) => m.slug === slug)

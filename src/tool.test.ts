@@ -185,3 +185,50 @@ test("a confirmed init writes exactly two things", async () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("crew-init with tracker mcp writes wiring that survives the read-back", async () => {
+  // Round 6's critical finding: /crew-init validated mcpServer and then wrote a config
+  // WITHOUT it, and readCrewConfig dropped `mcp` even when present — so tracker: mcp could
+  // never actually be configured end to end. The E2E tracker test called trackerFor
+  // directly and skipped this path entirely, which is exactly how it shipped.
+  const dir = scratchRepo()
+  writeFileSync(
+    join(dir, "opencode.json"),
+    `{"mcp":{"jira":{"type":"local","command":["node","jira.mjs"]}}}`,
+  )
+  try {
+    const crew = await tool()
+    const out = await crew.execute(
+      {
+        mode: "init", write: true, verify: "npm test", base: "main", lanes: "reviewer",
+        tracker: "mcp", mcpServer: "jira",
+        mcpStart: "create_issue", mcpFinish: "close_issue",
+        mcpArgs: '{"issueKey": "${issue}"}',
+      },
+      { directory: dir },
+    )
+    assert.match(out, /tracker: mcp/)
+    const { readCrewConfig } = await import("./crew.ts")
+    const cfg = readCrewConfig(dir)
+    assert.equal(cfg?.tracker, "mcp")
+    assert.equal(cfg?.mcp?.server, "jira", "the wiring must survive the read-back")
+    assert.equal(cfg?.mcp?.start, "create_issue")
+    assert.deepEqual(cfg?.mcp?.args, { issueKey: "${issue}" })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("init refuses mcp wiring whose server is not configured", async () => {
+  const dir = scratchRepo()
+  try {
+    const out = await (await tool()).execute(
+      { mode: "init", write: true, verify: "npm test", base: "main", lanes: "reviewer", tracker: "mcp", mcpServer: "ghost" },
+      { directory: dir },
+    )
+    assert.match(out, /not a local entry/)
+    assert.ok(!existsSync(join(dir, "AGENTS.md")), "nothing written for a rejected tracker")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

@@ -71,7 +71,9 @@ export function localMcpServers(
   repoRoot?: string,
   dirs?: { global?: string; repo?: string },
 ): Map<string, McpServerSpec> {
-  const globalDir = dirs?.global ?? process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config", "opencode")
+  // XDG_CONFIG_HOME is the config ROOT, not the opencode dir — the global config lives at
+  // $XDG_CONFIG_HOME/opencode, exactly as it does at ~/.config/opencode when unset.
+  const globalDir = dirs?.global ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "opencode")
   const files = [
     join(globalDir, "opencode.json"),
     join(globalDir, "opencode.jsonc"),
@@ -154,6 +156,9 @@ class McpSession {
       env: { ...process.env, ...spec.environment },
       ...(spec.cwd ? { cwd: spec.cwd } : {}),
     })
+    // stderr must be drained: a chatty server on a pipe nobody reads fills the buffer and
+    // deadlocks the child. Not logged — server noise is not crew progress.
+    child.stderr?.resume()
     const s = new McpSession(child)
     try {
       await s.request(
@@ -255,13 +260,16 @@ export function mcpTracker(
   let session: Promise<McpSession> | null = null
   const ensure = () => (session ??= McpSession.spawn(spec))
 
+  // Spread order is the contract: built-in defaults < per-call values < user templates.
+  // Templates win because the server's argument names are the ones that must match — a
+  // user's {"text": "crew: ${text}"} overriding the raw call value is the whole point of
+  // having templates at all.
   const vars = (extra: Record<string, string>): Record<string, unknown> => ({
-    // our defaults, overridable by the template
     issue: issueRef ?? "",
+    ...extra,
     ...Object.fromEntries(
       Object.entries(cfg.args ?? {}).map(([k, v]) => [k, substitute(v, { issue: issueRef ?? "", ...extra })]),
     ),
-    ...extra,
   })
 
   const call = async (tool: string | undefined, args: Record<string, unknown>, what: string) => {

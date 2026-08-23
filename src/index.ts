@@ -313,8 +313,32 @@ export const CouncilPlugin = async (input: any) => ({
           if (!localMcpServers(scope.root).has(server))
             return `\`${server}\` is not a local entry in any opencode.json here. Found: ${[...localMcpServers(scope.root).keys()].map((n) => `\`${n}\``).join(", ") || "(none)"}.`
         }
+        if (args.mcpArgs?.trim()) {
+          try {
+            JSON.parse(args.mcpArgs)
+          } catch {
+            return `mcpArgs is not valid JSON: ${args.mcpArgs.slice(0, 80)}`
+          }
+        }
 
-        const cfg: CrewConfig = { verify, base, lanes, ...(tracker ? { tracker: tracker as any } : {}) }
+        // The validated mcpServer lands in the config — validating it and then writing a
+        // tracker that cannot run was the gap between the check and the write.
+        const mcp =
+          tracker === "mcp" && args.mcpServer?.trim()
+            ? {
+                server: args.mcpServer.trim(),
+                ...(args.mcpStart?.trim() ? { start: args.mcpStart.trim() } : {}),
+                ...(args.mcpStep?.trim() ? { step: args.mcpStep.trim() } : {}),
+                ...(args.mcpItem?.trim() ? { item: args.mcpItem.trim() } : {}),
+                ...(args.mcpFinish?.trim() ? { finish: args.mcpFinish.trim() } : {}),
+                ...(args.mcpArgs?.trim() ? { args: JSON.parse(args.mcpArgs) } : {}),
+              }
+            : undefined
+        const cfg: CrewConfig = {
+          verify, base, lanes,
+          ...(tracker ? { tracker: tracker as any } : {}),
+          ...(mcp ? { mcp } : {}),
+        }
         const written = applyInit(scope.root, cfg)
         return written.length
           ? `Wrote ${written.join(", ")}.\n\nverify: ${verify.join(", ")}\nbase: ${base}\nlanes: ${lanes.join(", ")}${tracker ? `\ntracker: ${tracker}` : ""}`
