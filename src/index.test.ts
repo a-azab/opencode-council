@@ -106,6 +106,12 @@ test("work mode is gone from every surface", async () => {
   )
 })
 
+test("the council tool accepts task mode and a context argument", async () => {
+  const { tool } = await load()
+  assert.ok(tool.council.args.mode.safeParse("task").success, "mode enum must accept 'task'")
+  assert.ok(tool.council.args.context, "context is a new arg, used by task and independent")
+})
+
 test("every council command registers under its colon name", async () => {
   // The mirror of the negative grep test: that one proves no stale name survives, this
   // proves the new ones actually load. A command file whose name is wrong is silently

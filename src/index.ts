@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import { dirname, join, basename } from "node:path"
 import { execFileSync } from "node:child_process"
 import { z } from "zod"
-import { runReview, runFix, runPlan, runIndependent, councilArgs } from "./engine.ts"
+import { runReview, runFix, runPlan, runIndependent, runTask, councilArgs } from "./engine.ts"
 import { localMcpServers } from "./mcp.ts"
 import {
   resolveScope,
@@ -23,7 +23,7 @@ import {
   type CrewConfig,
 } from "./crew.ts"
 import { type Role } from "./roster.ts"
-import { renderReport, renderSummary, renderPatches, renderPlan, renderTakesIndex } from "./report.ts"
+import { renderReport, renderSummary, renderPatches, renderPlan, renderTakesIndex, renderTask } from "./report.ts"
 
 const PKG = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -352,23 +352,30 @@ export const CouncilPlugin = async (input: any) => ({
         "computed fixed point, verifies with independent models, and aggregates " +
         "deterministically. mode:'review' reviews a diff, mode:'fix' turns the last review's " +
         "findings into independently-verified patches, mode:'plan' runs a proposal-and-score " +
-        "vote on a goal. Use /council:check for a fast inline pass instead.",
+        "vote on a goal, mode:'task' has every model answer a task and returns the one that " +
+        "scored best with its dissent attached. Use /council:check for a fast inline pass instead.",
       args: {
         mode: z
-          .enum(["review", "fix", "plan", "independent"])
+          .enum(["review", "fix", "plan", "independent", "task"])
           .default("review")
           .describe(
             "review = the graph; fix = verified patches; plan = proposal vote; " +
+              "task = one answer, cross-scored, dissent kept; " +
               "independent = every model answers alone, unmerged. To BUILD something, use the `crew` tool.",
           ),
         base: z.string().default("HEAD").describe("git ref to diff against (review/fix only)"),
-        goal: z.string().default("").describe("what to plan / answer (plan, independent)"),
+        goal: z.string().default("").describe("what to plan / answer (plan, task, independent)"),
+        context: z
+          .string()
+          .default("")
+          .describe("supporting material the models should read as data (task, independent)"),
       },
       async execute(
         args: {
-          mode?: "review" | "fix" | "plan" | "independent"
+          mode?: "review" | "fix" | "plan" | "independent" | "task"
           base?: string
           goal?: string
+          context?: string
         },
         context: any,
       ) {
@@ -401,11 +408,39 @@ export const CouncilPlugin = async (input: any) => ({
             .join("\n")
         }
 
+        // A task is not a diff either, so this resolves above the diff guard too.
+        if (args?.mode === "task") {
+          const goal = (args.goal ?? "").trim()
+          if (!goal) return "No goal given. `task` needs one — that is the thing being answered."
+          const result = await runTask(ctx, { goal, context: args.context })
+          const dir = artifactDir(cwd, "task")
+          const path = join(dir, "task.md")
+          writeFileSync(path, renderTask(result))
+          writeFileSync(join(dir, "task.json"), JSON.stringify(result, null, 2))
+          const live = result.proposals.filter((p) => p.state === "ok")
+          const head = result.winner
+            ? `answer: ${result.winner.slug}`
+            : result.unscored
+              ? "unranked — answers came back, but no score did"
+              : `no winner — ${result.tied.map((t) => t.slug).join(" and ")} are within the tie margin, your call`
+          return [
+            `${live.length}/${result.proposals.length} answered · ${result.scores.length} cross-scores`,
+            head,
+            result.objections.length
+              ? `${result.objections.length} objection(s) kept verbatim in the report`
+              : "",
+            ``,
+            `Full answer: ${path}`,
+          ]
+            .filter(Boolean)
+            .join("\n")
+        }
+
         // Independent mode answers a task, not a diff, so it runs before the diff guard.
         if (args?.mode === "independent") {
           if (!args?.goal?.trim())
             return "mode:'independent' needs a `goal` — what should each model answer?"
-          const takes = await runIndependent(ctx, { task: args.goal })
+          const takes = await runIndependent(ctx, { task: args.goal, context: args.context })
           const dir = artifactDir(cwd, "independent")
           for (const t of takes.filter((x) => x.state === "ok"))
             writeFileSync(join(dir, `${t.slug}.md`), `# ${t.slug} (${t.model})\n\n${t.response}\n`)

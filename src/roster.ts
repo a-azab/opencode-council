@@ -177,3 +177,9 @@ export function skepticPool(excludeSlugs: string[], count: number): Member[] {
 }
 
 export const SKEPTICS_PER_TIER = { BLOCKER: 3, SUGGESTION: 2, NIT: 0 } as const
+
+/** Fast tier first, then today's ms order. For the two high-volume, shallow loops:
+ *  council:task's scoring pass, and skeptic verification. Degrades to the ms order when
+ *  no fast-tier member exists. */
+export const preferFast = <T extends { tier?: string; ms: number }>(xs: T[]): T[] =>
+  [...xs].sort((a, b) => Number(b.tier === "fast") - Number(a.tier === "fast") || a.ms - b.ms)
