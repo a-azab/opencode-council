@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { renderPatches } from "./report.ts"
+import { renderPatches, renderReport } from "./report.ts"
 import type { Patch } from "./engine.ts"
 import type { Finding } from "./decide.ts"
 
@@ -66,4 +66,29 @@ test("a low-confidence fixer result is escalated rather than offered", () => {
 test("nothing is ever described as applied", () => {
   const out = renderPatches([patch(), patch({ verified: false }), patch({ state: "failed" })])
   assert.match(out, /Nothing has been applied/)
+})
+
+const reviewFixture = (over: Record<string, unknown> = {}) => ({
+  verdictCounts: { blockers: 0, suggestions: 0, nits: 0 },
+  kept: [], nodes: [], dropped: [], disputed: [], substituted: [],
+  debate: [], convergence: "no disputes",
+  ...over,
+}) as any
+
+test("a debate round that moves a position is reported as having moved it", () => {
+  // The debate loop has never executed with maxRounds > 0. Asserting on a live review would
+  // be non-deterministic - converged() returns done immediately when there are no disputes,
+  // so a small diff plausibly yields 0 rounds and would 'pass' having proven nothing.
+  const out = renderReport(reviewFixture({
+    debate: [{ round: 1, revisions: [
+      { model: "opus5", tier: "SUGGESTION", changed: true },
+      { model: "fable", tier: "BLOCKER", changed: false },
+    ] }],
+    convergence: "no tier moved",
+  }), { files: ["x.ts"], ms: 1234 })
+
+  assert.match(out, /## Convergence/)
+  assert.match(out, /Round 1/)
+  assert.match(out, /1 changed position/)
+  assert.match(out, /opus5→SUGGESTION/)
 })
