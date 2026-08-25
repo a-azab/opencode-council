@@ -75,7 +75,7 @@ test("plan and run refuse before the repo is initialised", async () => {
   try {
     const crew = await tool()
     for (const args of [{ mode: "plan", directive: "do a thing" }, { mode: "run" }])
-      assert.match(await crew.execute(args, { directory: dir }), /crew-init/, `${args.mode} did not refuse`)
+      assert.match(await crew.execute(args, { directory: dir }), /crew:init/, `${args.mode} did not refuse`)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -136,7 +136,7 @@ test("status answers in a repo that was never initialised", async () => {
   try {
     const out = await (await tool()).execute({ mode: "status" }, { directory: dir })
     assert.match(out, /No live crew worktrees/)
-    assert.ok(!/crew-init/.test(out), "status must not demand config")
+    assert.ok(!/crew:init/.test(out), "status must not demand config")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -186,8 +186,8 @@ test("a confirmed init writes exactly two things", async () => {
   }
 })
 
-test("crew-init with tracker mcp writes wiring that survives the read-back", async () => {
-  // Round 6's critical finding: /crew-init validated mcpServer and then wrote a config
+test("crew:init with tracker mcp writes wiring that survives the read-back", async () => {
+  // Round 6's critical finding: /crew:init validated mcpServer and then wrote a config
   // WITHOUT it, and readCrewConfig dropped `mcp` even when present — so tracker: mcp could
   // never actually be configured end to end. The E2E tracker test called trackerFor
   // directly and skipped this path entirely, which is exactly how it shipped.

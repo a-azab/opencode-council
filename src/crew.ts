@@ -999,7 +999,7 @@ export function trackerFor(
   if (name === "mcp") {
     // resolved lazily by the caller passing cfg through opts.mcp — see below
     if (!opts.mcp?.server) {
-      onStep(`  tracker(mcp): no mcp-server recorded — run /crew-init to configure one`)
+      onStep(`  tracker(mcp): no mcp-server recorded — run /crew:init to configure one`)
       return stdout
     }
     const spec = localMcpServers(opts.repoRoot).get(opts.mcp.server)

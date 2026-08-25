@@ -4,12 +4,12 @@ description: Execute the last approved crew plan in an isolated worktree — imp
 
 Call the `crew` tool with `mode: "run"`.
 
-This executes **the plan the user already approved**, read back from the last `/crew` run.
-It does not re-plan. If the user wants something different, they re-run `/crew` with a
+This executes **the plan the user already approved**, read back from the last `/crew:plan` run.
+It does not re-plan. If the user wants something different, they re-run `/crew:plan` with a
 corrected directive and approve that instead.
 
 Only run this after the user has seen a plan and approved it. If they have not, stop and
-show them `/crew <directive>` first — the gate exists so nothing gets built from a
+show them `/crew:plan <directive>` first — the gate exists so nothing gets built from a
 misread instruction.
 
 A run takes minutes, and a tool call returns only once — so tell the user up front that

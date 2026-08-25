@@ -64,9 +64,9 @@ test("crew-dev is the one agent granted tools, via its own frontmatter", async (
 
 test("commands are registered for every crew entry point", async () => {
   const { tool, config } = await load()
-  for (const c of ["crew", "crew-init", "crew-run", "crew-status"])
+  for (const c of ["crew:plan", "crew:init", "crew:execute", "crew:status"])
     assert.ok(config.command[c]?.template?.length > 100, `command ${c} missing or empty`)
-  // A command is only half an entry point: /crew-status tells the agent to call the tool
+  // A command is only half an entry point: /crew:status tells the agent to call the tool
   // with mode 'status', so the enum has to accept it or the command fails at the call.
   for (const m of ["init", "plan", "run", "status"])
     assert.ok(tool.crew.args.mode.safeParse(m).success, `crew rejects mode '${m}'`)
@@ -87,7 +87,7 @@ test("status answers in a repo with no crew config, and writes nothing", async (
     const out = await tool.crew.execute({ mode: "status" }, { directory: dir })
 
     assert.match(out, /No live crew worktrees/)
-    assert.doesNotMatch(out, /crew-init/, "status demanded config it does not need")
+    assert.doesNotMatch(out, /crew:init/, "status demanded config it does not need")
     // Read-only query: it must not call artifactDir.
     assert.ok(!existsSync(join(dir, "council-artifacts")), "status created an artifact directory")
   } finally {

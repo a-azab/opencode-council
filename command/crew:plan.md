@@ -21,4 +21,4 @@ Things worth pointing out if the gate shows them:
   It is local tree-sitter AST, no LLM calls, and takes seconds. Planning against a stale
   graph is worse than planning against none: it is confidently wrong.
 
-If the repo has no crew config, the tool says so — run `/crew-init` first.
+If the repo has no crew config, the tool says so — run `/crew:init` first.

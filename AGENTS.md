@@ -1,6 +1,6 @@
 ## Crew
 
-Config for `/crew`. Edit freely - it is read, not regenerated.
+Config for `/crew:plan`. Edit freely - it is read, not regenerated.
 
 ```crew
 verify: npm test

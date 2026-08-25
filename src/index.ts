@@ -114,7 +114,7 @@ function ctxFor(input: any) {
 /**
  * Artifacts belong to the repo, not to wherever the session happens to be standing.
  *
- * Using the session cwd meant `/crew` run from `apps/api/` wrote its plan somewhere `run`
+ * Using the session cwd meant `/crew:plan` run from `apps/api/` wrote its plan somewhere `run`
  * would never look, and — worse — that any directory the user happened to be in became a
  * place plans could be read from.
  */
@@ -204,7 +204,7 @@ export const CouncilPlugin = async (input: any) => ({
 
         if (args?.mode === "plan" || args?.mode === "run") {
           const cfg = readCrewConfig(scope.root)
-          if (!cfg) return `This repo has no crew config yet. Run \`/crew-init\` first.`
+          if (!cfg) return `This repo has no crew config yet. Run \`/crew:init\` first.`
 
           if (args.mode === "run") {
             // Execute the plan the human actually read. Re-running intake here would
@@ -212,7 +212,7 @@ export const CouncilPlugin = async (input: any) => ({
             // and what gets built would not correspond. Same reason `fix` replays the last
             // review instead of running a fresh one.
             const found = latestArtifact(scope.root, "crew-plan", "plan.json")
-            if (!found) return "No approved plan found. Run `/crew <directive>` first and approve the plan."
+            if (!found) return "No approved plan found. Run `/crew:plan <directive>` first and approve the plan."
             const saved = JSON.parse(readFileSync(found.path, "utf8"))
             if (!saved.items?.length) return `The last plan (${found.dir}) had no items — nothing to run.`
             // A tool call returns once, at the end, so a 20-minute run would otherwise be
