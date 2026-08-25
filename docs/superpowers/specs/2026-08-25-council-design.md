@@ -107,8 +107,13 @@ excluded from §5's grep for the same reason.
 
 ### 3.2 Full panel by default
 
-`council:review` and `council:task` pass `ALL_ROLES`, so every lane runs regardless of which
-files changed.
+`council:review` passes `ALL_ROLES`, so every lane runs regardless of which files changed.
+
+**`council:task` reaches every model by a different mechanism and takes no `roles`.**
+`runTask(ctx, {goal, context?})` has no lanes: it proposes from *every schema-capable
+member* (§3.4) rather than selecting nodes per role. Both commands honour "all models"; only
+one of them does it through `selectNodes`. Conflating the two would hand `runTask` arguments
+it cannot accept.
 
 The other three have no lanes to set, and saying otherwise would send an implementer looking
 for a parameter that does not exist:
@@ -215,7 +220,7 @@ export function scorersFor(live: TaskProposal[]): Map<string, string[]>
 
 /** Pure. What each council mode passes to the engine, so §5 can assert the cost split
  *  without a live fan-out. `index.ts` reads this rather than inlining the values. */
-export function councilArgs(mode: "review" | "task"): { roles: Role[]; maxRounds: number }
+export function councilArgs(): { roles: Role[]; maxRounds: number }
 ```
 
 **Three terminal states, exhaustive and disjoint** — the rev 4 draft had a reachable hole
@@ -502,7 +507,7 @@ for one slot:
 |---|---|---|---|
 | `gpt56sol` | `openai/gpt-5.6-sol` | `deep` | the lanes whose value is depth — `security`, `architect`, `systems` — and escalation diagnosis, which is "work out why this failed twice" |
 | `gpt56terra` | `openai/gpt-5.6-terra` | `standard` | the production default: `reviewer`, `product`, `docs` |
-| `gpt56luna` | `openai/gpt-5.6-luna` | `fast` | the two high-volume loops, §3.7.6 |
+| `gpt56luna` | `openai/gpt-5.6-luna` | `fast` | the two high-volume loops (§3.7.6). **Carries `skeptic`** — otherwise `skepticPool`, which filters on that role, could never reach a fast member and the tier routing would be unreachable code |
 
 #### 3.7.6 Tier routing — where `fast` actually pays
 
@@ -558,7 +563,7 @@ No config migration.
 |---|---|
 | every `council:*` command registers under its colon name | a typo'd filename is a silently missing command |
 | **the five old names** (`/council-review`, `/council-fix`, `/council-plan`, `/council-independent`, `/check`) appear nowhere in `command/`, `src/`, `README.md` | dangling cross-references are the likely rename failure. Matching the five exact names, not the prefix `/council-`: the prefix also matches the legitimate `"the /council-work command still exists"` message at `index.test.ts:102`, plus the 12 `agent/council-*.md` files and the `council-${role}` literals at `engine.ts:505,990`. `PLAN.md` is excluded as a historical record (§3.1) |
-| **`councilArgs("review")` and `councilArgs("task")` return `ALL_ROLES` and `maxRounds: 2`** | the "all models" requirement and the cost split — §3.3's entire rationale. Asserted through the pure `councilArgs` seam because the real call sites are unreachable without a live fan-out: `runReview` is a static import (`index.ts:6`) called inside `council.execute` (`:454`) and inside crew's non-exported `reviewBranch` (`crew.ts:1584`), the suite mocks nothing, and `tool.test.ts:14-15` states the rule — "Only paths that return BEFORE any model call are exercised here." `fix` is excluded deliberately: it has no lanes (§3.2) |
+| **`councilArgs()` returns `ALL_ROLES` and `maxRounds: 2`, and `council:review` reads it** | the "all models" requirement and the cost split — §3.3's entire rationale. Asserted through the pure `councilArgs` seam because the real call sites are unreachable without a live fan-out: `runReview` is a static import (`index.ts:6`) called inside `council.execute` (`:454`) and inside crew's non-exported `reviewBranch` (`crew.ts:1584`), the suite mocks nothing, and `tool.test.ts:14-15` states the rule — "Only paths that return BEFORE any model call are exercised here." `fix` is excluded deliberately: it has no lanes (§3.2) |
 | **roster invariant:** every schema-capable member gets ≥1 node under `ALL_ROLES` | replaces the dead `everyModel` option; fails loudly if a roster change leaves a model unused |
 | `DEFAULT_MAX_ROUNDS` is still `0`, and `crew.ts`'s `runReview` call still passes neither `maxRounds` nor `roles` | a source-text assertion, for the same absent-seam reason as the row above. A shared default would give every crew branch-review 2 rounds |
 | **every `state === "ok"` proposal absent from `ranked` is printed under "answered, but unscored"** | otherwise a live answer whose scorers all failed vanishes from `decided`/`tied` reports entirely — silent omission, the class this command exists to prevent |
