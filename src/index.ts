@@ -352,7 +352,7 @@ export const CouncilPlugin = async (input: any) => ({
         "computed fixed point, verifies with independent models, and aggregates " +
         "deterministically. mode:'review' reviews a diff, mode:'fix' turns the last review's " +
         "findings into independently-verified patches, mode:'plan' runs a proposal-and-score " +
-        "vote on a goal. Use /check for a fast inline pass instead.",
+        "vote on a goal. Use /council:check for a fast inline pass instead.",
       args: {
         mode: z
           .enum(["review", "fix", "plan", "independent"])

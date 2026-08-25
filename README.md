@@ -67,19 +67,19 @@ agents you may still have, which are unrelated to this plugin.)
 
 ## Use
 
-### `/check` — fast, inline, no subagents
+### `/council:check` — fast, inline, no subagents
 
 Six lenses (bug, security, performance, quality, compliance, docs), max 5 findings, ~30s.
 It never asks a question and never moves HEAD, so it is safe to fire mid-edit.
 
 ```
-/check
+/council:check
 ```
 
-### `/council-review` — the full graph
+### `/council:review` — the full graph
 
 ```
-/council-review
+/council:review
 ```
 
 Or call the tool directly for a different base:
@@ -101,10 +101,10 @@ The commands are thin wrappers over one tool:
 
 To **build** something rather than judge it, use the `crew` tool — see below.
 
-### `/council-fix` — patches, verified, behind your gate
+### `/council:fix` — patches, verified, behind your gate
 
 ```
-/council-fix
+/council:fix
 ```
 
 Takes the last review's findings and writes a patch for each. **Applies nothing.**
@@ -250,10 +250,10 @@ it isn't offered at all. It is an implementation of the same seam, not a privile
 **A tracker can never break a run.** An outage, an expired token, or a preview-API change
 costs you a warning line. The work is real; the mirror is not.
 
-### `/council-independent` — the raw takes, unmerged
+### `/council:independent` — the raw takes, unmerged
 
 ```
-/council-independent what's the biggest risk of an in-memory rate limiter?
+/council:independent what's the biggest risk of an in-memory rate limiter?
 ```
 
 Every model in the roster answers **alone**. No routing, no dedupe, no debate, no
@@ -268,10 +268,10 @@ It is also the only mode that sends **no schema** — the output is prose for a 
 forcing a tool call to carry free text costs models that can't do it for no benefit
 (measured: 7/11 with a one-field schema, 11/11 without).
 
-### `/council-plan` — pick an approach by vote
+### `/council:plan` — pick an approach by vote
 
 ```
-/council-plan add rate limiting without adding Redis
+/council:plan add rate limiting without adding Redis
 ```
 
 Five lanes propose an approach. Every model then scores every proposal **except its own**

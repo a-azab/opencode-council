@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, existsSync } from "node:fs"
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -104,4 +104,30 @@ test("work mode is gone from every surface", async () => {
     !JSON.stringify(tool.council.args.mode).includes("work"),
     "council still advertises a work mode",
   )
+})
+
+test("no live file still refers to a pre-colon council name", () => {
+  // The likely failure of a rename is a dangling cross-reference, not a missing file.
+  //
+  // Two exclusions, both load-bearing. Match the five exact names and never the bare
+  // `/council-` prefix: that also hits the legitimate "/council-work" message below, the
+  // 12 agent/council-*.md files, and the `council-${role}` literals in engine.ts. And skip
+  // *.test.ts: this very file must contain the old names to search for them, so scanning
+  // itself would make the test permanently red.
+  const OLD = ["/council-review", "/council-fix", "/council-plan", "/council-independent", "/check"]
+  const files = [
+    ...readdirSync(join(PKG, "command")).map((f) => `command/${f}`),
+    ...readdirSync(join(PKG, "src")).map((f) => `src/${f}`),
+    "README.md",
+  ].filter((f) => /\.(md|ts)$/.test(f) && !f.endsWith(".test.ts"))
+
+  const offenders: string[] = []
+  for (const rel of files) {
+    const text = readFileSync(join(PKG, rel), "utf8")
+    for (const name of OLD) {
+      // (?![\w-]) so /checkout and /check-in are left alone; end-of-line counts as a match.
+      if (new RegExp(`${name.replace("/", "\\/")}(?![\\w-])`).test(text)) offenders.push(`${rel} → ${name}`)
+    }
+  }
+  assert.deepEqual(offenders, [], `stale command references:\n${offenders.join("\n")}`)
 })

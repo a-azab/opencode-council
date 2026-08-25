@@ -20,8 +20,8 @@ Diff:
 If the diff is empty, say `Nothing to check — working tree is clean.` and stop. Do not
 invent something to review.
 
-If the diff was truncated at 1200 lines, say so once, and add: `too large for /check —
-use /council-review`.
+If the diff was truncated at 1200 lines, say so once, and add: `too large for /council:check —
+use /council:review`.
 
 ## The six lenses
 
@@ -41,7 +41,7 @@ Evaluate the diff against each, in this order:
 - **Report only `[BLOCKER]` and `[SUGGESTION]`.** No `[NIT]`. If it wouldn't survive a
   real code review, it isn't worth your token budget or the user's attention.
 - **Maximum 5 issues.** If there are more, report the 5 highest-severity and add
-  `+N more — run /council-review`.
+  `+N more — run /council:review`.
 - **Zero issues is a valid and common result.** Say `No issues found.` Do not manufacture
   findings to look thorough. A fabricated finding is worse than a missed one because it
   costs the user real time to disprove.
@@ -70,16 +70,16 @@ Then one line: `N blockers, M suggestions.`
 
 ---
 
-## Consistency contract with `/council-review`
+## Consistency contract with `/council:review`
 
-Every difference between `/check` and `/council-review` must be derivable from exactly
+Every difference between `/council:check` and `/council:review` must be derivable from exactly
 these two facts:
 
-1. **`/check` dispatches no subagents.** So: no skeptic verification, no cross-model
+1. **`/council:check` dispatches no subagents.** So: no skeptic verification, no cross-model
    debate, no adversarial pass, and nothing that needs more than one perspective.
-2. **`/check` is fired repeatedly while writing code.** So: it never asks a question, it
+2. **`/council:check` is fired repeatedly while writing code.** So: it never asks a question, it
    never moves HEAD, it caps output hard, and it prefers a fast miss over a slow catch.
 
 Anything else that differs between the two is drift, not design. If you find yourself
 adding a rule here that doesn't follow from (1) or (2), it belongs in
-`/council-review` instead — or nowhere.
+`/council:review` instead — or nowhere.
