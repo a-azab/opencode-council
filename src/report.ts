@@ -2,6 +2,8 @@
 // model may add, remove, or re-tier a finding on the way out (D3).
 import type { Review, TaskProposal, TaskResult } from "./engine.ts"
 import { TIE_MARGIN, type Finding } from "./decide.ts"
+import { upgradeCandidates, type Result } from "./catalog.ts"
+import type { Member } from "./roster.ts"
 
 const TIER_ORDER = { BLOCKER: 0, SUGGESTION: 1, NIT: 2 } as const
 
@@ -360,6 +362,105 @@ export function renderTakesIndex(takes: import("./engine.ts").Take[], task: stri
     lines.push("", "## Did not answer", "")
     for (const t of failed) lines.push(`- \`${t.slug}\` — ${t.state}${t.detail ? `: ${t.detail.slice(0, 90)}` : ""}`)
   }
+  return lines.join("\n")
+}
+
+/**
+ * What the server offers that the roster does not pin, and what each candidate measured.
+ *
+ * Discovery is automatic; adoption is not, and the gap between those two is the whole
+ * design. `google/gemini-3.7-flash` times out at 90s on the probe `3.6-flash` answers in
+ * 9s - an updater that chased the highest version number would have taken a working lane
+ * out of the council and filed it as an upgrade. So this measures, shows the measurement,
+ * and stops. The roster is a source file and editing it stays a human act.
+ *
+ * Pure: every probe result is handed in already taken. Nothing here calls a model.
+ *
+ * ponytail: the reverse staleness - a pinned model the server has stopped offering - is not
+ * reported. Add it when a lane actually 404s; the probe results already surface a member
+ * that has stopped answering.
+ */
+export function renderModelsProposal(input: {
+  roster: Member[]
+  catalog: string[]
+  probes: Record<string, Result | undefined>
+}): string {
+  const { roster, catalog, probes } = input
+  const provider = (id: string) => id.split("/")[0]
+  const candidates = upgradeCandidates(roster, catalog)
+
+  const lines: string[] = [
+    "# Council models",
+    "",
+    `${catalog.length} offered · ${roster.length} pinned by the roster · ${candidates.length} unpinned ` +
+      `on providers already in use`,
+    "",
+    "**Nothing has been written.** This is a proposal. The roster is a source file, and",
+    "changing it is yours to do.",
+    "",
+  ]
+
+  if (!candidates.length) {
+    lines.push(
+      "Every model these providers offer is already pinned. There is nothing to propose,",
+      "which is the answer, not a failure to find one.",
+      "",
+    )
+    return lines.join("\n")
+  }
+
+  for (const p of [...new Set(candidates.map(provider))].sort()) {
+    const held = roster.filter((m) => provider(m.model) === p)
+    lines.push(`## ${p}`, "")
+    lines.push(
+      `Pinned here now: ${held.map((m) => `\`${m.model}\` (${m.slug}${m.ms ? `, ${m.ms}ms` : ""})`).join(", ")}`,
+      "",
+    )
+    lines.push("| candidate | measured | reading |", "|---|---|---|")
+    for (const id of candidates.filter((c) => provider(c) === p)) {
+      const r = probes[id]
+      lines.push(
+        `| \`${id}\` | ${r ? `${r.ms}ms` : "—"} | ` +
+          (!r
+            ? "not probed — the budget did not reach it"
+            : r.ok
+              ? "answered the schema probe; weigh it against what it would replace"
+              : "returned nothing usable — do not pin it") +
+          " |",
+      )
+    }
+    lines.push("")
+  }
+
+  lines.push(
+    "## To adopt one",
+    "",
+    "Edit `ROSTER` in `src/roster.ts`: point that member's `model` at the new id, re-measure",
+    "`ms`, and leave `capability` alone until a probe has actually settled it. Then run the",
+    "suite — the roster invariants are asserted, so a swap that empties a lane fails loudly.",
+    "",
+  )
+
+  // Named from the data rather than argued in the abstract: a candidate that failed its
+  // probe IS the case against adopting on version number, and it is more convincing sitting
+  // in the reader's own catalogue than as a story about someone else's.
+  const failed = candidates.filter((id) => probes[id] && !probes[id]!.ok)
+  if (failed.length)
+    lines.push(
+      `${failed.length} candidate(s) above returned nothing usable when measured: ` +
+        `${failed.map((id) => `\`${id}\``).join(", ")}.`,
+      "A later version number is not a measurement, and this is what the difference looks like.",
+      "",
+    )
+
+  const unprobed = candidates.filter((id) => !probes[id])
+  if (unprobed.length)
+    lines.push(
+      `> ${unprobed.length} of ${candidates.length} candidates were not measured. Each probe is a full model call,`,
+      "> so they are capped per run — an unmeasured row is unknown, not fine.",
+      "",
+    )
+
   return lines.join("\n")
 }
 

@@ -22,8 +22,17 @@ import {
   renderWorktrees,
   type CrewConfig,
 } from "./crew.ts"
-import { type Role } from "./roster.ts"
-import { renderReport, renderSummary, renderPatches, renderPlan, renderTakesIndex, renderTask } from "./report.ts"
+import { ROSTER, type Role } from "./roster.ts"
+import { catalog, probe, probeBudget, upgradeCandidates, type Result } from "./catalog.ts"
+import {
+  renderReport,
+  renderSummary,
+  renderPatches,
+  renderPlan,
+  renderTakesIndex,
+  renderTask,
+  renderModelsProposal,
+} from "./report.ts"
 
 const PKG = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -356,12 +365,14 @@ export const CouncilPlugin = async (input: any) => ({
         "scored best with its dissent attached. Use /council:check for a fast inline pass instead.",
       args: {
         mode: z
-          .enum(["review", "fix", "plan", "independent", "task"])
+          .enum(["review", "fix", "plan", "independent", "task", "models"])
           .default("review")
           .describe(
             "review = the graph; fix = verified patches; plan = proposal vote; " +
               "task = one answer, cross-scored, dissent kept; " +
-              "independent = every model answers alone, unmerged. To BUILD something, use the `crew` tool.",
+              "independent = every model answers alone, unmerged; " +
+              "models = what this server offers that the roster does not pin, measured and proposed, never adopted. " +
+              "To BUILD something, use the `crew` tool.",
           ),
         base: z.string().default("HEAD").describe("git ref to diff against (review/fix only)"),
         goal: z.string().default("").describe("what to plan / answer (plan, task, independent)"),
@@ -372,7 +383,7 @@ export const CouncilPlugin = async (input: any) => ({
       },
       async execute(
         args: {
-          mode?: "review" | "fix" | "plan" | "independent" | "task"
+          mode?: "review" | "fix" | "plan" | "independent" | "task" | "models"
           base?: string
           goal?: string
           context?: string
@@ -434,6 +445,51 @@ export const CouncilPlugin = async (input: any) => ({
           ]
             .filter(Boolean)
             .join("\n")
+        }
+
+        // Discovery is not a diff either, so it resolves above the diff guard with the
+        // other non-review modes.
+        if (args?.mode === "models") {
+          const offered = await catalog(ctx)
+          if (!offered.length)
+            return [
+              "The server offered no catalog, so there is nothing to compare the roster against.",
+              "Discovery is an optimisation over a roster that still works — this costs you a",
+              "proposal, not a review.",
+            ].join("\n")
+
+          const candidates = upgradeCandidates(ROSTER, offered)
+
+          // Measured here, never inside the renderer: probing is the one expensive thing
+          // this mode does, and a report function that reaches for the network cannot be
+          // asserted without one. Budgeted at 3 for the same reason recruitment is — each
+          // probe is a full model call, and a provider that just published twenty variants
+          // is exactly where an unbudgeted loop spends the afternoon.
+          const budget = probeBudget(3)
+          const probes: Record<string, Result | undefined> = {}
+          for (const id of candidates) {
+            if (!budget.take()) break
+            probes[id] = await probe(ctx, id)
+          }
+
+          const dir = artifactDir(cwd, "models")
+          const path = join(dir, "models.md")
+          // Two things get written and neither is the roster: this artifact, and the
+          // capability cache `probe` records into - a fact about this machine, which is why
+          // it lives under ~/.cache and not the repo. The roster is a source file and stays
+          // one: `google/gemini-3.7-flash` times out at 90s where 3.6 answers in 9s, so a
+          // tool that adopted the newer id on its own would have cost a lane and called it
+          // an upgrade.
+          writeFileSync(path, renderModelsProposal({ roster: ROSTER, catalog: offered, probes }))
+          const measured = Object.values(probes).filter(Boolean).length
+          const usable = Object.values(probes).filter((r) => r?.ok).length
+          return [
+            `${offered.length} models offered · ${candidates.length} unpinned on providers already in use · ` +
+              `${measured} measured, ${usable} answered`,
+            "Nothing has been written to the roster. Read the proposal and decide.",
+            ``,
+            `Proposal: ${path}`,
+          ].join("\n")
         }
 
         // Independent mode answers a task, not a diff, so it runs before the diff guard.

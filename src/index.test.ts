@@ -112,12 +112,17 @@ test("the council tool accepts task mode and a context argument", async () => {
   assert.ok(tool.council.args.context, "context is a new arg, used by task and independent")
 })
 
+test("the council tool accepts models mode", async () => {
+  const { tool } = await load()
+  assert.ok(tool.council.args.mode.safeParse("models").success)
+})
+
 test("every council command registers under its colon name", async () => {
   // The mirror of the negative grep test: that one proves no stale name survives, this
   // proves the new ones actually load. A command file whose name is wrong is silently
   // absent, never an error.
   const { config } = await load()
-  for (const c of ["council:review", "council:fix", "council:plan", "council:independent", "council:check", "council:task"])
+  for (const c of ["council:review", "council:fix", "council:plan", "council:independent", "council:check", "council:task", "council:models"])
     assert.ok(config.command[c]?.template?.length > 100, `command ${c} missing or empty`)
 })
 

@@ -30,6 +30,24 @@ export function parseCatalog(json: any): string[] {
   )
 }
 
+/**
+ * Offered models on a provider the roster already uses, that no member pins.
+ *
+ * Provider-scoped because that is what makes a candidate *plausible*: the roster is routed
+ * by what each member is, and a sibling behind the same provider is the nearest thing to a
+ * like-for-like swap. A model from a provider with no member is not an upgrade to anything,
+ * it is a new relationship.
+ *
+ * Exported and shared by the probe loop and the renderer on purpose - two copies of this
+ * rule would drift, and the report would then measure one set and display another.
+ */
+export const upgradeCandidates = (roster: { model: string }[], offered: string[]): string[] => {
+  const provider = (id: string) => id.split("/")[0]
+  const pinned = new Set(roster.map((m) => m.model))
+  const inUse = new Set(roster.map((m) => provider(m.model)))
+  return offered.filter((id) => inUse.has(provider(id)) && !pinned.has(id))
+}
+
 /** Memoised per run: a review asks once, not once per lane that needs a stand-in. */
 let pending: Promise<string[]> | null = null
 
