@@ -4,13 +4,15 @@
 
 **Goal:** Turn `/council-*` into a colon-namespaced advisory body that puts every model on one question with debate, adds `council:task`, and replaces hardcoded model pins with measured, dynamically-recruited ones.
 
-**Architecture:** Four independently shippable chunks against the existing plugin. Chunk 1 is a rename plus two call-site parameters. Chunk 2 corrects the roster (real model versions, capability classes, tiers, two new roles). Chunk 3 adds `council:task` as a new engine function reusing `tally()`. Chunk 4 makes the roster dynamic — live catalog, measured capability cache, outage recruitment.
+**Architecture:** Four independently shippable chunks against the existing plugin. Chunk 1 is a rename plus one call-site parameter. Chunk 2 corrects the roster (real model versions, capability classes, tiers, two new lanes). Chunk 3 adds `council:task` as a new engine function reusing `tally()`. Chunk 4 makes the roster dynamic — live catalog, measured capability cache, outage recruitment.
 
-**Tech Stack:** TypeScript (no build step — node strips types), `node --test`, zod for tool args, the opencode server HTTP API.
+**Tech Stack:** TypeScript (no build step — node strips types), `node --test src/*.test.ts`, zod for tool args, the opencode server HTTP API.
 
-**Spec:** `docs/superpowers/specs/2026-08-25-council-design.md`
+**Spec:** `docs/superpowers/specs/2026-08-25-council-design.md` (rev 9)
 
-**Ordering note:** Chunk 2 runs before the role work inside it, because §3.5 assigns `architect` to `gpt56sol`, which only exists after the §3.7.5 tier split.
+**Baseline:** `npm test` → 150 tests, 150 pass. **Every commit in this plan must leave it green.**
+
+**Ordering constraint:** Task 2.2 must precede Task 2.3 — `architect`'s carrier is `gpt56sol`, which only exists after the gpt-5.6 tier split.
 
 ---
 
@@ -19,62 +21,74 @@
 | file | responsibility | chunk |
 |---|---|---|
 | `command/council:{review,fix,plan,independent,check,task,models}.md` | the seven entry points | 1, 3, 4 |
-| `src/engine.ts` | `councilArgs`, `runTask`, `scorersFor`, capability filters, tier-4 injection | 1, 2, 3, 4 |
-| `src/roster.ts` | members, roles, routes, capability + tier fields and their filters | 2, 4 |
+| `src/engine.ts` | `councilArgs`, `runTask`, `decideTask`, `scorersFor`, capability filters, tier-4 injection | 1, 2, 3, 4 |
+| `src/roster.ts` | members, roles, routes, `capability`/`tier` and their filters, `KNOWN_ROLES` | 2, 4 |
 | `src/schema.ts` | `TASK_PROPOSAL_SCHEMA`, `TASK_SCORE_SCHEMA` | 3 |
-| `src/report.ts` | `renderTask` | 3 |
+| `src/report.ts` | `renderTask`, `renderModelsProposal` | 3, 4 |
 | `src/catalog.ts` | **new** — live catalog + measured capability cache + probe budget | 4 |
 | `src/index.ts` | tool modes, dispatch, artifacts | 1, 3, 4 |
 | `agent/council-{architect,infrastructure}.md` | **new** — the two new lane prompts | 2 |
-| `src/{index,roster,crew,task,catalog}.test.ts` | tests, colocated with `npm test`'s `src/*.test.ts` glob | all |
+| `src/{index,roster,crew,failover,task,catalog}.test.ts` | tests, matching `npm test`'s `src/*.test.ts` glob | all |
 
 ---
 
 ## Chunk 1: Rename to the colon namespace, full panel, debate on
 
-Spec §3.1, §3.2, §3.3. Ships: every council command under `/council:*`, with review and task
-running the full panel and 2 debate rounds, while crew keeps glob routing and 0 rounds.
+Spec §3.1–§3.3. Ships: every council command under `/council:*`, review running the full
+panel with 2 debate rounds, crew keeping glob routing and 0 rounds.
 
-### Task 1.1: The rename guard test
+### Task 1.1: The rename, guarded
 
 **Files:**
+- Rename: the five `command/*.md`
+- Modify: `command/council:check.md`, `command/council:fix.md`, `src/index.ts:355`, `README.md`
 - Test: `src/index.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Add the imports the test needs**
+
+`src/index.test.ts` currently imports only `mkdtempSync, rmSync, existsSync` from `node:fs`.
+Add `readFileSync, readdirSync`:
 
 ```ts
-test("no command still refers to a pre-colon council name", () => {
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from "node:fs"
+```
+
+- [ ] **Step 2: Write the failing test**
+
+```ts
+test("no live file still refers to a pre-colon council name", () => {
   // The likely failure of a rename is a dangling cross-reference, not a missing file.
-  // Matching the five exact names, never the bare `/council-` prefix: that also matches
-  // the legitimate "/council-work" message below, the 12 agent/council-*.md files, and
-  // the `council-${role}` literals in engine.ts.
+  //
+  // Two exclusions, both load-bearing. Match the five exact names and never the bare
+  // `/council-` prefix: that also hits the legitimate "/council-work" message below, the
+  // 12 agent/council-*.md files, and the `council-${role}` literals in engine.ts. And skip
+  // *.test.ts: this very file must contain the old names to search for them, so scanning
+  // itself would make the test permanently red.
   const OLD = ["/council-review", "/council-fix", "/council-plan", "/council-independent", "/check"]
-  const roots = ["command", "src", "README.md"]
+  const files = [
+    ...readdirSync(join(PKG, "command")).map((f) => `command/${f}`),
+    ...readdirSync(join(PKG, "src")).map((f) => `src/${f}`),
+    "README.md",
+  ].filter((f) => /\.(md|ts)$/.test(f) && !f.endsWith(".test.ts"))
+
   const offenders: string[] = []
-  for (const root of roots) {
-    const files = statSync(join(PKG, root)).isDirectory()
-      ? readdirSync(join(PKG, root)).map((f) => join(root, f))
-      : [root]
-    for (const rel of files) {
-      if (!/\.(md|ts)$/.test(rel)) continue
-      const text = readFileSync(join(PKG, rel), "utf8")
-      for (const name of OLD) {
-        // `/checkout`, `/check-in` etc. must not trip it: require a non-word boundary.
-        const re = new RegExp(`${name.replace("/", "\\/")}(?![\\w-])`)
-        if (re.test(text)) offenders.push(`${rel} → ${name}`)
-      }
+  for (const rel of files) {
+    const text = readFileSync(join(PKG, rel), "utf8")
+    for (const name of OLD) {
+      // (?![\w-]) so /checkout and /check-in are left alone; end-of-line counts as a match.
+      if (new RegExp(`${name.replace("/", "\\/")}(?![\\w-])`).test(text)) offenders.push(`${rel} → ${name}`)
     }
   }
   assert.deepEqual(offenders, [], `stale command references:\n${offenders.join("\n")}`)
 })
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [ ] **Step 3: Run it and watch it fail**
 
-Run: `npm test 2>&1 | grep -A5 "pre-colon"`
-Expected: FAIL, listing `command/check.md`, `command/council-fix.md`, `src/index.ts`, `README.md`.
+Run: `npm test 2>&1 | grep -A6 "pre-colon"`
+Expected: FAIL listing `command/check.md`, `command/council-fix.md`, `src/index.ts`, `README.md`.
 
-- [ ] **Step 3: Rename the five files**
+- [ ] **Step 4: Rename the five files**
 
 ```bash
 cd /root/code/opencode-council
@@ -85,26 +99,39 @@ git mv command/council-independent.md 'command/council:independent.md'
 git mv command/check.md               'command/council:check.md'
 ```
 
-- [ ] **Step 4: Fix every cross-reference**
+- [ ] **Step 5: Rewrite every cross-reference**
+
+`/check` needs two expressions. `README.md:76` is a fenced code block containing exactly
+`/check` with nothing after it, so a pattern requiring a following character silently skips
+it and Step 6 would fail:
 
 ```bash
 cd /root/code/opencode-council
 for f in command/*.md src/index.ts README.md; do
-  sed -i 's|/council-review|/council:review|g; s|/council-fix|/council:fix|g;
-          s|/council-plan|/council:plan|g; s|/council-independent|/council:independent|g;
-          s|/check\([^-a-zA-Z]\)|/council:check\1|g' "$f"
+  sed -i 's|/council-review|/council:review|g
+          s|/council-fix|/council:fix|g
+          s|/council-plan|/council:plan|g
+          s|/council-independent|/council:independent|g
+          s|/check\([^-A-Za-z0-9_]\)|/council:check\1|g
+          s|/check$|/council:check|g' "$f"
 done
 ```
 
-Then read `command/council:check.md` and confirm its "Consistency contract" section still
-reads correctly, and that no `/council:checkout`-style mangling occurred.
+- [ ] **Step 6: Verify nothing was mangled**
 
-- [ ] **Step 5: Run the test**
+```bash
+grep -rn '/council:check[-_A-Za-z0-9]' command/ src/ README.md || echo "no mangling"
+grep -rn '/checkout\|/check-in' command/ src/ README.md || echo "no bare survivors needed"
+```
+Expected: `no mangling`. Then read `command/council:check.md` and confirm its "Consistency
+contract" section still reads correctly.
+
+- [ ] **Step 7: Run the suite**
 
 Run: `npm test 2>&1 | tail -5`
-Expected: PASS, and no other test regresses.
+Expected: 151 pass, 0 fail.
 
-- [ ] **Step 6: Update the human's stopgap outside the repo**
+- [ ] **Step 8: Update the human's stopgap outside the repo**
 
 ```bash
 sed -i 's|/council-plan|/council:plan|g; s|/council-review|/council:review|g' \
@@ -112,71 +139,104 @@ sed -i 's|/council-plan|/council:plan|g; s|/council-review|/council:review|g' \
 grep -n 'council' ~/.config/opencode/command/workflow.md
 ```
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add -A && git commit -m "refactor(council): colon namespace, one name per command"
 ```
 
-### Task 1.2: `councilArgs` — the full panel and the rounds split
+### Task 1.2: Commands register under the new names
 
 **Files:**
-- Modify: `src/engine.ts` (new export), `src/index.ts:454`
 - Test: `src/index.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-test("council runs the whole panel with debate; crew keeps routing and 0 rounds", async () => {
-  // The real call sites need a live fan-out, and this suite mocks nothing (tool.test.ts:14
-  // - "Only paths that return BEFORE any model call are exercised here"), so the values
-  // are asserted through the pure seam that index.ts reads.
+test("every council command registers under its colon name", () => {
+  // The mirror of Task 1.1's negative grep: that one proves no stale name survives, this
+  // proves the new ones actually load. index.test.ts:65-73 already does exactly this for
+  // crew. A command file whose name is wrong is silently absent, never an error.
+  const { config } = loadPlugin()
+  for (const c of ["council:review", "council:fix", "council:plan", "council:independent", "council:check"])
+    assert.ok(config.command[c]?.template?.length > 100, `command ${c} missing or empty`)
+})
+```
+
+Use whatever the existing crew registration test at `index.test.ts:65-73` uses to load the
+plugin — reuse its helper rather than adding a second one.
+
+- [ ] **Step 2: Run** — Expected: PASS immediately (Task 1.1 already did the renames). This
+  test is a regression guard, not a driver; note that in the commit message.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add -A && git commit -m "test(council): guard colon-name command registration"
+```
+
+### Task 1.3: `councilArgs` — the full panel and the rounds split
+
+**Files:**
+- Modify: `src/engine.ts` (new export), `src/index.ts` (the `runReview` call, ~line 454)
+- Test: `src/index.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+test("council reviews the whole panel with debate; crew keeps routing and 0 rounds", async () => {
+  // The real call sites need a live fan-out and this suite mocks nothing
+  // (tool.test.ts:14 - "Only paths that return BEFORE any model call are exercised here"),
+  // so the values are asserted through the pure seam index.ts reads, plus source text for
+  // the crew side.
   const { councilArgs } = await import("./engine.ts")
-  for (const mode of ["review", "task"] as const) {
-    assert.deepEqual(councilArgs(mode).roles, ALL_ROLES, `${mode} must wake every lane`)
-    assert.equal(councilArgs(mode).maxRounds, 2, `${mode} must debate`)
-  }
+  const { ALL_ROLES } = await import("./roster.ts")
+  assert.deepEqual(councilArgs().roles, ALL_ROLES, "council must wake every lane")
+  assert.equal(councilArgs().maxRounds, 2, "council must debate")
+
   const engine = readFileSync(join(PKG, "src/engine.ts"), "utf8")
-  assert.match(engine, /DEFAULT_MAX_ROUNDS = 0/, "crew inherits this; it must stay 0")
+  assert.match(engine, /DEFAULT_MAX_ROUNDS = 0/, "crew inherits this default; it must stay 0")
+
   const crew = readFileSync(join(PKG, "src/crew.ts"), "utf8")
-  const call = crew.slice(crew.indexOf("runReview(ctx, {"))
-  assert.doesNotMatch(call.slice(0, 200), /maxRounds|roles:/,
+  const call = crew.slice(crew.indexOf("runReview(ctx, {"), crew.indexOf("runReview(ctx, {") + 200)
+  assert.doesNotMatch(call, /maxRounds|roles:/,
     "crew's review must inherit both defaults, or every crew run costs a council run")
 })
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [ ] **Step 2: Run and watch it fail**
 
-Run: `npm test 2>&1 | grep -A5 "whole panel"`
+Run: `npm test 2>&1 | grep -A6 "whole panel"`
 Expected: FAIL — `councilArgs` is not exported.
 
-- [ ] **Step 3: Implement `councilArgs`**
+- [ ] **Step 3: Implement**
 
 In `src/engine.ts`, beside `DEFAULT_MAX_ROUNDS`:
 
 ```ts
 /**
- * What a council command asks the engine for, as data rather than inline literals.
+ * What `council:review` asks the engine for, as data rather than inline literals.
  *
- * Two reasons it is a function. Routing is a cost control that is right for crew and wrong
- * for "my council", and the rounds split must live at the call site: `crew.ts` calls
- * `runReview` with neither argument, so raising DEFAULT_MAX_ROUNDS would silently give
- * every crew branch-review two debate rounds.
+ * Routing is a cost control that is right for crew and wrong for "my council", and the
+ * rounds split MUST live at the call site: crew.ts calls runReview with neither argument,
+ * so raising DEFAULT_MAX_ROUNDS would silently give every crew branch-review two debate
+ * rounds.
+ *
+ * `council:task` is deliberately absent. runTask takes {goal, context} and has no lanes -
+ * it reaches every model by proposing from every schema-capable member instead. Passing it
+ * these values would hand it arguments it cannot accept.
  */
-export function councilArgs(mode: "review" | "task"): { roles: Role[]; maxRounds: number } {
+export function councilArgs(): { roles: Role[]; maxRounds: number } {
   return { roles: ALL_ROLES, maxRounds: 2 }
 }
 ```
 
 - [ ] **Step 4: Read it at the call site**
 
-In `src/index.ts` (the `runReview` call, ~line 454), spread `councilArgs("review")` into the
-input alongside `diff`/`files`/`changedLines`.
+In `src/index.ts`, spread `councilArgs()` into the `runReview` input beside
+`diff`/`files`/`changedLines`.
 
-- [ ] **Step 5: Run the test**
-
-Run: `npm test 2>&1 | tail -5`
-Expected: PASS.
+- [ ] **Step 5: Run** — Expected: 153 pass, 0 fail.
 
 - [ ] **Step 6: Commit**
 
@@ -184,11 +244,40 @@ Expected: PASS.
 git add -A && git commit -m "feat(council): full panel and debate rounds, split from crew at the call site"
 ```
 
-### Task 1.3: Prove the Convergence block renders
+### Task 1.4: Prove the debate loop and its report actually run
 
-**Files:** none — verification only.
+**Files:**
+- Test: `src/report.test.ts`
 
-- [ ] **Step 1: Run a small real review with rounds on**
+- [ ] **Step 1: Write the failing test**
+
+```ts
+test("a debate round that moves a position is reported as having moved it", () => {
+  // The loop has never executed with maxRounds > 0. Asserting on a live review would be
+  // non-deterministic (converged() returns done immediately when there are no disputes,
+  // so a small diff plausibly yields 0 rounds and would 'pass' having proven nothing).
+  // A fixture makes the claim exact.
+  const out = renderReport({
+    ...emptyReviewFixture(),
+    debate: [{ round: 1, revisions: [
+      { model: "opus5", tier: "SUGGESTION", changed: true },
+      { model: "fable", tier: "BLOCKER", changed: false },
+    ] }],
+    convergence: "no tier moved",
+  } as any)
+  assert.match(out, /## Convergence/)
+  assert.match(out, /Round 1/)
+  assert.match(out, /1 changed position/)
+  assert.match(out, /opus5→SUGGESTION/)
+})
+```
+
+Build `emptyReviewFixture()` from the shape `report.test.ts` already uses for `renderReport`.
+
+- [ ] **Step 2: Run** — Expected: PASS (`report.ts:92-103` already renders this). It has
+  never been exercised; this pins it before Chunk 3 touches the report module.
+
+- [ ] **Step 3: Live smoke, recorded not asserted**
 
 ```bash
 cd /root/code/opencode-council
@@ -196,55 +285,67 @@ node --input-type=module -e '
 import { runReview } from "./src/engine.ts"
 const ctx = { serverUrl: "http://127.0.0.1:4096",
   auth: "Basic " + Buffer.from(`${process.env.OPENCODE_SERVER_USERNAME}:${process.env.OPENCODE_SERVER_PASSWORD}`).toString("base64") }
-const diff = `--- a/x.ts\n+++ b/x.ts\n@@\n+export function f(a){ return eval(a) }\n`
-const r = await runReview(ctx, { diff, files: ["x.ts"], maxRounds: 2, roles: ["security","reviewer"] })
+const diff = `--- a/x.ts\n+++ b/x.ts\n@@\n+export function run(cmd){ return require("child_process").execSync(cmd) }\n`
+const r = await runReview(ctx, { diff, files: ["x.ts"], maxRounds: 2, roles: ["security","reviewer","pragmatist"] })
 console.log("rounds:", r.debate.length, "| convergence:", r.convergence)
+for (const d of r.debate) console.log(" round", d.round, "changed:", d.revisions.filter(v=>v.changed).length)
 '
 ```
 
-Expected: `rounds:` ≥ 0 and a convergence reason. The debate loop has never run with
-`maxRounds > 0`; this is the first execution of that path.
+Record the output in the commit message. If rounds is 0 on a deliberately contentious diff,
+that is itself the measurement §3.3 wants — debate that never fires is debate to retire.
 
-- [ ] **Step 2: Confirm the report prints it**
+- [ ] **Step 4: Commit**
 
-The `## Convergence` block is `report.ts:92-103` and already prints re-judgements and
-changed positions. Render a report from the result above and confirm the block appears.
+```bash
+git add -A && git commit -m "test(council): pin the convergence report before task work touches it"
+```
 
 ---
 
-## Chunk 2: The roster gets right — models, tiers, capability, two new roles
+## Chunk 2: The roster gets right — models, tiers, capability, two new lanes
 
-Spec §3.5, §3.6, §3.7.5. Ships: real current models, the capability class that separates
-implementers from lanes, tiers, and the `architect`/`infrastructure` lanes.
+Spec §3.5, §3.6, §3.7.5. Tasks 2.1 and 2.2 are one commit: the capability *field* without
+an agentic-only *member* leaves its test unsatisfiable, and committing red breaks bisect.
 
-### Task 2.1: Capability and tier fields, with filters
+### Task 2.1: Capability, tiers, and the current models
 
 **Files:**
-- Modify: `src/roster.ts`
+- Modify: `src/roster.ts`, `src/crew.ts` (re-export `KNOWN_ROLES`), `src/failover.test.ts`, `src/report.test.ts`
 - Test: `src/roster.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Add imports to `src/roster.test.ts`**
+
+```ts
+import { ROSTER, ALL_ROLES, KNOWN_ROLES, canSchema, selectNodes, selectRoles, skepticPool } from "./roster.ts"
+```
+
+`KNOWN_ROLES` moves from `crew.ts:38` to `roster.ts` in Step 3, with `crew.ts` re-exporting
+it. Importing it from `crew.ts` would pull that ~2000-line module into the roster suite.
+
+- [ ] **Step 2: Write the failing tests**
 
 ```ts
 test("a model that cannot emit structured output never reaches a schema lane", () => {
   // deepseek and muse-spark-free both 400 on a *named* tool_choice while driving tools
   // fine under `auto`. That boundary is exactly implementer vs council lane.
-  const agenticOnly = ROSTER.filter((m) => !(m.capability ?? ["schema"]).includes("schema"))
+  const agenticOnly = ROSTER.filter((m) => !canSchema(m))
   assert.ok(agenticOnly.length, "fixture: the roster must contain an agentic-only member")
-  const slugs = new Set(agenticOnly.map((m) => m.slug))
-  for (const n of selectNodes(ALL_ROLES))
-    assert.ok(!slugs.has(n.slug), `${n.slug} cannot answer a schema lane`)
-  for (const m of skepticPool([], 99))
-    assert.ok(!slugs.has(m.slug), `${m.slug} cannot answer a skeptic call`)
+  const banned = new Set(agenticOnly.map((m) => m.slug))
+  for (const n of selectNodes(ALL_ROLES)) assert.ok(!banned.has(n.slug), `${n.slug} in a lane`)
+  for (const m of skepticPool([], 99)) assert.ok(!banned.has(m.slug), `${m.slug} as a skeptic`)
+})
+
+test("every schema-capable member gets at least one node in a full panel", () => {
+  // The roster invariant that replaced the rejected `everyModel` option: "all models on one
+  // task" must be true by construction, and fail loudly if a roster edit breaks it.
+  const covered = new Set(selectNodes(ALL_ROLES).map((n) => n.slug))
+  for (const m of ROSTER.filter(canSchema))
+    assert.ok(covered.has(m.slug), `${m.slug} is in the roster but answers nothing`)
 })
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
-
-Run: `npm test 2>&1 | grep -A5 "structured output never"`
-Expected: FAIL on the fixture assertion — no member has `capability` yet.
-
-- [ ] **Step 3: Add the fields and the filters**
+- [ ] **Step 3: Implement the fields, the filters, and the members**
 
 In `src/roster.ts`:
 
@@ -256,16 +357,16 @@ export type Member = {
   ms: number
   free?: boolean
   /**
-   * What the model can actually do, measured - never read off a catalogue flag.
-   * `schema`: forced-tool-call structured output, which every council lane needs.
-   * `agentic`: drives tools in a session, which the implementer needs.
-   * Two models now fail the first while passing the second, and their 400s name the
+   * Measured, never read off a catalogue flag.
+   * `schema`: forced-tool-call structured output - every council lane needs it.
+   * `agentic`: drives tools in a session - the implementer needs it.
+   * Two members now fail the first while passing the second, and their 400s name the
    * cause: only `tool_choice: "auto"` is supported.
    */
   capability?: ("schema" | "agentic")[]
   /**
    * The vendor's own capability/cost class. NEVER derived from `ms`: that is latency on a
-   * trivial call, and Luna - the tier built for speed - measures slowest of the gpt-5.6
+   * trivial call, and Luna - the tier built for speed - measured SLOWEST of the gpt-5.6
    * three. Latency ranks queue noise, not capability.
    */
   tier?: "deep" | "standard" | "fast"
@@ -273,91 +374,91 @@ export type Member = {
 
 export const canSchema = (m: Member) => (m.capability ?? ["schema"]).includes("schema")
 export const canAgentic = (m: Member) => (m.capability ?? ["schema"]).includes("agentic")
+
+/** Every role a repo's crew block may legally name. Lives here, not in crew.ts, so the
+ *  roster suite can assert on it without importing a 2000-line module. */
+export const KNOWN_ROLES: string[] = [...ALL_ROLES, "skeptic"]
 ```
 
-Filter `selectNodes`' candidate list and `skepticPool` with `canSchema`.
+Filter with `canSchema` at **all four** schema-passing sites — `selectNodes`' candidate
+list, `skepticPool`, `substitutesFor` (`engine.ts:400`), and `runPlan`'s proposer pick
+(`engine.ts:978`). `substitutesFor` is not optional: its tier 2 is
+`usable.filter(!inRound).filter(byRole(false))`, and `byRole(false)` is
+`m.roles.includes(node.role) === false` — **true for every role when `roles: []`**. Without
+the filter, deepseek is offered as a substitute for every failed lane and then handed
+`FINDINGS_SCHEMA`. `roles: []` is defence in depth only where selection is *positive*.
 
-- [ ] **Step 4: Run the test**
+In `crew.ts`, replace the definition with `export { KNOWN_ROLES } from "./roster.ts"`.
 
-Run: `npm test 2>&1 | tail -5`
-Expected: still FAIL on the fixture — deepseek is not added until Task 2.2.
-
-- [ ] **Step 5: Commit the field and filters**
-
-```bash
-git add -A && git commit -m "feat(roster): capability and tier as measured facts, filtered at schema lanes"
-```
-
-### Task 2.2: The measured model updates
-
-**Files:**
-- Modify: `src/roster.ts`, `src/failover.test.ts`, `README.md`
-
-- [ ] **Step 1: Apply the roster changes**
-
-All measured 2026-08-25 against the live server:
+Roster members, all measured 2026-08-25 against the live server:
 
 ```ts
 // openai's three are TIERS, not variants - peak / balanced / fast.
-{ slug: "gpt56sol",   model: "openai/gpt-5.6-sol",   roles: ["security","architect","systems"],
+{ slug: "gpt56sol",   model: "openai/gpt-5.6-sol",   roles: ["security","systems"],
   ms: 3696, tier: "deep",     capability: ["schema","agentic"] },
 { slug: "gpt56terra", model: "openai/gpt-5.6-terra", roles: ["product","reviewer","docs"],
   ms: 2664, tier: "standard", capability: ["schema","agentic"] },
-{ slug: "gpt56luna",  model: "openai/gpt-5.6-luna",  roles: ["reviewer","qa"],
+// carries `skeptic` on purpose: skepticPool filters on that role, so without it the fast
+// tier is unreachable from the highest-volume loop in the system (Task 4.3).
+{ slug: "gpt56luna",  model: "openai/gpt-5.6-luna",  roles: ["reviewer","qa","skeptic"],
   ms: 4228, tier: "fast",     capability: ["schema","agentic"] },
-// glm 5.3 supersedes 5.2; hy3 works on the PAID route, the free one fails schema 3/3.
-{ slug: "glm53", model: "zai-coding-plan/glm-5.3", roles: ["systems","infrastructure","reviewer"], ms: 6007 },
-{ slug: "hy3",   model: "opencode-go/hy3",         roles: ["qa","ops"],                            ms: 6117 },
-// Implementer class: drives tools, cannot be forced into a named schema call.
+{ slug: "glm53", model: "zai-coding-plan/glm-5.3", roles: ["systems","reviewer"],
+  ms: 6007, capability: ["schema","agentic"] },
+{ slug: "hy3",   model: "opencode-go/hy3",         roles: ["qa","ops"], ms: 6117 },
+// Implementer class: drives tools, refuses a named schema call.
 { slug: "deepseek", model: "deepseek/deepseek-v4-pro", roles: [], ms: 9459, capability: ["agentic"] },
 ```
 
-Remove `gpt55` and `glm52`. Keep `gemini36` — `gemini-3.7-flash` times out at 90s.
-Append `deepseek`, never at index 0: `engine.ts:799` falls back to `ROSTER[0].model` and
-then passes `PATCH_SCHEMA`.
+Also: give `opus5` `capability: ["schema","agentic"]` (already a live crew implementer), and
+set `musespark` to `capability: ["agentic"]` with `roles: []` — `README.md:392` already
+records it as chatting but emitting no structured output, and its 400 names the same
+`tool_choice: auto` cause as deepseek. Remove `gpt55` and `glm52`. **Keep `gemini36`** —
+`gemini-3.7-flash` times out at 90s. Append `deepseek`; never index 0, because
+`engine.ts:799` falls back to `ROSTER[0].model` and then passes `PATCH_SCHEMA`.
 
-- [ ] **Step 2: Update the one test this changes**
+- [ ] **Step 4: Update the fixtures that name removed slugs**
 
-`src/failover.test.ts:39,43` hardcode the slug `gpt55`. Replace with `gpt56terra`.
+`src/failover.test.ts:40,43` hardcode `gpt55` → `gpt56terra`.
+`src/report.test.ts:16,25` hardcode `"gpt55"` / `"openai/gpt-5.5"` — inert fixture strings,
+but update them so the suite does not describe a model that no longer exists.
 
-- [ ] **Step 3: Run the tests**
+- [ ] **Step 5: Run** — Expected: all green, including both new tests.
 
-Run: `npm test 2>&1 | tail -5`
-Expected: PASS, including Task 2.1's capability test now that deepseek exists.
-
-- [ ] **Step 4: Correct the README's exclusion table**
-
-`README.md:409` lists `deepseek/*` as excluded and recommends `opencode-go/deepseek-v4-pro`.
-Backwards: the direct route drives tools (verified, 9.5s); the recommended remedy answers
-*"only available hosted in China, requires explicit opt-in"*. Rewrite the row to say
-deepseek is implementer-class, and note `muse-spark-…-contributor` needs a data-collection
-opt-in.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add -A && git commit -m "feat(roster): current models, measured - gpt-5.6 tiers, glm-5.3, hy3 paid route, deepseek"
+git add -A && git commit -m "feat(roster): measured capability and tiers; current models
+
+gpt-5.6 arrives as three tiers (sol/terra/luna) rather than one pin, glm-5.3
+supersedes 5.2, hy3 moves to the paid route that actually emits schema, and
+deepseek joins as implementer-class. gemini stays at 3.6: 3.7 times out at 90s."
 ```
 
-### Task 2.3: `architect` and `infrastructure`
+### Task 2.2: `architect` and `infrastructure`
 
 **Files:**
-- Modify: `src/roster.ts`, `src/roster.test.ts`
+- Modify: `src/roster.ts`, `src/roster.test.ts`, `src/crew.test.ts`
 - Create: `agent/council-architect.md`, `agent/council-infrastructure.md`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Extend the existing role-coverage test — do not add a parallel one**
+
+`roster.test.ts:69-73` hardcodes an 11-role list. Rewrite it to derive from `KNOWN_ROLES`,
+which is `[...ALL_ROLES, "skeptic"]`. Deriving from `ALL_ROLES` alone would silently delete
+the only assertion that anyone carries `skeptic`, which `skepticPool`, `verifyGroup` and
+`fixOne`'s verifier all depend on:
 
 ```ts
 test("every role a config may name is answerable by some model", () => {
-  // Derived from KNOWN_ROLES, not ALL_ROLES: the latter deliberately excludes `skeptic`,
-  // and dropping that assertion would lose the only guarantee that skepticPool,
-  // verifyGroup and fixOne's verifier have anyone to call.
   for (const role of KNOWN_ROLES) {
-    const carriers = ROSTER.filter((m) => m.roles.includes(role as Role) && canSchema(m))
-    assert.ok(carriers.length, `no schema-capable model carries '${role}' - a silent empty lane`)
+    const carriers = ROSTER.filter((m) => m.roles.includes(role as any) && canSchema(m))
+    assert.ok(carriers.length, `no schema-capable model carries '${role}' — a silent empty lane`)
   }
 })
+```
 
+- [ ] **Step 2: Write the routing test**
+
+```ts
 test("a terraform diff wakes infrastructure without costing more nodes", () => {
   const roles = selectRoles(["envs/prod/main.tf"])
   assert.ok(roles.includes("infrastructure"), "the specific role must win over generic ops")
@@ -366,39 +467,51 @@ test("a terraform diff wakes infrastructure without costing more nodes", () => {
 })
 ```
 
-- [ ] **Step 2: Run and watch both fail**
+- [ ] **Step 3: Run and watch both fail**
 
 Run: `npm test 2>&1 | grep -A4 "answerable by some model\|terraform diff"`
-Expected: FAIL — the roles do not exist.
+Expected: FAIL — neither role exists.
 
-- [ ] **Step 3: Add the roles**
+- [ ] **Step 4: Add the roles**
 
-In `src/roster.ts`: extend the `Role` union with `"architect" | "infrastructure"`, add both
-to `ALL_ROLES`, **append** them to carriers (never prepend — `roles[0]` picks the agent
-voice for `runTask` proposers):
+Extend the `Role` union with `"architect" | "infrastructure"` and add both to `ALL_ROLES`.
+**Append** to carriers, never prepend — `roles[0]` selects the agent voice for `runTask`
+proposers in Chunk 3:
 
-- `architect` → `opus5`, `gpt56sol`
-- `infrastructure` → `glm53`, `grok45`
+- `architect` → append to `opus5`, `gpt56sol`
+- `infrastructure` → append to `glm53`, `grok45`
 
-`ROUTES`: swap `ops` → `infrastructure` on the `{Dockerfile,docker-compose*,Makefile,*.tf}`
-row, and add `**/*.tfvars`, `**/k8s/**`, `**/{terraform,infra,infrastructure}/**` →
+`ROUTES`: swap `ops` → `infrastructure` on the
+`**/{Dockerfile,docker-compose*,Makefile,*.tf}` row, and add
+`**/*.tfvars`, `**/k8s/**`, `**/{terraform,infra,infrastructure}/**` →
 `["infrastructure","security"]`. Leave `.github/workflows`, `*.{yml,yaml,…}` and `.env*` on
-`ops` — CI and runtime config are ops.
+`ops` — CI and runtime config are ops. Keep the `**/` prefix: a bare `*.tf` will not match
+`envs/prod/main.tf`.
 
-- [ ] **Step 4: Write the two agent files**
+- [ ] **Step 5: Write the two agent files**
 
-`agent/council-architect.md` — boundaries, sequencing, what *not* to build, and the cost of
-a wrong seam. `agent/council-infrastructure.md` — Terraform/cloud/network/IAM, blast radius,
-what is irreversible. Frontmatter: `description` + `mode: all` only; both must inherit
+`agent/council-architect.md` — boundaries, sequencing, what *not* to build, the cost of a
+wrong seam. `agent/council-infrastructure.md` — Terraform/cloud/network/IAM, blast radius,
+what is irreversible. Frontmatter is `description` + `mode: all` only; both must inherit
 `edit: deny` / `bash: deny`, which `index.test.ts:50-54` asserts for every agent but
 `crew-dev`.
 
-- [ ] **Step 5: Run the tests**
+- [ ] **Step 6: Guard the crew-config widening**
 
-Run: `npm test 2>&1 | tail -5`
-Expected: PASS.
+In `src/crew.test.ts`, beside the `lanes: coed` rejection at `:615`:
 
-- [ ] **Step 6: Commit**
+```ts
+test("a widened role set accepts the new lanes and still rejects typos", () => {
+  // KNOWN_ROLES gained two entries, so `lanes: architect` becomes newly legal. Existing
+  // configs must stay valid and a typo must stay fatal.
+  assert.ok(parseCrewBlock("```crew\nverify: t\nbase: main\nlanes: architect, reviewer\n```")?.lanes)
+  assert.equal(parseCrewBlock("```crew\nverify: t\nbase: main\nlanes: coed\n```"), undefined)
+})
+```
+
+- [ ] **Step 7: Run** — Expected: all green.
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add -A && git commit -m "feat(council): architect and infrastructure lanes"
@@ -408,20 +521,28 @@ git add -A && git commit -m "feat(council): architect and infrastructure lanes"
 
 ## Chunk 3: `council:task`
 
-Spec §3.4. Ships: hand the council a task, get one answer back with its dissent intact.
+Spec §3.4. Ships: hand the council a task, get one answer with its dissent intact.
 
 ### Task 3.1: `scorersFor` — the assignment rule, pure
 
 **Files:**
 - Modify: `src/engine.ts`
-- Test: `src/task.test.ts` (create)
+- Create: `src/task.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Create `src/task.test.ts` with its imports**
+
+```ts
+import { test } from "node:test"
+import assert from "node:assert/strict"
+import { scorersFor } from "./engine.ts"
+```
+
+- [ ] **Step 2: Write the failing test**
 
 ```ts
 test("scorer assignment is deterministic, never self, and survives a thin panel", () => {
-  const p = (n: number) => Array.from({ length: n }, (_, i) => ({ slug: `m${i}` }) as any)
-  for (const n of [1, 2, 3, 4, 14]) {
+  const p = (n: number) => Array.from({ length: n }, (_, i) => ({ slug: `m${i}` }))
+  for (const n of [1, 2, 3, 4, 16]) {
     const map = scorersFor(p(n))
     if (n === 1) { assert.equal(map.get("m0")!.length, 0, "one proposal has no scorer"); continue }
     for (const [proposal, scorers] of map) {
@@ -430,39 +551,31 @@ test("scorer assignment is deterministic, never self, and survives a thin panel"
       assert.equal(new Set(scorers).size, scorers.length, "no scorer twice")
     }
   }
-  assert.deepEqual(scorersFor(p(14)), scorersFor(p(14)), "same input, same assignment")
+  assert.deepEqual(scorersFor(p(16)), scorersFor(p(16)), "same input, same assignment")
 })
 ```
 
-- [ ] **Step 2: Run and watch it fail**
+- [ ] **Step 3: Run and watch it fail** — `scorersFor` is not defined.
 
-Run: `npm test 2>&1 | grep -A4 "scorer assignment"`
-Expected: FAIL — `scorersFor` is not defined.
-
-- [ ] **Step 3: Implement**
+- [ ] **Step 4: Implement**
 
 ```ts
 /**
  * Who scores whom. Cyclic-next over roster order, so it is reproducible and no model ever
- * scores itself (k <= N-1 guarantees it). All-pairs would be 182 calls at N=14; this is 42.
+ * scores itself (k <= N-1 guarantees it). All-pairs would be 240 calls at N=16; this is 48.
  * Keyed by proposal slug -> the slugs that score it.
  */
 export function scorersFor(live: { slug: string }[]): Map<string, string[]> {
   const n = live.length
-  const k = Math.min(3, n - 1)
+  const k = Math.max(Math.min(3, n - 1), 0)
   return new Map(live.map((p, i) => [
     p.slug,
-    Array.from({ length: Math.max(k, 0) }, (_, j) => live[(i + 1 + j) % n].slug),
+    Array.from({ length: k }, (_, j) => live[(i + 1 + j) % n].slug),
   ]))
 }
 ```
 
-- [ ] **Step 4: Run the test**
-
-Run: `npm test 2>&1 | tail -5`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Run** — PASS. **Step 6: Commit**
 
 ```bash
 git add -A && git commit -m "feat(council): deterministic scorer assignment for council:task"
@@ -480,81 +593,104 @@ git add -A && git commit -m "feat(council): deterministic scorer assignment for 
 test("the task score keeps Score's four dimensions so tally() stays usable", () => {
   // A 1-10 scalar would make tally()'s four-term sum NaN; NaN compares falsy, so its sort
   // falls through to alphabetical-by-slug and still reports a confident winner. That is a
-  // false consensus - the exact failure council:task exists to prevent.
+  // false consensus - precisely what council:task exists to prevent.
   const props = TASK_SCORE_SCHEMA.properties
   for (const dim of ["correctness", "simplicity", "risk", "completeness"])
     assert.ok(props[dim], `tally() sums ${dim}; the task score must carry it`)
   assert.ok(props.objection, "dissent needs its own field: `reason` is praise when the score is high")
+  assert.ok(TASK_PROPOSAL_SCHEMA.properties.confidence, "confidence is printed beside each answer")
 })
 ```
 
-- [ ] **Step 2: Run and watch it fail**
+- [ ] **Step 2: Run and watch it fail. Step 3: Add both schemas**
 
-Run: `npm test 2>&1 | grep -A4 "four dimensions"`
-Expected: FAIL — `TASK_SCORE_SCHEMA` is not defined.
+In `src/schema.ts`, mirroring `SCORE_SCHEMA`'s four 1–5 dimensions plus `reason`, and adding
+`objection` (`""` when the scorer has none). `TASK_PROPOSAL_SCHEMA` is
+`{answer, reasoning, confidence}` with `confidence` an enum of `high|medium|low`. Leave
+`PROPOSAL_SCHEMA`/`SCORE_SCHEMA` untouched so `/council:plan` is unaffected.
 
-- [ ] **Step 3: Add both schemas**
-
-In `src/schema.ts`, mirroring `SCORE_SCHEMA`'s four 1–5 dimensions and adding `objection`
-(`""` when the scorer has none). `TASK_PROPOSAL_SCHEMA` is `{answer, reasoning, confidence}`
-with `confidence` an enum of `high|medium|low`. Leave `PROPOSAL_SCHEMA`/`SCORE_SCHEMA`
-untouched so `/council:plan` is unaffected.
-
-- [ ] **Step 4: Run, then commit**
-
-Run: `npm test 2>&1 | tail -5` → PASS
+- [ ] **Step 4: Run** — PASS. **Step 5: Commit**
 
 ```bash
 git add -A && git commit -m "feat(council): task proposal and score schemas"
 ```
 
-### Task 3.3: `runTask` and its three terminal states
+### Task 3.3: `decideTask` — the three terminal states
 
 **Files:**
 - Modify: `src/engine.ts`
 - Test: `src/task.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Add the shared fixtures to `src/task.test.ts`**
+
+These carry the semantics of every assertion below, so they are defined once, explicitly:
+
+```ts
+import { decideTask, type TaskProposal, type TaskScore } from "./engine.ts"
+
+const prop = (slug: string): TaskProposal => ({
+  slug, role: "reviewer", model: `test/${slug}`,
+  answer: `answer from ${slug}`, reasoning: "because", confidence: "medium", state: "ok",
+})
+const fixtureProposals = (n: number) => Array.from({ length: n }, (_, i) => prop(`m${i}`))
+
+/** Four dimensions, exactly as `Score` - tally() sums these and nothing else. */
+const score = (proposal: string, scorer: string, v: number, objection = ""): TaskScore =>
+  ({ proposal, scorer, correctness: v, simplicity: v, risk: v, completeness: v,
+     reason: "fixture", objection })
+
+/** Everyone scores 2s except `favoured`, who scores 5s. */
+const fixtureScoresFavouring = (favoured: string, props = fixtureProposals(3)) =>
+  props.flatMap((p) => props.filter((q) => q.slug !== p.slug)
+    .map((q) => score(p.slug, q.slug, p.slug === favoured ? 5 : 2)))
+
+/** Identical scores => identical means => inside TIE_MARGIN. */
+const fixtureScoresTied = (props = fixtureProposals(2)) =>
+  props.flatMap((p) => props.filter((q) => q.slug !== p.slug).map((q) => score(p.slug, q.slug, 4)))
+
+/** m0 and m1 are scored; m2 answered but every scorer call for it failed. */
+const fixtureOrphanedAnswer = () => {
+  const props = fixtureProposals(3)
+  const scores = ["m0", "m1"].flatMap((s) =>
+    props.filter((q) => q.slug !== s).map((q) => score(s, q.slug, 3)))
+  return decideTask(props, scores)
+}
+
+const fixtureWithObjection = (text: string) =>
+  decideTask(fixtureProposals(2), [score("m0", "m1", 5, text), score("m1", "m0", 2, "")])
+```
+
+- [ ] **Step 2: Write the failing tests**
 
 ```ts
 test("the winner is the highest mean, not the alphabetically first", () => {
-  // Guards the NaN-sort failure directly: give the LAST proposal by slug the best scores.
-  const result = decideTask(fixtureProposals(3), fixtureScoresFavouring("m2"))
-  assert.equal(result.winner?.slug, "m2")
-  assert.equal(result.unscored, false)
+  // Guards the NaN-sort failure directly: the LAST proposal by slug gets the best scores.
+  const r = decideTask(fixtureProposals(3), fixtureScoresFavouring("m2"))
+  assert.equal(r.winner?.slug, "m2")
+  assert.equal(r.unscored, false)
 })
 
 test("a tie is reported as a tie, never resolved into a winner", () => {
-  const result = decideTask(fixtureProposals(2), fixtureScoresTied())
-  assert.equal(result.winner, null)
-  assert.equal(result.tied.length, 2)
-  assert.equal(result.runnerUp, null)
+  const r = decideTask(fixtureProposals(2), fixtureScoresTied())
+  assert.equal(r.winner, null)
+  assert.equal(r.tied.length, 2)
+  assert.equal(r.runnerUp, null)
 })
 
 test("live answers with no usable score are unranked, not tied", () => {
-  // tally([]) returns {ranked:[], winner:null, tied:[]}, which is indistinguishable from a
-  // tie. Without this branch the report claims "did not converge" over an empty list while
-  // real answers exist.
-  const result = decideTask(fixtureProposals(3), [])
-  assert.equal(result.unscored, true)
-  assert.equal(result.tied.length, 0)
-  assert.equal(result.proposals.filter((p) => p.state === "ok").length, 3)
+  // tally([]) returns {ranked:[],winner:null,tied:[]}, indistinguishable from a tie.
+  // Without this branch the report claims "did not converge" over an empty list while
+  // three real answers exist.
+  const r = decideTask(fixtureProposals(3), [])
+  assert.equal(r.unscored, true)
+  assert.equal(r.tied.length, 0)
+  assert.equal(r.proposals.filter((p) => p.state === "ok").length, 3)
 })
 ```
 
-- [ ] **Step 2: Run and watch them fail**
+- [ ] **Step 3: Run and watch them fail. Step 4: Implement `decideTask`**
 
-Run: `npm test 2>&1 | grep -A4 "highest mean\|reported as a tie\|no usable score"`
-Expected: FAIL — `decideTask` is not defined.
-
-- [ ] **Step 3: Implement `decideTask`, then `runTask` around it**
-
-Split deliberately: `decideTask(proposals, scores) → TaskResult` is pure and holds the whole
-state machine, so the three tests above need no server. `runTask` does the I/O — fan out
-proposals to every `canSchema` member under `agent: council-${roles[0]}`, filter to live,
-`scorersFor`, fan out scores preferring a `fast`-tier member, then call `decideTask`.
-
-The state machine, exhaustive and disjoint:
+Pure, holding the whole state machine, so none of the above needs a server:
 
 | state | when | `winner` | `tied` | `runnerUp` | `unscored` |
 |---|---|---|---|---|---|
@@ -562,31 +698,28 @@ The state machine, exhaustive and disjoint:
 | tied | winner null, `tied` non-empty | `null` | all tied | `null` | `false` |
 | unranked | no usable score at all | `null` | `[]` | `null` | `true` |
 
-- [ ] **Step 4: Run, then commit**
-
-Run: `npm test 2>&1 | tail -5` → PASS
+- [ ] **Step 5: Run** — PASS. **Step 6: Commit**
 
 ```bash
-git add -A && git commit -m "feat(council): runTask with an exhaustive terminal-state machine"
+git add -A && git commit -m "feat(council): decideTask with an exhaustive terminal-state machine"
 ```
 
-### Task 3.4: `renderTask`, the tool mode, and the command
+### Task 3.4: `renderTask`
 
 **Files:**
-- Modify: `src/report.ts`, `src/index.ts`
-- Create: `command/council:task.md`
+- Modify: `src/report.ts`
 - Test: `src/task.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
 ```ts
 test("no live answer disappears from the report", () => {
-  // tally() ranks only what it received scores for. A proposal whose scorers all failed is
-  // in ranked/winner/tied/runnerUp nowhere, and `unscored` is false - so without an
-  // explicit section it silently vanishes while looking like a clean result.
-  const out = renderTask(fixtureWhereOneProposalLostItsScorers())
+  // tally() ranks only what it received scores for, so a proposal whose scorers all failed
+  // is in ranked/winner/tied/runnerUp nowhere - and `unscored` is false, so the unranked
+  // path never fires. Without an explicit section it vanishes while the report looks clean.
+  const out = renderTask(fixtureOrphanedAnswer())
   assert.match(out, /answered, but unscored/i)
-  assert.match(out, /m2/, "the orphaned answer must still be printed")
+  assert.match(out, /answer from m2/, "the orphaned answer must still be printed")
 })
 
 test("dissent survives into the report verbatim", () => {
@@ -595,32 +728,55 @@ test("dissent survives into the report verbatim", () => {
 })
 ```
 
-- [ ] **Step 2: Run and watch it fail**
+- [ ] **Step 2: Run and watch it fail. Step 3: Implement `renderTask`**
 
-Run: `npm test 2>&1 | grep -A4 "disappears from the report"`
-Expected: FAIL — `renderTask` is not defined.
-
-- [ ] **Step 3: Implement `renderTask`**
-
-Prints, in order: the answer (or tied answers, or all answers unranked) with each one's
+Prints, in order: the answer (or the tied answers, or all answers unranked) with each one's
 `confidence`; the ranked means; the runner-up; every objection verbatim; and finally
-**"answered, but unscored"** listing every `state === "ok"` proposal absent from `ranked`.
+**"answered, but unscored"** listing each `state === "ok"` proposal absent from `ranked`.
 
-- [ ] **Step 4: Wire the tool and the command**
+- [ ] **Step 4: Run** — PASS. **Step 5: Commit**
+
+```bash
+git add -A && git commit -m "feat(council): renderTask - dissent verbatim, no answer dropped"
+```
+
+### Task 3.5: `runTask`, the tool mode, and the commands
+
+**Files:**
+- Modify: `src/engine.ts`, `src/index.ts`, `command/council:independent.md`
+- Create: `command/council:task.md`
+- Test: `src/index.test.ts`
+
+- [ ] **Step 1: Write the failing test**
+
+```ts
+test("the council tool accepts task mode and a context argument", () => {
+  const { tool } = loadPlugin()
+  assert.ok(tool.council.args.mode.safeParse("task").success, "mode enum must accept 'task'")
+  assert.ok(tool.council.args.context, "context is a new arg, used by task and independent")
+})
+```
+
+- [ ] **Step 2: Run and watch it fail. Step 3: Implement `runTask`**
+
+I/O only — the decision logic is already `decideTask`. Fan out proposals to every
+`canSchema` member under `agent: council-${member.roles[0]}`; filter to live; `scorersFor`;
+fan out scores, preferring a `fast`-tier member as scorer (Task 4.3 makes this pay); call
+`decideTask`.
+
+- [ ] **Step 4: Wire the tool and commands**
 
 `src/index.ts`: add `"task"` to the zod `mode` enum **and** to the inline `args:` TS union
 (~line 369); add `context` as a new zod field (today's schema is `{mode, base, goal}`);
-dispatch `runTask` with `councilArgs("task")`; write the artifact to
-`council-artifacts/<stamp>-task/`. While the schema is open, pass `context` through to
-`runIndependent`, which has accepted it since `engine.ts:878` and has never been given it.
+dispatch `runTask`; write the artifact to `council-artifacts/<stamp>-task/`. While the
+schema is open, pass `context` to `runIndependent` too — it has accepted one since
+`engine.ts:878` and has never been given it.
 
-`command/council:task.md`: describes handing the council a task and getting one answer with
-dissent. Also edit `command/council:independent.md` — its closing paragraph still steers
-"one answer rather than several" to `mode: "plan"`, which is stale once this exists.
+`command/council:task.md`: hand the council a task, get one answer with dissent. Then edit
+`command/council:independent.md` — its closing paragraph still steers "one answer rather
+than several" to `mode: "plan"`, which is stale once this exists.
 
-- [ ] **Step 5: Run, then commit**
-
-Run: `npm test 2>&1 | tail -5` → PASS
+- [ ] **Step 5: Run** — PASS. **Step 6: Commit**
 
 ```bash
 git add -A && git commit -m "feat(council): /council:task - one answer, dissent intact"
@@ -630,33 +786,56 @@ git add -A && git commit -m "feat(council): /council:task - one answer, dissent 
 
 ## Chunk 4: The dynamic roster
 
-Spec §3.7. Ships: live catalog, measured capability cache, outage recruitment beyond the
-roster, tier routing on the high-volume loops, and `/council:models`.
+Spec §3.7. Ships: live catalog, measured capability cache, recruitment beyond the roster,
+tier routing on the high-volume loops, and `/council:models`.
 
 ### Task 4.1: The catalog and the capability cache
 
 **Files:**
 - Create: `src/catalog.ts`, `src/catalog.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Create `src/catalog.test.ts` with its imports**
 
 ```ts
+import { test } from "node:test"
+import assert from "node:assert/strict"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { openCache, probeBudget, parseCatalog } from "./catalog.ts"
+```
+
+- [ ] **Step 2: Write the failing tests**
+
+```ts
+test("the catalog flattens providers into provider/model ids", () => {
+  // Verified shape from GET /config/providers on 2026-08-25: 9 providers, ~114 models.
+  const ids = parseCatalog({ providers: [
+    { id: "openai", models: { "gpt-5.6-sol": {}, "gpt-5.6-luna": {} } },
+    { id: "anthropic", models: { "claude-opus-5": {} } },
+  ] })
+  assert.deepEqual(ids.sort(), ["anthropic/claude-opus-5", "openai/gpt-5.6-luna", "openai/gpt-5.6-sol"])
+})
+
 test("the cache round-trips and a contradicting failure invalidates it", () => {
   const dir = mkdtempSync(join(tmpdir(), "cap-"))
-  const c = openCache(join(dir, "capability.json"))
-  c.record("x/y", "schema", { ok: true, ms: 1200 })
-  assert.equal(openCache(join(dir, "capability.json")).get("x/y", "schema")?.ok, true)
-  c.contradict("x/y", "schema")            // a malformed/failed result says otherwise
-  assert.equal(c.get("x/y", "schema"), undefined, "a stale 'works' must not keep routing lanes")
-  rmSync(dir, { recursive: true, force: true })
+  try {
+    const path = join(dir, "capability.json")
+    const c = openCache(path)
+    c.record("x/y", "schema", { ok: true, ms: 1200 })
+    assert.equal(openCache(path).get("x/y", "schema")?.ok, true, "must survive a reopen")
+    c.contradict("x/y", "schema")   // a malformed/failed call says otherwise
+    assert.equal(c.get("x/y", "schema"), undefined, "a stale 'works' must not keep routing lanes")
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
 test("a failed probe is remembered, so a dead model costs one probe not one per run", () => {
   const dir = mkdtempSync(join(tmpdir(), "cap-"))
-  const c = openCache(join(dir, "capability.json"))
-  c.record("dead/model", "schema", { ok: false, ms: 90000 })
-  assert.equal(openCache(join(dir, "capability.json")).get("dead/model", "schema")?.ok, false)
-  rmSync(dir, { recursive: true, force: true })
+  try {
+    const path = join(dir, "capability.json")
+    openCache(path).record("dead/model", "schema", { ok: false, ms: 90000 })
+    assert.equal(openCache(path).get("dead/model", "schema")?.ok, false)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
 test("the probe budget caps a bad day at three", () => {
@@ -665,27 +844,20 @@ test("the probe budget caps a bad day at three", () => {
 })
 ```
 
-- [ ] **Step 2: Run and watch them fail**
+- [ ] **Step 3: Run and watch them fail. Step 4: Implement `src/catalog.ts`**
 
-Run: `npm test 2>&1 | grep -A4 "round-trips"`
-Expected: FAIL — `src/catalog.ts` does not exist.
+Discovery and capability in one file because they answer one question — what can actually
+be used right now:
 
-- [ ] **Step 3: Implement**
-
-`src/catalog.ts` holds both discovery and capability, because they answer one question —
-what can actually be used right now:
-
-- `catalog(ctx)` → `GET /config/providers`, flattened to `provider/model` ids, memoised per
-  run. Verified shape: `{providers: [{id, models: {…}}]}`, 9 providers, ~114 models.
-- `openCache(path = ~/.cache/opencode-council/capability.json)` → `get` / `record` /
-  `contradict`. Machine-specific, so `~/.cache` and never the repo: a teammate's quota is
-  not a fact about the code.
+- `parseCatalog(json)` → `provider/model` ids. Pure, so it is testable without a server.
+- `catalog(ctx)` → `GET /config/providers` then `parseCatalog`, memoised per run.
+- `openCache(path = ~/.cache/opencode-council/capability.json)` → `get`/`record`/
+  `contradict`. `~/.cache` and never the repo: a teammate's quota is not a fact about the
+  code.
 - `probeBudget(n)` → `take()`.
 - `probe(ctx, model, kind)` → the one-call smoke test, recorded in the cache.
 
-- [ ] **Step 4: Run, then commit**
-
-Run: `npm test 2>&1 | tail -5` → PASS
+- [ ] **Step 5: Run** — PASS. **Step 6: Commit**
 
 ```bash
 git add -A && git commit -m "feat(council): live catalog and measured capability cache"
@@ -701,25 +873,22 @@ git add -A && git commit -m "feat(council): live catalog and measured capability
 
 ```ts
 test("an exhausted roster can recruit from the catalog, by injection", () => {
-  // The pool is passed in, never fetched here: failover.test.ts:43 asserts that a fully
-  // benched roster returns []. If this function fetched a catalogue, that assertion would
-  // depend on live network state and the suite would pass or fail by weather.
+  // The pool is passed in, never fetched here: failover.test.ts:43 asserts a fully benched
+  // roster returns []. If this function fetched a catalogue, that assertion would depend on
+  // live network state and the suite would pass or fail by weather.
   const everything: Bench = new Map(ROSTER.map((m) => [m.slug, "dead"]))
   assert.deepEqual(substitutesFor(codeNode, round, everything, new Set()), [],
     "with no pool offered, behaviour is exactly what it is today")
 
-  const understudy = { slug: "gpt56luna-sib", model: "openai/gpt-5.6-luna", roles: ["code"], ms: 4228 } as any
-  const subs = substitutesFor(codeNode, round, everything, new Set(), [understudy])
-  assert.deepEqual(subs.map((m) => m.slug), ["gpt56luna-sib"])
+  const sibling = { slug: "luna-sib", model: "openai/gpt-5.6-luna", roles: ["code"], ms: 4228 } as any
+  const far = { slug: "far", model: "other/model", roles: ["code"], ms: 100 } as any
+  const subs = substitutesFor(codeNode, round, everything, new Set(), [far, sibling])
+  assert.deepEqual(subs.map((m) => m.slug), ["luna-sib", "far"],
+    "same provider family first, even when a stranger is faster")
 })
 ```
 
-- [ ] **Step 2: Run and watch it fail**
-
-Run: `npm test 2>&1 | grep -A4 "recruit from the catalog"`
-Expected: FAIL — `substitutesFor` takes four arguments.
-
-- [ ] **Step 3: Add the injected fourth tier**
+- [ ] **Step 2: Run and watch it fail. Step 3: Add the injected fourth tier**
 
 ```ts
 export function substitutesFor(
@@ -727,13 +896,11 @@ export function substitutesFor(
 ): Member[]
 ```
 
-Tiers 1–3 over `ROSTER` exactly as today, then `extra` filtered by the same
-unavailable/tried rules, same-provider-family first, then by measured `ms`. The caller
-resolves catalog ∩ cache and passes it.
+Tiers 1–3 over `ROSTER` exactly as today, then `extra` under the same unavailable/tried
+rules, ordered same-provider-family first (compare the segment before `/` against the failed
+node's model), then by measured `ms`. The caller resolves catalog ∩ cache and passes it.
 
-- [ ] **Step 4: Run, then commit**
-
-Run: `npm test 2>&1 | tail -5` → PASS
+- [ ] **Step 4: Run** — PASS. **Step 5: Commit**
 
 ```bash
 git add -A && git commit -m "feat(council): recruit substitutes from the live catalog"
@@ -742,27 +909,30 @@ git add -A && git commit -m "feat(council): recruit substitutes from the live ca
 ### Task 4.3: Tier routing on the two high-volume loops
 
 **Files:**
-- Modify: `src/roster.ts` (`skepticPool`), `src/engine.ts` (`runTask` scorers)
+- Modify: `src/roster.ts` (`skepticPool`), `src/engine.ts` (`runTask` scorer choice)
 - Test: `src/roster.test.ts`
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 test("the shallow, high-volume loops prefer the fast tier", () => {
-  // 42 scoring calls per council:task and 3 skeptics per blocker is precisely the
-  // "high-volume, lightweight, repetitive" work the fast tier exists for. Depth stays on
-  // the lanes where depth is the point.
+  // 48 scoring calls per council:task and 3 skeptics per blocker is exactly the
+  // "high-volume, lightweight, repetitive" work the fast tier exists for. gpt56luna
+  // carries `skeptic` (Task 2.1) precisely so this loop can reach it.
   const pool = skepticPool([], 3)
   assert.equal(pool[0].tier, "fast", "a fast-tier skeptic must be preferred when one exists")
+  assert.ok(pool.length > 1, "and the rest of the pool still fills behind it")
 })
 ```
 
-- [ ] **Step 2: Run, implement, run**
+- [ ] **Step 2: Run and watch it fail** — today `skepticPool` sorts by `ms` only.
 
-Order `skepticPool` and `runTask`'s scorer selection by `tier === "fast"` first, then today's
-ordering. Fall back silently when no fast member exists.
+- [ ] **Step 3: Implement**
 
-- [ ] **Step 3: Commit**
+Order `skepticPool` and `runTask`'s scorer selection by `tier === "fast"` first, then
+today's ordering. Fall back silently when no fast member exists.
+
+- [ ] **Step 4: Run** — PASS. **Step 5: Commit**
 
 ```bash
 git add -A && git commit -m "feat(council): route the shallow high-volume loops to the fast tier"
@@ -771,31 +941,42 @@ git add -A && git commit -m "feat(council): route the shallow high-volume loops 
 ### Task 4.4: `/council:models`
 
 **Files:**
-- Modify: `src/index.ts`
+- Modify: `src/report.ts`, `src/index.ts`
 - Create: `command/council:models.md`
-- Test: `src/catalog.test.ts`
+- Test: `src/catalog.test.ts`, `src/index.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing tests**
 
 ```ts
-test("council:models proposes and never writes", async () => {
+// catalog.test.ts - the renderer is pure, so no network and no live probes.
+test("the models proposal names what changed and never claims to have applied it", () => {
   // gemini-3.7-flash times out at 90s while 3.6 answers in 9s. An auto-updater chasing
-  // "latest" would have adopted it and quietly cost a lane. Adoption stays human-gated.
-  const { tool } = await load()
-  const before = readFileSync(join(PKG, "src/roster.ts"), "utf8")
-  const out = await tool.council.execute({ mode: "models" }, { directory: PKG })
-  assert.equal(readFileSync(join(PKG, "src/roster.ts"), "utf8"), before, "it must not write the roster")
-  assert.match(out, /propos|candidate/i)
+  // "latest" would have adopted it and quietly cost a lane, so this proposes only.
+  const out = renderModelsProposal({
+    roster: [{ slug: "gemini36", model: "google/gemini-3.6-flash" }] as any,
+    catalog: ["google/gemini-3.6-flash", "google/gemini-3.7-flash"],
+    probes: { "google/gemini-3.7-flash": { ok: false, ms: 90000 } },
+  })
+  assert.match(out, /gemini-3\.7-flash/)
+  assert.match(out, /90000|90s|timed out/i, "the measurement must be shown, not hidden")
+  assert.doesNotMatch(out, /\bapplied\b|\bupdated the roster\b/i)
+})
+
+// index.test.ts - registration only, no execution.
+test("the council tool accepts models mode", () => {
+  const { tool } = loadPlugin()
+  assert.ok(tool.council.args.mode.safeParse("models").success)
 })
 ```
 
-- [ ] **Step 2: Run, implement, run**
+- [ ] **Step 2: Run and watch them fail. Step 3: Implement**
 
-Add `"models"` to the zod enum and the inline `args:` union. The mode fetches the catalog,
-diffs it against `ROSTER`, probes candidates within the budget, and renders a table of
-measurements with a recommendation. It writes nothing.
+`renderModelsProposal({roster, catalog, probes})` in `report.ts`, pure. `src/index.ts` adds
+`"models"` to the zod enum and the inline `args:` union; the mode fetches the catalog, diffs
+against `ROSTER`, probes candidates within `probeBudget(3)`, and renders. **It writes
+nothing.**
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Run** — PASS. **Step 5: Commit**
 
 ```bash
 git add -A && git commit -m "feat(council): /council:models - discover and propose, never adopt"
@@ -803,13 +984,63 @@ git add -A && git commit -m "feat(council): /council:models - discover and propo
 
 ---
 
+## Chunk 5: Say what shipped
+
+### Task 5.1: The ADR
+
+**Files:**
+- Create: `docs/adr/2026-08-25-council-namespace-and-dynamic-roster.md`
+
+- [ ] **Step 1: Write it**
+
+`docs/adr/` does not exist yet; this is the first entry and establishes the convention from
+spec §1 (date-slug, never sequential numbers — `0007-` allocation races when parallel lets
+write decisions). Record the decision, the alternatives rejected, and the **measurements it
+rests on**, each with its date:
+
+- gpt-5.6 arrives as three tiers, not variants; `ms` must never rank them
+- `gemini-3.7-flash` times out at 90s where 3.6 answers in 9s — why adoption stays gated
+- `opencode-go/hy3` emits schema at 6.1s where `opencode/hy3-free` fails 3/3 — route, not model
+- deepseek and muse-spark both 400 with *only `tool_choice: auto` supported* — the capability class
+- debate measured 0 changed positions before being disabled, and what turning it back on is expected to show
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add -A && git commit -m "docs(adr): council namespace and dynamic roster"
+```
+
+### Task 5.2: README catches up
+
+**Files:**
+- Modify: `README.md`
+
+- [ ] **Step 1: Update every stale claim**
+
+- the roster table (`:382-383` name `gpt55`/`glm52`, `:393` the old hy3 route) → the current
+  members with `tier` and `capability` columns
+- the exclusion table (`:409`) → deepseek is implementer-class, not excluded; the
+  `opencode-go` remedy it recommends is dead; muse-spark needs a data-collection opt-in
+- `:392`'s musespark note → now a capability class, not a curiosity
+- document `/council:task` and `/council:models`, and the colon rename
+- state the cost plainly: a full-panel review is the most expensive path in the system
+
+- [ ] **Step 2: Verify no stale command names survive**
+
+Run: `npm test 2>&1 | grep -A6 "pre-colon"` → PASS.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add -A && git commit -m "docs: README matches what shipped"
+```
+
+---
+
 ## Definition of done
 
-- [ ] `npm test` green, with the new tests from every chunk
-- [ ] `/council:{review,fix,plan,independent,check,task,models}` all register (restart required)
+- [ ] `npm test` green at **every** commit, not just the last
+- [ ] `/council:{review,fix,plan,independent,check,task,models}` all register (needs a restart)
 - [ ] A real `council:review` runs the full panel with debate, and the Convergence block reports what moved
 - [ ] A real `council:task` returns one answer with dissent, or an honest tie
-- [ ] `README.md` matches what shipped — roster table, the corrected deepseek row, the new commands
-- [ ] An ADR at `docs/adr/2026-08-25-council-namespace-and-dynamic-roster.md` recording the
-      measurements this design rests on: gpt-5.6 tiers, gemini-3.7's timeout, hy3's route,
-      the `tool_choice: auto` capability class
+- [ ] `README.md` and the ADR match what actually shipped
