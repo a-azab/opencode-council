@@ -117,7 +117,7 @@ test("every council command registers under its colon name", async () => {
   // proves the new ones actually load. A command file whose name is wrong is silently
   // absent, never an error.
   const { config } = await load()
-  for (const c of ["council:review", "council:fix", "council:plan", "council:independent", "council:check"])
+  for (const c of ["council:review", "council:fix", "council:plan", "council:independent", "council:check", "council:task"])
     assert.ok(config.command[c]?.template?.length > 100, `command ${c} missing or empty`)
 })
 
