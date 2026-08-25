@@ -262,7 +262,8 @@ tally() → winner, or a tie that goes to the human
   `k = min(3, N-1)`. Cyclic-next can never select the author because `k ≤ N-1`, and the
   clamp keeps it satisfiable when most nodes fail and `live` is small (`runTask` filters to
   live proposals as `runPlan` does at `engine.ts:1009`). Exposed as the pure `scorersFor`
-  so the rule is testable without a server.
+  so the rule is testable without a server. Scorers prefer a `fast`-tier member when one is
+  available (§3.7.6) — 42 shallow, repetitive calls is precisely what that tier is for.
 - **Ties are not resolved.** `tally()` returns `winner: null` within `TIE_MARGIN` by design
   — ties go to the human (`decide.ts:196`). At k=3 the means land on thirds, so exact ties
   are common and must be handled, not assumed away. Every tied answer is presented side by
@@ -288,7 +289,7 @@ sub-projects 2/3's recruiting planner as well as council's own panel.
 
 | role | members | rationale |
 |---|---|---|
-| `architect` | `opus5`, `gpt55` | boundaries and sequencing; the two members that reported 4/4 across every review round |
+| `architect` | `opus5`, `gpt56sol` | boundaries and sequencing. `opus5` reported 4/4 across every review round; `gpt56sol` is the `deep` tier, which is what an architecture judgement needs (§3.7.5) |
 | `infrastructure` | `glm52`, `grok45` | Terraform/cloud/network; spreads load off the architect carriers and across providers |
 
 **Append, never prepend.** `roles[0]` is load-bearing: §3.4 keys a proposer's agent off it,
@@ -324,10 +325,34 @@ becomes newly legal.
 
 ```ts
 capability?: ("schema" | "agentic")[]   // default ["schema"]
+tier?: "deep" | "standard" | "fast"     // default "standard"
 ```
 
 - `schema` — can emit forced-tool-call structured output.
 - `agentic` — can drive tools in a session.
+
+**`capability` is a real class, not a deepseek exception.** Two models now fail the same
+way, and their errors name the cause exactly:
+
+```
+deepseek/deepseek-v4-pro                 400  Thinking mode does not support this tool_choice
+opencode/muse-spark-1.2-contributor-free 400  only "auto" is supported for tool_choice.
+                                              "none", "required", and named function
+                                              choices are not currently supported
+```
+
+Both drive tools correctly under `tool_choice: auto`; both refuse a *named* function call.
+That is the exact boundary between an implementer and a council lane.
+
+**`tier` records the vendor's own capability/cost class** — for `gpt-5.6`: Sol is the peak
+(deepest reasoning, slowest, dearest), Terra the balanced production default, Luna the fast
+high-volume budget tier.
+
+**`ms` must never be used to choose a tier.** It is documented as "for timeouts, not
+quality", and this spec previously violated that: rev 7 selected Terra over Sol and Luna
+because Terra returned a trivial probe fastest (2.7s vs 3.7s / 4.2s). Those numbers are
+queue noise — **Luna, the tier explicitly built for speed, measured slowest of the three.**
+A one-call probe cannot rank capability, and no future roster change may use it to try.
 
 A set, not a single value: most members are both, and a single value would force demoting a
 model out of council lanes to make it eligible as an implementer.
@@ -335,7 +360,8 @@ model out of council lanes to make it eligible as an implementer.
 | member | roles | capability | basis |
 |---|---|---|---|
 | `deepseek` (`deepseek/deepseek-v4-pro`, **new**) | `[]` | `["agentic"]` | verified: drives bash, exact marker, 9.5s; fails forced `tool_choice` |
-| `opus5`, `gpt55`, `glm52` | unchanged | `["schema","agentic"]` | already used as crew implementers in live runs |
+| `opus5`, `glm52` | unchanged | `["schema","agentic"]` | already used as crew implementers in live runs |
+| `gpt56{sol,terra,luna}` | per §3.7.5 | `["schema","agentic"]` | schema verified today; agentic inherited from `gpt-5.5`'s live implementer use |
 | all others | unchanged | `["schema"]` (default) | agentic not verified, so not claimed |
 
 **`roles: []` is deliberate defence in depth.** Every role-based selector
@@ -425,6 +451,25 @@ nearest substitute), then any verified model, ordered by measured `ms`.
 Bounded: **at most 3 probes per run**, so a bad day cannot turn one review into a
 capability survey. When the budget is spent, tier 4 offers only already-verified models.
 
+**`substitutesFor` stays pure — the pool is injected, never fetched.**
+
+```ts
+substitutesFor(node, round, bench, tried, extra: Member[] = [])   // tier 4 = `extra`
+```
+
+The caller resolves catalog ∩ capability and passes it in. Two reasons, and the second is
+load-bearing:
+
+1. `failover.test.ts:43` asserts that a fully-benched roster returns `[]` — "with nothing
+   alive the lane is honestly lost, not faked". If `substitutesFor` fetched a catalog
+   itself, that assertion would depend on live network state and the test would pass or fail
+   by weather. With an injected pool, `extra: []` preserves today's exact semantics and
+   tier 4 is tested by passing a fixture.
+2. It keeps the one function that decides "who covers this lane" free of I/O.
+
+`failover.test.ts:39,43` also hardcode the slug `gpt55`, which §3.7.5 splits into three.
+**That is the one existing test this spec changes**, and it changes it by name only.
+
 #### 3.7.4 `council:models` — requirement 1 and 3, human-gated
 
 A new mode that discovers, measures, and **proposes**:
@@ -443,15 +488,39 @@ Same detect-and-confirm shape as `crew:init`, which already proposes verify/base
 
 | member | from | to | why |
 |---|---|---|---|
-| `gpt55` | `openai/gpt-5.5` | `openai/gpt-5.6-terra` | fastest sibling, 2.7s vs 4.4s |
+| `gpt55` | `openai/gpt-5.5` | **split into three tiered members** — see below | Sol/Terra/Luna are capability tiers, not variants |
 | `glm52` | `zai-coding-plan/glm-5.2` | `zai-coding-plan/glm-5.3` | newer, measured working at 6.0s |
 | `hy3` | `opencode/hy3-free` | `opencode-go/hy3` | free route fails schema 3/3; paid route passes at 6.1s |
 | `gemini36` | `google/gemini-3.6-flash` | **unchanged** | 3.7 times out at 90s |
-| `musespark` | `opencode/muse-spark-…-free` | **left out** | both routes gated: free 500s, paid needs a data-collection opt-in that is the human's to give |
+| `musespark` | `opencode/muse-spark-…-free` | **`capability: ["agentic"]`**, no lane | its 400 names the cause: only `tool_choice: auto`. An implementer candidate, not a lane |
+| `musespark-paid` | — | `opencode-go/muse-spark-1.2-contributor` **once opted in** | gated on a data-collection consent at `opencode.ai/workspace/wrk_01KXFV2S0SAC9S1FD2MQDA77XX/go` — the human's to give, not the crew's |
 
-`gpt-5.6-luna` and `-sol` are recorded as verified substitutes, not lanes — three tunings
-from one vendor are correlated, and correlation is the thing a multi-model panel exists to
-avoid.
+**The `gpt-5.6` tiers are three members doing three different jobs**, not three candidates
+for one slot:
+
+| member | model | tier | job |
+|---|---|---|---|
+| `gpt56sol` | `openai/gpt-5.6-sol` | `deep` | the lanes whose value is depth — `security`, `architect`, `systems` — and escalation diagnosis, which is "work out why this failed twice" |
+| `gpt56terra` | `openai/gpt-5.6-terra` | `standard` | the production default: `reviewer`, `product`, `docs` |
+| `gpt56luna` | `openai/gpt-5.6-luna` | `fast` | the two high-volume loops, §3.7.6 |
+
+#### 3.7.6 Tier routing — where `fast` actually pays
+
+Two loops in this system are high-volume, repetitive and shallow, which is Luna's stated
+sweet spot:
+
+| loop | volume | today |
+|---|---|---|
+| `council:task` scoring (§3.4) | **42 calls** per run — `N × k` | whichever model holds the role |
+| skeptic verification | 3 per BLOCKER, 2 per SUGGESTION | `skepticPool`, ordered by `ms` |
+
+Both select a **`fast`-tier member when one is available**, falling back to current
+behaviour otherwise. Lane selection (`selectNodes`) is unchanged — a lane's model follows
+its role, and roles are assigned per the table above.
+
+This is the cost lever for §6's "most expensive path in the system": the scoring pass is
+three quarters of `council:task`'s calls, and it is exactly the work a fast tier exists for.
+Depth stays where depth is the point.
 
 ---
 
@@ -509,10 +578,14 @@ No config migration.
 | **§3.7** a failed probe is cached as failed and the model is not re-probed next run | a dead model must not cost a probe every run |
 | **§3.7** substitution reaches tier 4 only after the roster tiers are exhausted, prefers the same provider family, then orders by measured `ms` | the roster stays the default panel; the catalog is the understudy bench, not a replacement |
 | **§3.7** the probe budget caps at 3 per run | a bad day must not turn one review into a capability survey |
+| **§3.7** `council:task` scoring and `skepticPool` select a `fast`-tier member when one exists, and fall back to today's behaviour when none does | the cost lever: scoring is 3/4 of `council:task`'s calls |
+| **§3.7** `substitutesFor` with `extra: []` returns exactly what it returns today, including `[]` for a fully-benched roster | tier 4 must not make `failover.test.ts:43` depend on live network state |
 | **§3.7** `council:models` writes nothing without confirmation | `gemini-3.7-flash` timing out at 90s is the standing proof that auto-adopting "latest" degrades the panel |
 
 **No existing test is expected to break.** Checked: `failover.test.ts:10` (module-scope
-`selectNodes(ALL_ROLES)`; exhaustion still yields `["fable","gpt55","opus5"]` whether
+`selectNodes(ALL_ROLES)`; the exhaustion assertion names members by slug and **must be
+updated** when `gpt55` splits into the three tiers — the one existing test this spec
+changes, whether
 deepseek is excluded by bench or by capability), `crew.test.ts:615` (`lanes: coed` rejection
 is unaffected by widening), `roster.test.ts:80-86` (skeptic pool sizes hold — deepseek's
 `roles: []` keeps it out), `index.test.ts:50-54`.
