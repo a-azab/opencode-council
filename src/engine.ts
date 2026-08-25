@@ -994,6 +994,23 @@ function scorePrompt(goal: string, p: Proposal): string {
 }
 
 /**
+ * Who scores whom. Cyclic-next over roster order, so it is reproducible and no model ever
+ * scores itself (k <= N-1 guarantees it). All-pairs would be 240 calls at N=16; this is 48.
+ * Keyed by proposal slug -> the slugs that score it.
+ *
+ * Takes `{slug}[]` rather than the full proposal type on purpose: the rule needs nothing
+ * else, and the looser type lets a test fixture be one field instead of eight.
+ */
+export function scorersFor(live: { slug: string }[]): Map<string, string[]> {
+  const n = live.length
+  const k = Math.max(Math.min(3, n - 1), 0)
+  return new Map(live.map((p, i) => [
+    p.slug,
+    Array.from({ length: k }, (_, j) => live[(i + 1 + j) % n].slug),
+  ]))
+}
+
+/**
  * Planning has no diff to compute against, so the equivalent of `decide()` is a vote:
  * everyone proposes, everyone scores everyone else, and the tally is arithmetic. Ties go
  * to the human rather than to a tiebreaker model (D3).
