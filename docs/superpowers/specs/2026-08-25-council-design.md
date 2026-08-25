@@ -106,10 +106,18 @@ excluded from §5's grep for the same reason.
 
 ### 3.2 Full panel by default
 
-`council:review`, `council:fix` and `council:task` pass `ALL_ROLES`, so every lane runs
-regardless of which files changed. (`council:check` dispatches no subagents and makes no
-engine call — `check.md:78` — and `council:independent` is already every model by
-construction.)
+`council:review` and `council:task` pass `ALL_ROLES`, so every lane runs regardless of which
+files changed.
+
+The other three have no lanes to set, and saying otherwise would send an implementer looking
+for a parameter that does not exist:
+
+- `council:fix` — `runFix(ctx, {findings, diff, cwd})` (`engine.ts:1039`) takes no `roles`
+  and never calls `selectRoles`/`selectNodes`. Its fixer is `bySlug(f.model)` — whoever
+  raised the finding (`engine.ts:798-800`) — and its verifier comes from `skepticPool`. It
+  **inherits** full-panel coverage from the review it replays.
+- `council:independent` — already every model by construction.
+- `council:check` — dispatches no subagents and makes no engine call (`check.md:78`).
 
 Mechanism — no new plumbing: `runReview` already accepts `roles?: Role[]` (`engine.ts:584`)
 and its comment (576–583) names `ALL_ROLES` as the intended value.
@@ -176,18 +184,52 @@ export async function runTask(
   input: { goal: string; context?: string },
 ): Promise<TaskResult>
 
+/** Provenance exactly as `Proposal` (engine.ts:910) carries it, with the task fields. */
+export type TaskProposal = {
+  slug: string            // required: tally() is slug-keyed, and the answer is mapped back by it
+  role: string
+  model: string
+  answer: string
+  reasoning: string
+  confidence: "high" | "medium" | "low"
+  state: NodeState
+  detail?: string
+}
+
 export type TaskResult = {
   goal: string
-  proposals: TaskProposal[]   // every proposer, failures carried with state + detail
+  proposals: TaskProposal[]      // every proposer; failures carry state + detail
   scores: TaskScore[]
-  winner: TaskProposal | null // null when tally() reports a tie inside TIE_MARGIN
-  tied: TaskProposal[]        // populated exactly when winner is null
+  ranked: Tally[]                // as `Plan` carries it, so renderTask can show the means
+  winner: TaskProposal | null
+  tied: TaskProposal[]
   runnerUp: TaskProposal | null
   objections: { scorer: string; proposal: string; objection: string }[]
-  unscored: boolean           // true when N === 1: no scorer is possible
-  dropped: { slug: string; state: NodeState; detail: string }[]
+  unscored: boolean
 }
+
+/** Pure, so the assignment rule is testable without a server. */
+export function scorersFor(live: TaskProposal[]): Map<string, string[]>
 ```
+
+**Three terminal states, exhaustive and disjoint** — the rev 4 draft had a reachable hole
+where `unscored` meant only `N === 1`:
+
+| state | when | `winner` | `tied` | `runnerUp` | `unscored` |
+|---|---|---|---|---|---|
+| **decided** | ≥1 usable score, one clear leader | the leader | `[]` | 2nd in `ranked` | `false` |
+| **tied** | ≥1 usable score, leaders within `TIE_MARGIN` | `null` | every tied proposal | `null` | `false` |
+| **unranked** | **no usable score at all** | `null` | `[]` | `null` | `true` |
+
+`unranked` covers both `N === 1` (no scorer is possible) **and** N ≥ 2 where every scorer
+call failed — `tally([])` returns `{ranked: [], winner: null, tied: []}`, which would
+otherwise be indistinguishable from a tie and would have `renderTask` announce "did not
+converge" while showing an empty list. `runPlan`'s caller already separates this case
+(`index.ts:392`, `"no usable proposals"`). In `unranked`, every live answer is printed
+unranked and the report says why there is no ranking.
+
+`dropped` is not a field: failed proposers are `proposals.filter(p => p.state !== "ok")`,
+matching how `Plan.dropped` is a filter rather than a second shape.
 
 ```
 every schema-capable member proposes an answer        (N proposals)
@@ -204,13 +246,13 @@ tally() → winner, or a tie that goes to the human
   re-measured). For proposal `i` of `N`, scorers are `(i+1) … (i+k) mod N`, where
   `k = min(3, N-1)`. Cyclic-next can never select the author because `k ≤ N-1`, and the
   clamp keeps it satisfiable when most nodes fail and `live` is small (`runTask` filters to
-  live proposals as `runPlan` does at `engine.ts:1009`). At `N === 1` there are no scorers:
-  the sole proposal is returned with `unscored: true`.
+  live proposals as `runPlan` does at `engine.ts:1009`). Exposed as the pure `scorersFor`
+  so the rule is testable without a server.
 - **Ties are not resolved.** `tally()` returns `winner: null` within `TIE_MARGIN` by design
   — ties go to the human (`decide.ts:196`). At k=3 the means land on thirds, so exact ties
-  are common and must be handled, not assumed away. When `winner` is null, every tied answer
-  is presented side by side and the report says the council did not converge. Manufacturing
-  a winner from a tie would be the same false consensus in a different costume.
+  are common and must be handled, not assumed away. Every tied answer is presented side by
+  side and the report says the council did not converge. Manufacturing a winner from a tie
+  would be the same false consensus in a different costume.
 - **Cost:** N=14 → 14 proposals + 42 scores = 56 calls. All-pairs would be 182.
 - **Dissent:** the runner-up and each scorer's `objection` are reproduced **verbatim**
   beneath the chosen answer.
@@ -315,11 +357,13 @@ filter that makes it correct.
 | file | change |
 |---|---|
 | `src/roster.ts` | `Role` union +2; `Member.capability?`; new `deepseek` member (appended); `ROUTES` edits (§3.5); capability filter in `selectNodes`, `skepticPool` |
-| `src/engine.ts` | **new** `runTask` + `TaskResult`; capability filter in `substitutesFor` and `runPlan` proposers; council call sites pass `ALL_ROLES` and `maxRounds: 2` |
+| `src/engine.ts` | **new** `runTask`, `TaskResult`, `TaskProposal`, `scorersFor`; capability filter in `substitutesFor` and in `runPlan`'s proposer pick |
 | `src/schema.ts` | **new** `TASK_PROPOSAL_SCHEMA`, `TASK_SCORE_SCHEMA`. Existing `PROPOSAL_SCHEMA`/`SCORE_SCHEMA` untouched, so `/council:plan` is unaffected |
 | `src/report.ts` | **new** `renderTask(result)` |
 | `src/decide.ts` | **unchanged** — `tally()` is reused as-is, which is why §3.4 constrains the score shape |
-| `src/index.ts` | `council` tool gains `mode: "task"` (args: existing `goal`, optional `context`); line 355 text |
+| `src/index.ts` | **the review/task call sites live here, not in engine.ts** — `:454` passes `roles: ALL_ROLES` and `maxRounds: 2`. Also: `"task"` added to the zod `mode` enum **and** to the inline `args:` TS union at `:369`; **`context` is a new zod field** — today's schema is `{mode, base, goal}` (`:356-366`), so only `goal` is reusable as-is; `runTask` dispatch + artifact; line 355 text. Wire `context` through to `runIndependent` too, which has accepted it since `engine.ts:878` and has never been passed it (`:408`) |
+| `src/roster.test.ts` | extend the role-coverage test at `:70-72` (§5) |
+| `src/task.test.ts` | **new file** — `runTask` behaviour and `scorersFor`. Must live in `src/`: `npm test` is `node --test src/*.test.ts` |
 | `command/` | 5 renames, 1 new file, cross-reference fixes per §3.1 |
 | `agent/` | 2 new files, `council-{architect,infrastructure}.md`, both inheriting `edit: deny` / `bash: deny` (`index.test.ts:50-54` asserts it for every agent but `crew-dev`) |
 | `README.md` | 10 command references; the deepseek exclusion table |
@@ -335,15 +379,16 @@ No config migration.
 |---|---|
 | every `council:*` command registers under its colon name | a typo'd filename is a silently missing command |
 | **the five old names** (`/council-review`, `/council-fix`, `/council-plan`, `/council-independent`, `/check`) appear nowhere in `command/`, `src/`, `README.md` | dangling cross-references are the likely rename failure. Matching the five exact names, not the prefix `/council-`: the prefix also matches the legitimate `"the /council-work command still exists"` message at `index.test.ts:102`, plus the 12 `agent/council-*.md` files and the `council-${role}` literals at `engine.ts:505,990`. `PLAN.md` is excluded as a historical record (§3.1) |
-| `council:review`/`fix`/`task` select all roles; `crew`'s call still routes by glob | the "all models" requirement, and the cost split that keeps a crew run from costing a council run |
+| `council:review` and `council:task` select all roles; `crew`'s call still routes by glob | the "all models" requirement, and the cost split that keeps a crew run from costing a council run. `fix` is excluded deliberately — it has no lanes to assert on (§3.2) |
 | **roster invariant:** every schema-capable member gets ≥1 node under `ALL_ROLES` | replaces the dead `everyModel` option; fails loudly if a roster change leaves a model unused |
 | `crew`'s existing `runReview` call still gets 0 rounds | a shared default would give every crew branch-review 2 rounds |
 | `council:task` preserves runner-up and objections verbatim | the false-consensus failure it exists to prevent |
 | **`council:task` returns the highest-mean proposal** — not the alphabetically first | the exact silent failure a mis-shaped score schema causes; asserts `tally()` is actually summing |
 | `council:task` with a tie inside `TIE_MARGIN` returns `winner: null` and every tied answer | manufacturing a winner from a tie is false consensus |
 | `council:task` assigns `min(3, N-1)` scorers, never the author, deterministic for a given roster order | cost bound, self-scoring rule, reproducibility |
-| `council:task` with N=1 returns the sole proposal with `unscored: true` | reachable whenever most nodes fail |
-| `architect` and `infrastructure` each resolve to ≥1 model — **by extending `roster.test.ts:70-72` to derive from `ALL_ROLES`** rather than adding a parallel test | that test hardcodes an 11-role list, so it would silently not cover the new roles and its name would lie about its coverage |
+| `council:task` with N=1 returns the sole proposal `unranked` | no scorer is possible |
+| **`council:task` with N≥2 live answers but every scorer call failed returns `unranked`, not `tied`** | `tally([])` gives `winner: null, tied: []`, which is otherwise indistinguishable from a tie — the report would claim "did not converge" and show an empty list while N real answers exist |
+| `architect` and `infrastructure` each resolve to ≥1 model — **by extending `roster.test.ts:70-72` to derive from `KNOWN_ROLES`** (`[...ALL_ROLES, "skeptic"]`, `crew.ts:38`) rather than adding a parallel test | that test hardcodes an 11-role list, so it would silently not cover the new roles and its name would lie about its coverage. It must **not** derive from `ALL_ROLES` alone: that set deliberately excludes `skeptic` (`roster.ts:59-62`), so doing so would delete the only assertion that any model carries the role `skepticPool`, `verifyGroup` and `fixOne`'s verifier all depend on |
 | a `*.tf` diff routes to `infrastructure` and yields the same node count as today | the ops→infrastructure swap is a swap, not an addition |
 | `selectNodes`, `skepticPool`, `substitutesFor`, `runPlan` never return an `agentic`-only member | deepseek in a schema lane fails every call |
 | `runIndependent` **does** include the agentic-only member | the filter must not over-apply; prose is not structured output |
