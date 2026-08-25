@@ -1,0 +1,41 @@
+import { test } from "node:test"
+import assert from "node:assert/strict"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { openCache, probeBudget, parseCatalog } from "./catalog.ts"
+
+test("the catalog flattens providers into provider/model ids", () => {
+  // Verified shape from GET /config/providers on 2026-08-25: 9 providers, ~114 models.
+  const ids = parseCatalog({ providers: [
+    { id: "openai", models: { "gpt-5.6-sol": {}, "gpt-5.6-luna": {} } },
+    { id: "anthropic", models: { "claude-opus-5": {} } },
+  ] })
+  assert.deepEqual(ids.sort(), ["anthropic/claude-opus-5", "openai/gpt-5.6-luna", "openai/gpt-5.6-sol"])
+})
+
+test("the cache round-trips and a contradicting failure invalidates it", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cap-"))
+  try {
+    const path = join(dir, "capability.json")
+    const c = openCache(path)
+    c.record("x/y", "schema", { ok: true, ms: 1200 })
+    assert.equal(openCache(path).get("x/y", "schema")?.ok, true, "must survive a reopen")
+    c.contradict("x/y", "schema")   // a malformed/failed call says otherwise
+    assert.equal(c.get("x/y", "schema"), undefined, "a stale 'works' must not keep routing lanes")
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test("a failed probe is remembered, so a dead model costs one probe not one per run", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cap-"))
+  try {
+    const path = join(dir, "capability.json")
+    openCache(path).record("dead/model", "schema", { ok: false, ms: 90000 })
+    assert.equal(openCache(path).get("dead/model", "schema")?.ok, false)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test("the probe budget caps a bad day at three", () => {
+  const b = probeBudget(3)
+  assert.deepEqual([b.take(), b.take(), b.take(), b.take()], [true, true, true, false])
+})
