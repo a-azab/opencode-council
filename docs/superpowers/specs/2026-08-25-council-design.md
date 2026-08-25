@@ -1,6 +1,6 @@
 # Council — design spec
 
-**Date:** 2026-08-25 · **Status:** proposed (rev 6, after five spec reviews) · **Sub-project 1 of 3** (council → lets → crew)
+**Date:** 2026-08-25 · **Status:** proposed (rev 7 — dynamic roster added, §3.7) · **Sub-project 1 of 3** (council → lets → crew)
 
 ---
 
@@ -86,6 +86,7 @@ foundations they need (§3.5, §3.6), it says so.
 | `/council-independent` | `/council:independent` |
 | `/check` | `/council:check` |
 | — | `/council:task` (new) |
+| — | `/council:models` (new, §3.7.4) |
 
 One name per thing; no aliases. `command/crew:plan.md` already proves colon names register.
 
@@ -368,6 +369,90 @@ filter that makes it correct.
 `README.md:409`'s exclusion table is corrected: the direct route works for agentic work; the
 `opencode-go` remedy it recommends is dead.
 
+### 3.7 Dynamic roster: live catalog, measured capability, outage recruitment
+
+The roster is fourteen hardcoded pins. Models move underneath them, and today's
+measurements show both failure directions:
+
+| measured 2026-08-25 | consequence |
+|---|---|
+| `openai/gpt-5.5` → `gpt-5.6-{luna,sol,terra}` all pass (2.7–4.2s) | the pin is a version behind |
+| `google/gemini-3.7-flash` **times out at 90s**; `3.6-flash` answers in 9s | **"latest" is not "better"** — auto-upgrading would have silently degraded the panel |
+| `opencode/hy3-free` fails schema 3/3; **`opencode-go/hy3` passes in 6.1s** | availability is not capability; the *route* was the problem |
+| `opencode-go/muse-spark-1.2-contributor` → "collects data used to improve its quality" | gated behind consent only the human can give |
+
+So: **discovery is automatic, capability is measured, adoption is human-gated.**
+
+#### 3.7.1 Catalog — what exists right now
+
+`GET /config/providers` returns every provider and model the server can currently reach
+(verified: 9 providers, ~114 models). Fetched once per run, held in memory. This is the
+difference between "in our list" and "actually reachable today".
+
+#### 3.7.2 Capability cache — what a model can actually do
+
+```
+~/.cache/opencode-council/capability.json
+{ "<provider>/<model>": { "schema": {ok, ms, at}, "agentic": {ok, at} } }
+```
+
+Measured by the same one-call smoke probe used throughout this session, never inferred:
+`models.json`'s `structured_output` flag is already recorded in the README as unreliable in
+both directions, and §3.6's whole existence is a case of a model that advertises one thing
+and does another.
+
+- A cache entry is authoritative until a call to that model fails in a way that contradicts
+  it (`malformed`, `failed`), which invalidates the entry and forces a re-probe.
+- An unknown model is probed **once**, immediately before first use, and the result is
+  persisted. A failed probe is cached as failed — a dead model is not retried every run.
+- `~/.cache` and not the repo: this is machine- and account-specific. A teammate's quota is
+  not a fact about the code.
+
+#### 3.7.3 Outage recruitment — requirement 2
+
+`substitutesFor` (§3.6) keeps its existing three tiers over the roster, then gains a fourth:
+
+```
+1-3. roster: free-same-role → free-any-role → busy-same-role     (today)
+4.   catalog ∩ capability[schema].ok, not benched                (new)
+```
+
+Tier 4 means a lane can be filled by a model **that is not in the roster at all** — the
+`gpt-5.6-luna` and `-sol` siblings become live understudies for `terra` rather than three
+correlated lanes. Preference inside tier 4: same provider family first (a sibling is the
+nearest substitute), then any verified model, ordered by measured `ms`.
+
+Bounded: **at most 3 probes per run**, so a bad day cannot turn one review into a
+capability survey. When the budget is spent, tier 4 offers only already-verified models.
+
+#### 3.7.4 `council:models` — requirement 1 and 3, human-gated
+
+A new mode that discovers, measures, and **proposes**:
+
+```
+catalog → diff against roster → probe the candidates → table of measurements → you choose
+```
+
+It never writes the roster on its own. Model identity changes what the council *is*: swap a
+member and every verdict afterwards comes from a different panel. `gemini-3.7-flash` is the
+proof — an auto-updater would have adopted it and quietly lost a lane to timeouts.
+
+Same detect-and-confirm shape as `crew:init`, which already proposes verify/base and waits.
+
+#### 3.7.5 Roster changes proposed by today's measurements
+
+| member | from | to | why |
+|---|---|---|---|
+| `gpt55` | `openai/gpt-5.5` | `openai/gpt-5.6-terra` | fastest sibling, 2.7s vs 4.4s |
+| `glm52` | `zai-coding-plan/glm-5.2` | `zai-coding-plan/glm-5.3` | newer, measured working at 6.0s |
+| `hy3` | `opencode/hy3-free` | `opencode-go/hy3` | free route fails schema 3/3; paid route passes at 6.1s |
+| `gemini36` | `google/gemini-3.6-flash` | **unchanged** | 3.7 times out at 90s |
+| `musespark` | `opencode/muse-spark-…-free` | **left out** | both routes gated: free 500s, paid needs a data-collection opt-in that is the human's to give |
+
+`gpt-5.6-luna` and `-sol` are recorded as verified substitutes, not lanes — three tunings
+from one vendor are correlated, and correlation is the thing a multi-model panel exists to
+avoid.
+
 ---
 
 ## 4. Interfaces — every file an implementer touches
@@ -375,11 +460,14 @@ filter that makes it correct.
 | file | change |
 |---|---|
 | `src/roster.ts` | `Role` union +2; `Member.capability?`; new `deepseek` member (appended); `ROUTES` edits (§3.5); capability filter in `selectNodes`, `skepticPool` |
-| `src/engine.ts` | **new** `runTask`, `TaskResult`, `TaskProposal`, `scorersFor`; capability filter in `substitutesFor` and in `runPlan`'s proposer pick |
+| `src/engine.ts` | **new** `runTask`, `TaskResult`, `TaskProposal`, `scorersFor`, `councilArgs`; capability filter in `substitutesFor` and in `runPlan`'s proposer pick; `substitutesFor` gains tier 4 over the catalog (§3.7.3) |
 | `src/schema.ts` | **new** `TASK_PROPOSAL_SCHEMA`, `TASK_SCORE_SCHEMA`. Existing `PROPOSAL_SCHEMA`/`SCORE_SCHEMA` untouched, so `/council:plan` is unaffected |
 | `src/report.ts` | **new** `renderTask(result)` |
 | `src/decide.ts` | **unchanged** — `tally()` is reused as-is, which is why §3.4 constrains the score shape |
 | `src/index.ts` | **the review/task call sites live here, not in engine.ts** — `:454` passes `roles: ALL_ROLES` and `maxRounds: 2`. Also: `"task"` added to the zod `mode` enum **and** to the inline `args:` TS union at `:369`; **`context` is a new zod field** — today's schema is `{mode, base, goal}` (`:356-366`), so only `goal` is reusable as-is; `runTask` dispatch + artifact; line 355 text. Wire `context` through to `runIndependent` too, which has accepted it since `engine.ts:878` and has never been passed it (`:408`) |
+| `src/catalog.ts` | **new file** (§3.7) — `catalog()` over `GET /config/providers`, plus the capability cache: read/write `~/.cache/opencode-council/capability.json`, `probe(model, kind)`, invalidate-on-contradiction, and the per-run probe budget. One file because discovery and capability answer the same question: what can actually be used right now |
+| `src/catalog.test.ts` | **new file** — catalog parsing, cache round-trip and invalidation, probe budget, tier-4 substitution ordering |
+| `command/council:models.md` | **new file** (§3.7.4) |
 | `src/crew.ts` | **unchanged — deliberately.** Three claims rest on that: `KNOWN_ROLES` widens for free (§3.5), its `runReview` call must keep **both** defaults (§3.3), and deepseek must **not** be added to `CREW_MODELS` (§3.6). An implementer "helpfully" adding it there breaks the crew implementer path before sub-project 2 wires the `agentic` filter |
 | `src/roster.test.ts` | role coverage derived from `KNOWN_ROLES` (§5); the `*.tf` routing and node-count test; the capability-filter assertions for `selectNodes`/`skepticPool` |
 | `src/index.test.ts` | colon-name command registration (it already owns the identical crew test at `:65-73`); the five-old-names grep; `councilArgs` assertions |
@@ -417,6 +505,11 @@ No config migration.
 | `runIndependent` **does** include the agentic-only member | the filter must not over-apply; prose is not structured output |
 | `KNOWN_ROLES` accepts `architect`, and every previously valid crew block still parses | widening must not break existing repos |
 | both new agent files register with `edit: deny`, `bash: deny` | `index.test.ts` asserts it for all but `crew-dev` |
+| **§3.7** the capability cache round-trips, and an entry is invalidated by a contradicting `malformed`/`failed` result | a stale "works" entry would keep routing lanes into a model that stopped working |
+| **§3.7** a failed probe is cached as failed and the model is not re-probed next run | a dead model must not cost a probe every run |
+| **§3.7** substitution reaches tier 4 only after the roster tiers are exhausted, prefers the same provider family, then orders by measured `ms` | the roster stays the default panel; the catalog is the understudy bench, not a replacement |
+| **§3.7** the probe budget caps at 3 per run | a bad day must not turn one review into a capability survey |
+| **§3.7** `council:models` writes nothing without confirmation | `gemini-3.7-flash` timing out at 90s is the standing proof that auto-adopting "latest" degrades the panel |
 
 **No existing test is expected to break.** Checked: `failover.test.ts:10` (module-scope
 `selectNodes(ALL_ROLES)`; exhaustion still yields `["fable","gpt55","opus5"]` whether
