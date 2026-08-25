@@ -514,13 +514,25 @@ for one slot:
 Two loops in this system are high-volume, repetitive and shallow, which is Luna's stated
 sweet spot:
 
-| loop | volume | today |
+| loop | volume | lever |
 |---|---|---|
-| `council:task` scoring (§3.4) | **42 calls** per run — `N × k` | whichever model holds the role |
-| skeptic verification | 3 per BLOCKER, 2 per SUGGESTION | `skepticPool`, ordered by `ms` |
+| skeptic verification | 3 per BLOCKER, 2 per SUGGESTION | `skepticPool` **slices** to `count`, so ordering genuinely selects who runs — `preferFast` pays here |
+| `council:task` scoring (§3.4) | 45 calls per run — `N × k` | **no lever, by construction** — see below |
 
-Both select a **`fast`-tier member when one is available**, falling back to current
-behaviour otherwise. Lane selection (`selectNodes`) is unchanged — a lane's model follows
+`skepticPool` selects a `fast`-tier member when one is available, falling back to current
+behaviour otherwise.
+
+**Correction, 2026-08-25 (found in implementation).** An earlier revision claimed the task
+scoring pass could be routed to the fast tier the same way. It cannot. `scorersFor` is a
+*cyclic* assignment: model *j* scores proposals *j-1, j-2, j-3* mod N, so **every model
+scores exactly `k`, under any ordering of the input**. Sorting the per-proposal scorer list
+changes only the order in which parallel calls are constructed; it shifts no volume and
+saves nothing. Verified against the live roster: per-model scoring load is uniformly 3.
+
+The only real lever there would be biasing `scorersFor`'s assignment itself, which would
+trade away the property that makes it defensible — that every answer is judged by the same
+number of peers, and every peer carries the same load. Uniform assignment is worth more than
+the saving, so the cost of `council:task` stands at 15 proposals + 45 scores. Lane selection (`selectNodes`) is unchanged — a lane's model follows
 its role, and roles are assigned per the table above.
 
 This is the cost lever for §6's "most expensive path in the system": the scoring pass is
