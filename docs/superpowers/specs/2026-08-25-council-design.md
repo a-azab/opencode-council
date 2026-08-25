@@ -1,6 +1,6 @@
 # Council — design spec
 
-**Date:** 2026-08-25 · **Status:** proposed (rev 4, after three spec reviews) · **Sub-project 1 of 3** (council → lets → crew)
+**Date:** 2026-08-25 · **Status:** proposed (rev 6, after five spec reviews) · **Sub-project 1 of 3** (council → lets → crew)
 
 ---
 
@@ -208,8 +208,13 @@ export type TaskResult = {
   unscored: boolean
 }
 
-/** Pure, so the assignment rule is testable without a server. */
+/** Pure, so the assignment rule is testable without a server.
+ *  Keyed by PROPOSAL slug → the slugs of the members that score it. */
 export function scorersFor(live: TaskProposal[]): Map<string, string[]>
+
+/** Pure. What each council mode passes to the engine, so §5 can assert the cost split
+ *  without a live fan-out. `index.ts` reads this rather than inlining the values. */
+export function councilArgs(mode: "review" | "task"): { roles: Role[]; maxRounds: number }
 ```
 
 **Three terminal states, exhaustive and disjoint** — the rev 4 draft had a reachable hole
@@ -217,7 +222,7 @@ where `unscored` meant only `N === 1`:
 
 | state | when | `winner` | `tied` | `runnerUp` | `unscored` |
 |---|---|---|---|---|---|
-| **decided** | ≥1 usable score, one clear leader | the leader | `[]` | 2nd in `ranked` | `false` |
+| **decided** | ≥1 usable score, one clear leader | the leader | `[]` | `ranked[1] ?? null` | `false` |
 | **tied** | ≥1 usable score, leaders within `TIE_MARGIN` | `null` | every tied proposal | `null` | `false` |
 | **unranked** | **no usable score at all** | `null` | `[]` | `null` | `true` |
 
@@ -230,6 +235,15 @@ unranked and the report says why there is no ranking.
 
 `dropped` is not a field: failed proposers are `proposals.filter(p => p.state !== "ok")`,
 matching how `Plan.dropped` is a filter rather than a second shape.
+
+**Every live answer appears in the report, ranked or not.** `tally()` builds `ranked` only
+from scores it actually received, so in the `decided` and `tied` states a proposal whose `k`
+scorer calls all failed is in `ranked`, `winner`, `tied` and `runnerUp` *nowhere* — and
+because `unscored` is `false`, the `unranked` path that prints everything never fires. The
+answer would silently disappear. `renderTask` therefore prints a final **"answered, but
+unscored"** section listing every `state === "ok"` proposal absent from `ranked`, with the
+reason its scorers failed. Reachable whenever any scorer call fails, which the failure model
+assumes they do.
 
 ```
 every schema-capable member proposes an answer        (N proposals)
@@ -256,8 +270,12 @@ tally() → winner, or a tie that goes to the human
 - **Cost:** N=14 → 14 proposals + 42 scores = 56 calls. All-pairs would be 182.
 - **Dissent:** the runner-up and each scorer's `objection` are reproduced **verbatim**
   beneath the chosen answer.
-- **Rendering:** new `renderTask(result)` in `report.ts` (§4). No existing renderer covers
-  this shape.
+- **Rendering:** new `renderTask(result)` in `report.ts` (§4) — no existing renderer covers
+  this shape. It prints: the answer (or the tied answers, or all answers unranked), each
+  one's `confidence` beside it, the ranked means, the runner-up and objections verbatim, and
+  the "answered, but unscored" section. `confidence` has no effect on ranking; it is
+  solicited so the human can weigh an answer the models themselves were unsure of, and this
+  is its only consumer.
 - **Artifact:** `council-artifacts/<stamp>-task/`.
 
 ### 3.5 New roles: `architect`, `infrastructure`
@@ -362,8 +380,12 @@ filter that makes it correct.
 | `src/report.ts` | **new** `renderTask(result)` |
 | `src/decide.ts` | **unchanged** — `tally()` is reused as-is, which is why §3.4 constrains the score shape |
 | `src/index.ts` | **the review/task call sites live here, not in engine.ts** — `:454` passes `roles: ALL_ROLES` and `maxRounds: 2`. Also: `"task"` added to the zod `mode` enum **and** to the inline `args:` TS union at `:369`; **`context` is a new zod field** — today's schema is `{mode, base, goal}` (`:356-366`), so only `goal` is reusable as-is; `runTask` dispatch + artifact; line 355 text. Wire `context` through to `runIndependent` too, which has accepted it since `engine.ts:878` and has never been passed it (`:408`) |
-| `src/roster.test.ts` | extend the role-coverage test at `:70-72` (§5) |
-| `src/task.test.ts` | **new file** — `runTask` behaviour and `scorersFor`. Must live in `src/`: `npm test` is `node --test src/*.test.ts` |
+| `src/crew.ts` | **unchanged — deliberately.** Three claims rest on that: `KNOWN_ROLES` widens for free (§3.5), its `runReview` call must keep **both** defaults (§3.3), and deepseek must **not** be added to `CREW_MODELS` (§3.6). An implementer "helpfully" adding it there breaks the crew implementer path before sub-project 2 wires the `agentic` filter |
+| `src/roster.test.ts` | role coverage derived from `KNOWN_ROLES` (§5); the `*.tf` routing and node-count test; the capability-filter assertions for `selectNodes`/`skepticPool` |
+| `src/index.test.ts` | colon-name command registration (it already owns the identical crew test at `:65-73`); the five-old-names grep; `councilArgs` assertions |
+| `src/crew.test.ts` | `KNOWN_ROLES` accepts `architect`, and every previously valid crew block still parses (it owns the `lanes: coed` rejection at `:615`) |
+| `src/task.test.ts` | **new file** — `runTask` states and `scorersFor`. Must live in `src/`: `npm test` is `node --test src/*.test.ts` |
+| `command/council-independent.md` | a **content** edit, not a rename: its closing paragraph steers "one answer rather than several" to `mode: "plan"`, which is stale once `council:task` exists; plus passing `context` |
 | `command/` | 5 renames, 1 new file, cross-reference fixes per §3.1 |
 | `agent/` | 2 new files, `council-{architect,infrastructure}.md`, both inheriting `edit: deny` / `bash: deny` (`index.test.ts:50-54` asserts it for every agent but `crew-dev`) |
 | `README.md` | 10 command references; the deepseek exclusion table |
@@ -379,9 +401,10 @@ No config migration.
 |---|---|
 | every `council:*` command registers under its colon name | a typo'd filename is a silently missing command |
 | **the five old names** (`/council-review`, `/council-fix`, `/council-plan`, `/council-independent`, `/check`) appear nowhere in `command/`, `src/`, `README.md` | dangling cross-references are the likely rename failure. Matching the five exact names, not the prefix `/council-`: the prefix also matches the legitimate `"the /council-work command still exists"` message at `index.test.ts:102`, plus the 12 `agent/council-*.md` files and the `council-${role}` literals at `engine.ts:505,990`. `PLAN.md` is excluded as a historical record (§3.1) |
-| `council:review` and `council:task` select all roles; `crew`'s call still routes by glob | the "all models" requirement, and the cost split that keeps a crew run from costing a council run. `fix` is excluded deliberately — it has no lanes to assert on (§3.2) |
+| **`councilArgs("review")` and `councilArgs("task")` return `ALL_ROLES` and `maxRounds: 2`** | the "all models" requirement and the cost split — §3.3's entire rationale. Asserted through the pure `councilArgs` seam because the real call sites are unreachable without a live fan-out: `runReview` is a static import (`index.ts:6`) called inside `council.execute` (`:454`) and inside crew's non-exported `reviewBranch` (`crew.ts:1584`), the suite mocks nothing, and `tool.test.ts:14-15` states the rule — "Only paths that return BEFORE any model call are exercised here." `fix` is excluded deliberately: it has no lanes (§3.2) |
 | **roster invariant:** every schema-capable member gets ≥1 node under `ALL_ROLES` | replaces the dead `everyModel` option; fails loudly if a roster change leaves a model unused |
-| `crew`'s existing `runReview` call still gets 0 rounds | a shared default would give every crew branch-review 2 rounds |
+| `DEFAULT_MAX_ROUNDS` is still `0`, and `crew.ts`'s `runReview` call still passes neither `maxRounds` nor `roles` | a source-text assertion, for the same absent-seam reason as the row above. A shared default would give every crew branch-review 2 rounds |
+| **every `state === "ok"` proposal absent from `ranked` is printed under "answered, but unscored"** | otherwise a live answer whose scorers all failed vanishes from `decided`/`tied` reports entirely — silent omission, the class this command exists to prevent |
 | `council:task` preserves runner-up and objections verbatim | the false-consensus failure it exists to prevent |
 | **`council:task` returns the highest-mean proposal** — not the alphabetically first | the exact silent failure a mis-shaped score schema causes; asserts `tally()` is actually summing |
 | `council:task` with a tie inside `TIE_MARGIN` returns `winner: null` and every tied answer | manufacturing a winner from a tie is false consensus |
