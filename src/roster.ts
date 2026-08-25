@@ -169,11 +169,16 @@ export function selectNodes(roles: Role[]): Node[] {
  * verification, the same reason lets-workflow bars the architect from judging its own
  * design. Returns fewer than `count` rather than reusing a model; decide() treats thin
  * evidence as a reason to keep, so under-supplying is safe and over-supplying is not.
+ *
+ * Ordered by `preferFast` because this is the highest-volume loop in the system - 3 calls
+ * per BLOCKER, 2 per SUGGESTION, all of them shallow and repetitive, which is the work the
+ * fast tier exists for. The slice is what makes the order matter: it decides who runs, not
+ * merely who runs first.
  */
 export function skepticPool(excludeSlugs: string[], count: number): Member[] {
-  return ROSTER.filter((m) => m.roles.includes("skeptic") && canSchema(m) && !excludeSlugs.includes(m.slug))
-    .sort((a, b) => a.ms - b.ms)
-    .slice(0, count)
+  return preferFast(
+    ROSTER.filter((m) => m.roles.includes("skeptic") && canSchema(m) && !excludeSlugs.includes(m.slug)),
+  ).slice(0, count)
 }
 
 export const SKEPTICS_PER_TIER = { BLOCKER: 3, SUGGESTION: 2, NIT: 0 } as const

@@ -11,6 +11,7 @@ import {
   ALL_ROLES,
   KNOWN_ROLES,
   canSchema,
+  preferFast,
   PRAGMATIST_LINE_THRESHOLD,
   MODELS_PER_ROLE,
 } from "./roster.ts"
@@ -107,6 +108,25 @@ test("skeptic pool returns fewer rather than reusing a model", () => {
   const pool = skepticPool(all.slice(1), 3)
   assert.equal(pool.length, 1)
   assert.equal(new Set(pool.map((m) => m.slug)).size, pool.length)
+})
+
+test("volume loops rank the fast tier above a lower-ms member of another tier", () => {
+  // Asserting `skepticPool([],3)[0].tier === "fast"` alone would be VACUOUS: gpt56luna is
+  // also the lowest-ms skeptic carrier, so it already sorts first under the ms-only rule -
+  // the test would pass before the change exists and keep passing if the rule were removed.
+  // Test the rule itself, with a fast member that is SLOW by ms.
+  const members = [
+    { slug: "quick", tier: "standard", ms: 10 },
+    { slug: "fast-tier", tier: "fast", ms: 9000 },
+  ] as any
+  assert.equal(preferFast(members)[0].slug, "fast-tier",
+    "tier is a measured capability class; ms is queue noise and must not outrank it")
+})
+
+test("the skeptic pool routes through it and still fills behind", () => {
+  const pool = skepticPool([], 3)
+  assert.equal(pool[0].tier, "fast")
+  assert.ok(pool.length > 1, "the rest of the pool still fills behind the fast member")
 })
 
 test("a model that cannot emit structured output never reaches a schema lane", () => {
