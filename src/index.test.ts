@@ -140,3 +140,22 @@ test("no live file still refers to a pre-colon council name", () => {
   }
   assert.deepEqual(offenders, [], `stale command references:\n${offenders.join("\n")}`)
 })
+
+test("council reviews the whole panel with debate; crew keeps routing and 0 rounds", async () => {
+  // The real call sites need a live fan-out and this suite mocks nothing
+  // (tool.test.ts:14 - "Only paths that return BEFORE any model call are exercised here"),
+  // so the values are asserted through the pure seam index.ts reads, plus source text for
+  // the crew side.
+  const { councilArgs } = await import("./engine.ts")
+  const { ALL_ROLES } = await import("./roster.ts")
+  assert.deepEqual(councilArgs().roles, ALL_ROLES, "council must wake every lane")
+  assert.equal(councilArgs().maxRounds, 2, "council must debate")
+
+  const engine = readFileSync(join(PKG, "src/engine.ts"), "utf8")
+  assert.match(engine, /DEFAULT_MAX_ROUNDS = 0/, "crew inherits this default; it must stay 0")
+
+  const crew = readFileSync(join(PKG, "src/crew.ts"), "utf8")
+  const call = crew.slice(crew.indexOf("runReview(ctx, {"), crew.indexOf("runReview(ctx, {") + 200)
+  assert.doesNotMatch(call, /maxRounds|roles:/,
+    "crew's review must inherit both defaults, or every crew run costs a council run")
+})

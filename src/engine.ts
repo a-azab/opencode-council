@@ -13,7 +13,7 @@ import {
   dedupe, decide, applyOutcome, disputes, applyRevisions, converged, tally,
   type Finding, type Group, type Verdict, type Revision, type Score,
 } from "./decide.ts"
-import { selectRoles, selectNodes, skepticPool, SKEPTICS_PER_TIER, bySlug, ROSTER, type Node, type Role, type Member } from "./roster.ts"
+import { selectRoles, selectNodes, skepticPool, SKEPTICS_PER_TIER, bySlug, ROSTER, ALL_ROLES, type Node, type Role, type Member } from "./roster.ts"
 
 /**
  * Node outcomes are kept distinct on purpose. The council this replaces collapsed all of
@@ -564,6 +564,22 @@ export type Review = {
  * a positive result, and there has never been one.
  */
 export const DEFAULT_MAX_ROUNDS = 0
+
+/**
+ * What `council:review` asks the engine for, as data rather than inline literals.
+ *
+ * Routing is a cost control that is right for crew and wrong for "my council", and the
+ * rounds split MUST live at the call site: crew.ts calls runReview with neither argument,
+ * so raising DEFAULT_MAX_ROUNDS would silently give every crew branch-review two debate
+ * rounds.
+ *
+ * `council:task` is deliberately absent. runTask (a later chunk) takes {goal, context} and
+ * has no lanes - it reaches every model by proposing from every schema-capable member
+ * instead. Passing it these values would hand it arguments it cannot accept.
+ */
+export function councilArgs(): { roles: Role[]; maxRounds: number } {
+  return { roles: ALL_ROLES, maxRounds: 2 }
+}
 
 export async function runReview(
   ctx: Ctx,

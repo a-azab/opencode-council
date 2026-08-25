@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import { dirname, join, basename } from "node:path"
 import { execFileSync } from "node:child_process"
 import { z } from "zod"
-import { runReview, runFix, runPlan, runIndependent } from "./engine.ts"
+import { runReview, runFix, runPlan, runIndependent, councilArgs } from "./engine.ts"
 import { localMcpServers } from "./mcp.ts"
 import {
   resolveScope,
@@ -451,7 +451,7 @@ export const CouncilPlugin = async (input: any) => ({
           ].join("\n")
         }
 
-        const review = await runReview(ctx, { diff, files, changedLines })
+        const review = await runReview(ctx, { diff, files, changedLines, ...councilArgs() })
         const dir = artifactDir(cwd, "review")
         const path = join(dir, "report.md")
         writeFileSync(path, renderReport(review, { files, ms: Date.now() - t0 }))
