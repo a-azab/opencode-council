@@ -562,6 +562,17 @@ export type Review = {
  *
  * The code stays because turning it back on is a one-line experiment. Keeping it ON needed
  * a positive result, and there has never been one.
+ *
+ * That experiment is now running, and this default is no longer the whole story: as of
+ * 2026-08-25 `councilArgs()` below passes `maxRounds: 2` on the `/council:*` path, because
+ * the human asked for debate explicitly. This constant still governs everything that does
+ * NOT pass the argument - crew's branch review above all - which is exactly why the split
+ * lives at the call site rather than here.
+ *
+ * The evidence above is not overturned; it is being re-tested where it can be seen. The
+ * `## Convergence` block in report.ts prints re-judgements and changed positions per round,
+ * so the next several council reviews either produce the positive result this comment has
+ * been waiting for, or retire the rounds with a second measurement instead of a hunch.
  */
 export const DEFAULT_MAX_ROUNDS = 0
 
