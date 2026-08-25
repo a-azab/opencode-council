@@ -13,7 +13,7 @@ const finding: Finding = {
   why: "w",
   fix: "x",
   confidence: "high",
-  model: "gpt55",
+  model: "gpt56terra",
   role: "security",
 }
 
@@ -22,7 +22,7 @@ const patch = (over: Partial<Patch> = {}): Patch => ({
   patch: "diff --git a/a.ts b/a.ts\n@@ -1 +1 @@\n-old\n+new",
   explanation: "e",
   confident: true,
-  model: "openai/gpt-5.5",
+  model: "openai/gpt-5.6-terra",
   state: "ok",
   verified: true,
   verifier: "mimo",

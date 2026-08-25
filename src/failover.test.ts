@@ -37,10 +37,10 @@ test("substitutes prefer diversity, then the role, then correlation", () => {
 })
 
 test("the lane is only lost when the roster is genuinely exhausted", () => {
-  const dead = ROSTER.filter((m) => !["opus5", "gpt55", "fable"].includes(m.slug))
+  const dead = ROSTER.filter((m) => !["opus5", "gpt56terra", "fable"].includes(m.slug))
   const bench: Bench = new Map(dead.map((m) => [m.slug, "dead"]))
   const subs = substitutesFor(codeNode, round, bench, new Set(["kimik3"]))
-  assert.deepEqual(subs.map((m) => m.slug).sort(), ["fable", "gpt55", "opus5"])
+  assert.deepEqual(subs.map((m) => m.slug).sort(), ["fable", "gpt56terra", "opus5"])
 
   const everything: Bench = new Map(ROSTER.map((m) => [m.slug, "dead"]))
   assert.deepEqual(substitutesFor(codeNode, round, everything, new Set()), [],

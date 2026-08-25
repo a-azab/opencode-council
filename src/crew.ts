@@ -11,7 +11,7 @@ import { execFileSync, execSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync, statSync, writeFileSync, symlinkSync, rmSync } from "node:fs"
 import { join } from "node:path"
-import { selectRoles, bySlug, skepticPool, ROSTER, ALL_ROLES, type Role } from "./roster.ts"
+import { selectRoles, bySlug, skepticPool, ROSTER, KNOWN_ROLES, type Role } from "./roster.ts"
 import { ask, runReview, type Ctx, type NodeState } from "./engine.ts"
 import { localMcpServers, mcpTracker } from "./mcp.ts"
 import { WORKITEMS_SCHEMA, VERDICT_SCHEMA } from "./schema.ts"
@@ -34,8 +34,9 @@ import {
  * (`nx affected`, `turbo --filter`) than by a scope table we maintain by hand. If a repo
  * turns up that has neither, add the map then.
  */
-/** Every valid lane name — the full Role union, including skeptic. */
-export const KNOWN_ROLES: string[] = [...ALL_ROLES, "skeptic"]
+/** Every valid lane name — the full Role union, including skeptic. Defined in roster.ts;
+ *  re-exported (not `export ... from`) because parseCrewBlock reads it as a local. */
+export { KNOWN_ROLES }
 
 export type CrewConfig = {
   /** run in order; all must pass. */
@@ -642,7 +643,7 @@ export function renderInitProposal(p: InitProposal): string {
  * model makes it a single point of failure, and a run that dies at intake has produced
  * nothing at all.
  */
-export const CREW_MODELS = ["opus5", "gpt55", "glm52", "minimax", "kimik3"] as const
+export const CREW_MODELS = ["opus5", "gpt56terra", "glm53", "minimax", "kimik3"] as const
 
 export type WorkItem = { title: string; detail: string; files: string[]; acceptance: string }
 

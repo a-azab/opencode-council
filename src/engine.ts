@@ -13,7 +13,7 @@ import {
   dedupe, decide, applyOutcome, disputes, applyRevisions, converged, tally,
   type Finding, type Group, type Verdict, type Revision, type Score,
 } from "./decide.ts"
-import { selectRoles, selectNodes, skepticPool, SKEPTICS_PER_TIER, bySlug, ROSTER, ALL_ROLES, type Node, type Role, type Member } from "./roster.ts"
+import { selectRoles, selectNodes, skepticPool, SKEPTICS_PER_TIER, bySlug, canSchema, ROSTER, ALL_ROLES, type Node, type Role, type Member } from "./roster.ts"
 
 /**
  * Node outcomes are kept distinct on purpose. The council this replaces collapsed all of
@@ -40,7 +40,7 @@ export type NodeResult = {
   /**
    * Models tried and passed over before this one answered, in order.
    *
-   * Kept so the report can say "security/fable stood in for glm52 after a timeout" rather
+   * Kept so the report can say "security/fable stood in for glm53 after a timeout" rather
    * than quietly presenting a substituted lane as the one that was planned. A coverage
    * number that hides substitutions is the same lie as one that hides drops.
    */
@@ -397,7 +397,10 @@ export type Bench = Map<string, string>
 export function substitutesFor(node: Node, round: Node[], bench: Bench, tried: Set<string>): Member[] {
   const unavailable = new Set([...tried, ...bench.keys()])
   const inRound = new Set(round.map((n) => n.slug))
-  const usable = ROSTER.filter((m) => !unavailable.has(m.slug))
+  // canSchema, not just availability: tier 2 below is `byRole(false)` - "does not carry
+  // this role" - which is true of every role for an agentic-only member, so without this
+  // filter the implementer class covers any lane and is then handed FINDINGS_SCHEMA.
+  const usable = ROSTER.filter((m) => !unavailable.has(m.slug) && canSchema(m))
   const byRole = (want: boolean) => (m: Member) => m.roles.includes(node.role) === want
 
   return [
@@ -1002,7 +1005,7 @@ export async function runPlan(
   const picks: { role: string; member: ReturnType<typeof bySlug> }[] = []
   const used = new Set<string>()
   for (const role of PLANNING_ROLES) {
-    const m = ROSTER.find((x) => x.roles.includes(role as any) && !used.has(x.slug))
+    const m = ROSTER.find((x) => x.roles.includes(role as any) && canSchema(x) && !used.has(x.slug))
     if (m) {
       used.add(m.slug)
       picks.push({ role, member: m })
