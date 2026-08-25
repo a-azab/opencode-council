@@ -1083,6 +1083,84 @@ export async function runPlan(
   }
 }
 
+// --- council:task ------------------------------------------------------------
+
+/** Provenance as `Proposal` carries it, plus the task schema's fields. */
+export type TaskProposal = {
+  /** required: tally() is slug-keyed, and the answer is mapped back by it */
+  slug: string
+  role: string
+  model: string
+  answer: string
+  reasoning: string
+  confidence: "high" | "medium" | "low"
+  state: NodeState
+  detail?: string
+}
+
+/**
+ * `Score`'s four dimensions, plus `objection` - which is the point. `reason` is praise when
+ * the score is high, so dissent with a field of its own is the only way an objection
+ * survives the arithmetic into the report.
+ */
+export type TaskScore = {
+  proposal: string
+  scorer: string
+  correctness: number
+  simplicity: number
+  risk: number
+  completeness: number
+  reason: string
+  objection: string
+}
+
+export type TaskResult = {
+  goal: string
+  proposals: TaskProposal[]
+  scores: TaskScore[]
+  ranked: ReturnType<typeof tally>["ranked"]
+  winner: TaskProposal | null
+  tied: TaskProposal[]
+  runnerUp: TaskProposal | null
+  objections: { scorer: string; proposal: string; objection: string }[]
+  unscored: boolean
+}
+
+/**
+ * Three terminal states, disjoint and exhaustive: decided, tied, unranked.
+ *
+ * The third is why this is not a one-liner over tally(). tally() answers `winner: null`
+ * both when the leaders are too close to separate AND when it received no usable score at
+ * all, and those are different facts: the first is a real disagreement for the human to
+ * settle, the second is a council that never voted. Reporting "did not converge" over
+ * answers nobody scored invents a debate that never happened.
+ *
+ * Ranking is tally()'s and is never re-derived here - the arithmetic lives in decide.ts (D3).
+ */
+export function decideTask(
+  proposals: TaskProposal[],
+  scores: TaskScore[],
+): Omit<TaskResult, "goal"> {
+  const { ranked, winner, tied } = tally(scores)
+  const proposalFor = (t: { proposal: string }) =>
+    proposals.find((p) => p.slug === t.proposal) ?? null
+
+  return {
+    proposals,
+    scores,
+    ranked,
+    winner: winner ? proposalFor(winner) : null,
+    tied: tied.flatMap((t) => proposalFor(t) ?? []),
+    // Only a decided run has a runner-up. Naming one under a tie would rank exactly the
+    // answers the tie exists to say cannot be ranked.
+    runnerUp: winner && ranked[1] ? proposalFor(ranked[1]) : null,
+    objections: scores
+      .filter((s) => s.objection?.trim())
+      .map((s) => ({ scorer: s.scorer, proposal: s.proposal, objection: s.objection })),
+    unscored: ranked.length === 0,
+  }
+}
+
 export async function runFix(
   ctx: Ctx,
   input: { findings: Finding[]; diff: string; cwd?: string },
