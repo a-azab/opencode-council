@@ -153,18 +153,20 @@ git add -A && git commit -m "refactor(council): colon namespace, one name per co
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-test("every council command registers under its colon name", () => {
+test("every council command registers under its colon name", async () => {
   // The mirror of Task 1.1's negative grep: that one proves no stale name survives, this
   // proves the new ones actually load. index.test.ts:65-73 already does exactly this for
   // crew. A command file whose name is wrong is silently absent, never an error.
-  const { config } = loadPlugin()
+  //
+  // `load()` (index.test.ts:17) is async; the callback must be too, or `{config}` comes off
+  // a Promise as undefined.
+  const { config } = await load()
   for (const c of ["council:review", "council:fix", "council:plan", "council:independent", "council:check"])
     assert.ok(config.command[c]?.template?.length > 100, `command ${c} missing or empty`)
 })
 ```
 
-Use whatever the existing crew registration test at `index.test.ts:65-73` uses to load the
-plugin — reuse its helper rather than adding a second one.
+Reuse `load()` at `index.test.ts:17` rather than adding a second helper.
 
 - [ ] **Step 2: Run** — Expected: PASS immediately (Task 1.1 already did the renames). This
   test is a regression guard, not a driver; note that in the commit message.
@@ -252,27 +254,36 @@ git add -A && git commit -m "feat(council): full panel and debate rounds, split 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
+import { renderReport } from "./report.ts"
+
+// renderReport(review, meta) takes TWO arguments and dereferences meta.files.length and
+// meta.ms (report.ts:22,34). It also destructures kept/nodes/dropped/disputed and spreads
+// `kept` immediately, so `as any` on a partial object throws rather than degrading.
+const reviewFixture = (over: Record<string, unknown> = {}) => ({
+  verdictCounts: { blockers: 0, suggestions: 0, nits: 0 },
+  kept: [], nodes: [], dropped: [], disputed: [], substituted: [],
+  debate: [], convergence: "no disputes",
+  ...over,
+}) as any
+
 test("a debate round that moves a position is reported as having moved it", () => {
   // The loop has never executed with maxRounds > 0. Asserting on a live review would be
-  // non-deterministic (converged() returns done immediately when there are no disputes,
-  // so a small diff plausibly yields 0 rounds and would 'pass' having proven nothing).
-  // A fixture makes the claim exact.
-  const out = renderReport({
-    ...emptyReviewFixture(),
+  // non-deterministic - converged() returns done immediately when there are no disputes,
+  // so a small diff plausibly yields 0 rounds and would 'pass' having proven nothing.
+  const out = renderReport(reviewFixture({
     debate: [{ round: 1, revisions: [
       { model: "opus5", tier: "SUGGESTION", changed: true },
       { model: "fable", tier: "BLOCKER", changed: false },
     ] }],
     convergence: "no tier moved",
-  } as any)
+  }), { files: ["x.ts"], ms: 1234 })
+
   assert.match(out, /## Convergence/)
   assert.match(out, /Round 1/)
   assert.match(out, /1 changed position/)
   assert.match(out, /opus5→SUGGESTION/)
 })
 ```
-
-Build `emptyReviewFixture()` from the shape `report.test.ts` already uses for `renderReport`.
 
 - [ ] **Step 2: Run** — Expected: PASS (`report.ts:92-103` already renders this). It has
   never been exercised; this pins it before Chunk 3 touches the report module.
@@ -305,8 +316,9 @@ git add -A && git commit -m "test(council): pin the convergence report before ta
 
 ## Chunk 2: The roster gets right — models, tiers, capability, two new lanes
 
-Spec §3.5, §3.6, §3.7.5. Tasks 2.1 and 2.2 are one commit: the capability *field* without
-an agentic-only *member* leaves its test unsatisfiable, and committing red breaks bisect.
+Spec §3.5, §3.6, §3.7.5. Each task commits green on its own — Task 2.1 carries both the
+capability field *and* the agentic-only members that make its tests satisfiable, so it does
+not depend on 2.2.
 
 ### Task 2.1: Capability, tiers, and the current models
 
@@ -376,7 +388,9 @@ export const canSchema = (m: Member) => (m.capability ?? ["schema"]).includes("s
 export const canAgentic = (m: Member) => (m.capability ?? ["schema"]).includes("agentic")
 
 /** Every role a repo's crew block may legally name. Lives here, not in crew.ts, so the
- *  roster suite can assert on it without importing a 2000-line module. */
+ *  roster suite can assert on it without importing a 2000-line module.
+ *  MUST be placed textually AFTER `ALL_ROLES` (roster.ts:59) - it reads it at module init,
+ *  and a const cannot be read before its declaration. */
 export const KNOWN_ROLES: string[] = [...ALL_ROLES, "skeptic"]
 ```
 
@@ -388,7 +402,16 @@ list, `skepticPool`, `substitutesFor` (`engine.ts:400`), and `runPlan`'s propose
 the filter, deepseek is offered as a substitute for every failed lane and then handed
 `FINDINGS_SCHEMA`. `roles: []` is defence in depth only where selection is *positive*.
 
-In `crew.ts`, replace the definition with `export { KNOWN_ROLES } from "./roster.ts"`.
+In `crew.ts`, replace the definition with **an import plus a re-export**:
+
+```ts
+import { KNOWN_ROLES } from "./roster.ts"
+export { KNOWN_ROLES }
+```
+
+`export { X } from "./y.ts"` alone would **not** create a local binding, and `crew.ts:123`
+reads `KNOWN_ROLES` inside `parseCrewBlock` - node strips types without checking, so that
+would be a runtime ReferenceError the first time any crew block is parsed.
 
 Roster members, all measured 2026-08-25 against the live server:
 
@@ -408,6 +431,13 @@ Roster members, all measured 2026-08-25 against the live server:
 // Implementer class: drives tools, refuses a named schema call.
 { slug: "deepseek", model: "deepseek/deepseek-v4-pro", roles: [], ms: 9459, capability: ["agentic"] },
 ```
+
+**Give `nemoultra` the `breadth` role**: `["reviewer","systems","breadth"]`. Without this
+the roster invariant test in Step 2 cannot pass — re-derived against this roster, nemoultra
+loses `systems` to glm53 (6007) and grok45 (7146) and `reviewer` to gpt56luna (4228) and
+minimax (4532), leaving it with no node at all. `breadth` is free to give precisely because
+`musespark` vacates it below, and a wide-angle lane suits the largest free model on the
+roster.
 
 Also: give `opus5` `capability: ["schema","agentic"]` (already a live crew implementer), and
 set `musespark` to `capability: ["agentic"]` with `roles: []` — `README.md:392` already
@@ -564,6 +594,9 @@ test("scorer assignment is deterministic, never self, and survives a thin panel"
  * Who scores whom. Cyclic-next over roster order, so it is reproducible and no model ever
  * scores itself (k <= N-1 guarantees it). All-pairs would be 240 calls at N=16; this is 48.
  * Keyed by proposal slug -> the slugs that score it.
+ *
+ * Takes `{slug}[]` rather than spec §3.4's `TaskProposal[]` on purpose: the rule needs
+ * nothing else, and the looser type lets the test fixture be two fields instead of eight.
  */
 export function scorersFor(live: { slug: string }[]): Map<string, string[]> {
   const n = live.length
@@ -750,8 +783,8 @@ git add -A && git commit -m "feat(council): renderTask - dissent verbatim, no an
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-test("the council tool accepts task mode and a context argument", () => {
-  const { tool } = loadPlugin()
+test("the council tool accepts task mode and a context argument", async () => {
+  const { tool } = await load()
   assert.ok(tool.council.args.mode.safeParse("task").success, "mode enum must accept 'task'")
   assert.ok(tool.council.args.context, "context is a new arg, used by task and independent")
 })
@@ -874,17 +907,19 @@ git add -A && git commit -m "feat(council): live catalog and measured capability
 ```ts
 test("an exhausted roster can recruit from the catalog, by injection", () => {
   // The pool is passed in, never fetched here: failover.test.ts:43 asserts a fully benched
-  // roster returns []. If this function fetched a catalogue, that assertion would depend on
+  // roster returns [] (failover.test.ts:45-47). If this function fetched a catalogue, that assertion would depend on
   // live network state and the suite would pass or fail by weather.
   const everything: Bench = new Map(ROSTER.map((m) => [m.slug, "dead"]))
   assert.deepEqual(substitutesFor(codeNode, round, everything, new Set()), [],
     "with no pool offered, behaviour is exactly what it is today")
 
-  const sibling = { slug: "luna-sib", model: "openai/gpt-5.6-luna", roles: ["code"], ms: 4228 } as any
+  // codeNode is kimik3 (failover.test.ts:11), so the FAMILY here is `kimi-for-coding`.
+  // A sibling from another provider would never exercise the family rule.
+  const sibling = { slug: "k3-sib", model: "kimi-for-coding/k3-256k", roles: ["code"], ms: 9999 } as any
   const far = { slug: "far", model: "other/model", roles: ["code"], ms: 100 } as any
   const subs = substitutesFor(codeNode, round, everything, new Set(), [far, sibling])
-  assert.deepEqual(subs.map((m) => m.slug), ["luna-sib", "far"],
-    "same provider family first, even when a stranger is faster")
+  assert.deepEqual(subs.map((m) => m.slug), ["k3-sib", "far"],
+    "same provider family first, even though the stranger is 100x faster by ms")
 })
 ```
 
@@ -915,22 +950,42 @@ git add -A && git commit -m "feat(council): recruit substitutes from the live ca
 - [ ] **Step 1: Write the failing test**
 
 ```ts
-test("the shallow, high-volume loops prefer the fast tier", () => {
-  // 48 scoring calls per council:task and 3 skeptics per blocker is exactly the
-  // "high-volume, lightweight, repetitive" work the fast tier exists for. gpt56luna
-  // carries `skeptic` (Task 2.1) precisely so this loop can reach it.
+test("volume loops rank the fast tier above a lower-ms member of another tier", () => {
+  // Asserting `skepticPool([],3)[0].tier === "fast"` would be VACUOUS: gpt56luna is also
+  // the lowest-ms skeptic carrier, so it already sorts first under today's ms-only rule and
+  // the test would pass before the change exists and keep passing if the rule were removed.
+  // Test the rule itself, with a fast member that is slow by ms.
+  const members = [
+    { slug: "quick", tier: "standard", ms: 10 },
+    { slug: "fast-tier", tier: "fast", ms: 9000 },
+  ] as any
+  assert.equal(preferFast(members)[0].slug, "fast-tier",
+    "tier is a measured capability class; ms is queue noise and must not outrank it")
+})
+
+test("the skeptic pool routes through it and still fills behind", () => {
   const pool = skepticPool([], 3)
-  assert.equal(pool[0].tier, "fast", "a fast-tier skeptic must be preferred when one exists")
-  assert.ok(pool.length > 1, "and the rest of the pool still fills behind it")
+  assert.equal(pool[0].tier, "fast")
+  assert.ok(pool.length > 1, "the rest of the pool still fills behind the fast member")
 })
 ```
 
-- [ ] **Step 2: Run and watch it fail** — today `skepticPool` sorts by `ms` only.
+- [ ] **Step 2: Run and watch the first fail** — `preferFast` does not exist. The second
+  passes already; it is a regression guard, not a driver.
 
 - [ ] **Step 3: Implement**
 
-Order `skepticPool` and `runTask`'s scorer selection by `tier === "fast"` first, then
-today's ordering. Fall back silently when no fast member exists.
+Add the rule as a pure, exported helper so it is testable on its own, then use it in both
+places:
+
+```ts
+/** Fast tier first, then today's ms order. Used by the two high-volume, shallow loops. */
+export const preferFast = <T extends { tier?: string; ms: number }>(ms: T[]): T[] =>
+  [...ms].sort((a, b) => Number(b.tier === "fast") - Number(a.tier === "fast") || a.ms - b.ms)
+```
+
+`skepticPool` and `runTask`'s scorer selection both route through it. With no fast member
+present it degrades to exactly today's ordering.
 
 - [ ] **Step 4: Run** — PASS. **Step 5: Commit**
 
@@ -963,8 +1018,8 @@ test("the models proposal names what changed and never claims to have applied it
 })
 
 // index.test.ts - registration only, no execution.
-test("the council tool accepts models mode", () => {
-  const { tool } = loadPlugin()
+test("the council tool accepts models mode", async () => {
+  const { tool } = await load()
   assert.ok(tool.council.args.mode.safeParse("models").success)
 })
 ```

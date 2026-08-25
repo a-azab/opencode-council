@@ -1,6 +1,6 @@
 # Council — design spec
 
-**Date:** 2026-08-25 · **Status:** proposed (rev 7 — dynamic roster added, §3.7) · **Sub-project 1 of 3** (council → lets → crew)
+**Date:** 2026-08-25 · **Status:** proposed (rev 9 — reviewed 5×, then tiers and dynamic roster) · **Sub-project 1 of 3** (council → lets → crew)
 
 ---
 
