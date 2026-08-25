@@ -213,7 +213,16 @@ Expected: FAIL — `councilArgs` is not exported.
 
 - [ ] **Step 3: Implement**
 
-In `src/engine.ts`, beside `DEFAULT_MAX_ROUNDS`:
+First the import. `engine.ts:16` imports `selectRoles, selectNodes, skepticPool, …` but
+**not** `ALL_ROLES` — it appears only inside a comment at `:582`. node strips types without
+checking, so without this the test dies on `ReferenceError: ALL_ROLES is not defined`:
+
+```ts
+import { selectRoles, selectNodes, skepticPool, ALL_ROLES, SKEPTICS_PER_TIER, bySlug, ROSTER,
+         type Node, type Role, type Member } from "./roster.ts"
+```
+
+Then, beside `DEFAULT_MAX_ROUNDS`:
 
 ```ts
 /**
@@ -329,7 +338,17 @@ not depend on 2.2.
 - [ ] **Step 1: Add imports to `src/roster.test.ts`**
 
 ```ts
-import { ROSTER, ALL_ROLES, KNOWN_ROLES, canSchema, selectNodes, selectRoles, skepticPool } from "./roster.ts"
+import { readFileSync } from "node:fs"
+import { join, dirname } from "node:path"
+import { fileURLToPath } from "node:url"
+import { ROSTER, ALL_ROLES, KNOWN_ROLES, canSchema, preferFast, selectNodes, selectRoles, skepticPool } from "./roster.ts"
+import { substitutesFor, type Bench } from "./engine.ts"
+
+const PKG = dirname(dirname(fileURLToPath(import.meta.url)))
+// The same fixtures failover.test.ts:10-11 builds: one node in a round, so substitutesFor
+// has a lane to cover.
+const round = selectNodes(["code", "security"])
+const codeNode = round.find((n) => n.role === "code")!
 ```
 
 `KNOWN_ROLES` moves from `crew.ts:38` to `roster.ts` in Step 3, with `crew.ts` re-exporting
@@ -346,6 +365,30 @@ test("a model that cannot emit structured output never reaches a schema lane", (
   const banned = new Set(agenticOnly.map((m) => m.slug))
   for (const n of selectNodes(ALL_ROLES)) assert.ok(!banned.has(n.slug), `${n.slug} in a lane`)
   for (const m of skepticPool([], 99)) assert.ok(!banned.has(m.slug), `${m.slug} as a skeptic`)
+})
+
+test("an agentic-only member is never offered as a substitute", () => {
+  // The one site where `roles: []` does NOT protect: substitutesFor's tier 2 is
+  // `byRole(false)`, i.e. "does not carry this role" - which is TRUE for every role when
+  // roles is empty. Without the capability filter, deepseek is offered for every failed
+  // lane and then handed FINDINGS_SCHEMA. No existing failover test would catch it: the
+  // exhaustion case benches deepseek, and the ordering case only checks free-before-busy.
+  const bench: Bench = new Map()
+  const offered = substitutesFor(codeNode, round, bench, new Set())
+  for (const m of offered)
+    assert.ok(canSchema(m), `${m.slug} cannot emit schema and must not cover a lane`)
+})
+
+test("the capability filter does not over-apply: prose lanes keep every model", () => {
+  // runIndependent maps the WHOLE roster and passes no schema (engine.ts:889 - ask<string>,
+  // prose read from message parts). deepseek answers there perfectly well; filtering it out
+  // would silently shrink the panel with every test still green, because it is true by
+  // construction today. This pins the boundary.
+  const src = readFileSync(join(PKG, "src/engine.ts"), "utf8")
+  const fn = src.slice(src.indexOf("export async function runIndependent"))
+  const body = fn.slice(0, fn.indexOf("\n}"))
+  assert.match(body, /ROSTER\.map/, "independent must fan out across the whole roster")
+  assert.doesNotMatch(body, /canSchema/, "prose is not structured output; do not filter here")
 })
 
 test("every schema-capable member gets at least one node in a full panel", () => {
@@ -427,6 +470,9 @@ Roster members, all measured 2026-08-25 against the live server:
   ms: 4228, tier: "fast",     capability: ["schema","agentic"] },
 { slug: "glm53", model: "zai-coding-plan/glm-5.3", roles: ["systems","reviewer"],
   ms: 6007, capability: ["schema","agentic"] },
+// REPLACES the existing entry at roster.ts:49 - do not add a second `hy3`. Two members
+// with one slug leaves every test green (same slug => same invariant, same node count),
+// so this fails silently rather than loudly.
 { slug: "hy3",   model: "opencode-go/hy3",         roles: ["qa","ops"], ms: 6117 },
 // Implementer class: drives tools, refuses a named schema call.
 { slug: "deepseek", model: "deepseek/deepseek-v4-pro", roles: [], ms: 9459, capability: ["agentic"] },
@@ -450,7 +496,9 @@ records it as chatting but emitting no structured output, and its 400 names the 
 
 `src/failover.test.ts:40,43` hardcode `gpt55` → `gpt56terra`.
 `src/report.test.ts:16,25` hardcode `"gpt55"` / `"openai/gpt-5.5"` — inert fixture strings,
-but update them so the suite does not describe a model that no longer exists.
+but update them so the suite does not describe a model that no longer exists. Same for
+`roster.test.ts:51`'s comment "reviewer and systems overlap on glm52": the assertion still
+passes, but the comment would be a lie about a deleted member.
 
 - [ ] **Step 5: Run** — Expected: all green, including both new tests.
 
@@ -620,9 +668,11 @@ git add -A && git commit -m "feat(council): deterministic scorer assignment for 
 - Modify: `src/schema.ts`
 - Test: `src/task.test.ts`
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Add the import, then write the failing test**
 
 ```ts
+import { TASK_PROPOSAL_SCHEMA, TASK_SCORE_SCHEMA } from "./schema.ts"
+
 test("the task score keeps Score's four dimensions so tally() stays usable", () => {
   // A 1-10 scalar would make tally()'s four-term sum NaN; NaN compares falsy, so its sort
   // falls through to alphabetical-by-slug and still reports a confident winner. That is a
@@ -743,9 +793,11 @@ git add -A && git commit -m "feat(council): decideTask with an exhaustive termin
 - Modify: `src/report.ts`
 - Test: `src/task.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Add the import, then write the failing tests**
 
 ```ts
+import { renderTask } from "./report.ts"
+
 test("no live answer disappears from the report", () => {
   // tally() ranks only what it received scores for, so a proposal whose scorers all failed
   // is in ranked/winner/tied/runnerUp nowhere - and `unscored` is false, so the unranked
@@ -794,8 +846,18 @@ test("the council tool accepts task mode and a context argument", async () => {
 
 I/O only — the decision logic is already `decideTask`. Fan out proposals to every
 `canSchema` member under `agent: council-${member.roles[0]}`; filter to live; `scorersFor`;
-fan out scores, preferring a `fast`-tier member as scorer (Task 4.3 makes this pay); call
-`decideTask`.
+fan out the scores; call `decideTask`, then fill in `goal`.
+
+Scorer ordering uses `preferFast` — **add it here** rather than writing an ad-hoc preference
+now and replacing it in Task 4.3:
+
+```ts
+/** Fast tier first, then today's ms order. For the two high-volume, shallow loops. */
+export const preferFast = <T extends { tier?: string; ms: number }>(xs: T[]): T[] =>
+  [...xs].sort((a, b) => Number(b.tier === "fast") - Number(a.tier === "fast") || a.ms - b.ms)
+```
+
+`decideTask` returns `Omit<TaskResult, "goal">`; `runTask` supplies the goal it was given.
 
 - [ ] **Step 4: Wire the tool and commands**
 
@@ -970,22 +1032,14 @@ test("the skeptic pool routes through it and still fills behind", () => {
 })
 ```
 
-- [ ] **Step 2: Run and watch the first fail** — `preferFast` does not exist. The second
-  passes already; it is a regression guard, not a driver.
+- [ ] **Step 2: Run** — the `preferFast` test passes (Task 3.5 added it); the `skepticPool`
+  one passes too, since gpt56luna is already lowest-ms. Both are regression guards here:
+  the driver is that removing the tier rule must turn the first one red.
 
 - [ ] **Step 3: Implement**
 
-Add the rule as a pure, exported helper so it is testable on its own, then use it in both
-places:
-
-```ts
-/** Fast tier first, then today's ms order. Used by the two high-volume, shallow loops. */
-export const preferFast = <T extends { tier?: string; ms: number }>(ms: T[]): T[] =>
-  [...ms].sort((a, b) => Number(b.tier === "fast") - Number(a.tier === "fast") || a.ms - b.ms)
-```
-
-`skepticPool` and `runTask`'s scorer selection both route through it. With no fast member
-present it degrades to exactly today's ordering.
+`preferFast` already exists from Task 3.5. Route `skepticPool` through it too. With no fast
+member present it degrades to exactly today's ordering.
 
 - [ ] **Step 4: Run** — PASS. **Step 5: Commit**
 
@@ -1000,9 +1054,11 @@ git add -A && git commit -m "feat(council): route the shallow high-volume loops 
 - Create: `command/council:models.md`
 - Test: `src/catalog.test.ts`, `src/index.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Add the import, then write the failing tests**
 
 ```ts
+import { renderModelsProposal } from "./report.ts"   // in catalog.test.ts
+
 // catalog.test.ts - the renderer is pure, so no network and no live probes.
 test("the models proposal names what changed and never claims to have applied it", () => {
   // gemini-3.7-flash times out at 90s while 3.6 answers in 9s. An auto-updater chasing
