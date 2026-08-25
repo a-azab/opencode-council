@@ -106,6 +106,15 @@ test("work mode is gone from every surface", async () => {
   )
 })
 
+test("every council command registers under its colon name", async () => {
+  // The mirror of the negative grep test: that one proves no stale name survives, this
+  // proves the new ones actually load. A command file whose name is wrong is silently
+  // absent, never an error.
+  const { config } = await load()
+  for (const c of ["council:review", "council:fix", "council:plan", "council:independent", "council:check"])
+    assert.ok(config.command[c]?.template?.length > 100, `command ${c} missing or empty`)
+})
+
 test("no live file still refers to a pre-colon council name", () => {
   // The likely failure of a rename is a dangling cross-reference, not a missing file.
   //
