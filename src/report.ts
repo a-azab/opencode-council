@@ -152,7 +152,7 @@ export function renderPlan(plan: import("./engine.ts").Plan): string {
       `## Your call`,
       "",
       `${tied.map((t) => `**${t.proposal}** (${t.mean.toFixed(2)})`).join(" and ")} scored within ` +
-        `${(0.25).toFixed(2)} of each other. That gap is smaller than these scores can`,
+        `${TIE_MARGIN.toFixed(2)} of each other. That gap is smaller than these scores can`,
       "resolve, so calling one the winner would be false precision. Both are below — pick on",
       "grounds the rubric does not capture.",
       "",
@@ -283,7 +283,7 @@ export function renderTask(result: TaskResult): string {
     lines.push(
       "## Ranking",
       "",
-      "| answer | role | confidence | mean | scores |",
+      "| answer | role | confidence | mean (of 20) | scores |",
       "|---|---|---|---|---|",
     )
     for (const r of ranked) {
