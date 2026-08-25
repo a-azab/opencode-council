@@ -123,6 +123,19 @@ test("volume loops rank the fast tier above a lower-ms member of another tier", 
     "tier is a measured capability class; ms is queue noise and must not outrank it")
 })
 
+test("the skeptic pool is actually wired to preferFast, not merely coincident with it", () => {
+  // The behavioural test below cannot catch a regression here: gpt56luna is both the
+  // fast-tier carrier AND the lowest-ms one, so un-routing skepticPool back to a plain ms
+  // sort leaves every assertion green. Verified by mutation - reverting the call changed
+  // no test outcome. Until a fast-tier skeptic exists that is not also fastest by ms, the
+  // wiring needs pinning directly. Same technique the suite already uses for crew's
+  // runReview call site.
+  const src = readFileSync(join(PKG, "src/roster.ts"), "utf8")
+  const fn = src.slice(src.indexOf("export function skepticPool"))
+  const body = fn.slice(0, fn.indexOf("\n}"))
+  assert.match(body, /preferFast/, "skepticPool must route through the tier rule")
+})
+
 test("the skeptic pool routes through it and still fills behind", () => {
   const pool = skepticPool([], 3)
   assert.equal(pool[0].tier, "fast")
