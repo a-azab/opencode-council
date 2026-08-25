@@ -2,6 +2,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { scorersFor, decideTask, type TaskProposal, type TaskScore } from "./engine.ts"
 import { TASK_PROPOSAL_SCHEMA, TASK_SCORE_SCHEMA } from "./schema.ts"
+import { renderTask } from "./report.ts"
 
 const prop = (slug: string): TaskProposal => ({
   slug, role: "reviewer", model: `test/${slug}`,
@@ -78,4 +79,18 @@ test("live answers with no usable score are unranked, not tied", () => {
   assert.equal(r.unscored, true)
   assert.equal(r.tied.length, 0)
   assert.equal(r.proposals.filter((p) => p.state === "ok").length, 3)
+})
+
+test("no live answer disappears from the report", () => {
+  // tally() ranks only what it received scores for, so a proposal whose scorers all failed
+  // is in ranked/winner/tied/runnerUp nowhere - and `unscored` is false, so the unranked
+  // path never fires. Without an explicit section it vanishes while the report looks clean.
+  const out = renderTask({ ...fixtureOrphanedAnswer(), goal: "a goal" })
+  assert.match(out, /answered, but unscored/i)
+  assert.match(out, /answer from m2/, "the orphaned answer must still be printed")
+})
+
+test("dissent survives into the report verbatim", () => {
+  const out = renderTask({ ...fixtureWithObjection("this ignores the retry budget"), goal: "a goal" })
+  assert.match(out, /this ignores the retry budget/)
 })

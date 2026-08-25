@@ -1,7 +1,7 @@
 // Report rendering. Templated from the aggregated data - no model writes this, and no
 // model may add, remove, or re-tier a finding on the way out (D3).
-import type { Review } from "./engine.ts"
-import type { Finding } from "./decide.ts"
+import type { Review, TaskProposal, TaskResult } from "./engine.ts"
+import { TIE_MARGIN, type Finding } from "./decide.ts"
 
 const TIER_ORDER = { BLOCKER: 0, SUGGESTION: 1, NIT: 2 } as const
 
@@ -198,6 +198,138 @@ export function renderPlan(plan: import("./engine.ts").Plan): string {
     for (const d of dropped)
       lines.push(`- ${d.role} / ${d.slug} — \`${d.state}\` ${(d.detail ?? "").slice(0, 90)}`)
     lines.push("", `> ${dropped.length} of ${proposals.length} lanes are missing from this comparison.`, "")
+  }
+
+  return lines.join("\n")
+}
+
+/**
+ * One answer, with the dissent that lost still attached.
+ *
+ * The three terminal states decideTask() computes are rendered as three different reports,
+ * because they are three different things to tell a human: here is the answer, the council
+ * split and it is your call, or nothing was ever scored. Collapsing the last two into "no
+ * winner" would report a disagreement that never took place.
+ */
+export function renderTask(result: TaskResult): string {
+  const { goal, proposals, scores, ranked, winner, tied, runnerUp, objections, unscored } = result
+  const live = proposals.filter((p) => p.state === "ok")
+  const dropped = proposals.filter((p) => p.state !== "ok")
+  const meanOf = (slug: string) => ranked.find((r) => r.proposal === slug)?.mean
+
+  const lines: string[] = [
+    "# Council answer",
+    "",
+    `**Task.** ${goal}`,
+    "",
+    `${live.length} answers · ${scores.length} cross-scores · ` +
+      (winner
+        ? `winner: **${winner.slug}**`
+        : unscored
+          ? "**unranked — nothing was scored**"
+          : "**no winner — too close to call**"),
+    "",
+  ]
+
+  /**
+   * `confidence` rides beside every answer this prints and nowhere else. It is deliberately
+   * NOT in the ranking - tally() sums four dimensions and confidence is not one of them, so
+   * a model cannot win by asserting itself louder. It is solicited so a human can weigh an
+   * answer the model was itself unsure of, and this is its only consumer.
+   */
+  const answer = (p: TaskProposal, heading: string) => {
+    const m = meanOf(p.slug)
+    lines.push(
+      `${heading}${m !== undefined ? ` (${m.toFixed(2)})` : ""}`,
+      "",
+      `<sub>${p.role} · ${p.model} · confidence ${p.confidence}</sub>`,
+      "",
+      p.answer,
+      "",
+    )
+    if (p.reasoning) lines.push(`**Why.** ${p.reasoning}`, "")
+  }
+
+  if (winner) {
+    answer(winner, `## Answer — ${winner.slug}`)
+  } else if (tied.length) {
+    // A tie goes to the human. Asking a model to break it would put the decision back
+    // inside a model, which is the thing this design forbids (D3).
+    lines.push(
+      "## Your call",
+      "",
+      `The council did not converge. ${tied.map((t) => `**${t.slug}** (${meanOf(t.slug)?.toFixed(2) ?? "—"})`).join(" and ")} scored`,
+      `within ${TIE_MARGIN.toFixed(2)} of each other, which is a smaller gap than these scores can resolve, so`,
+      "naming one the winner would be false precision. They are side by side below — pick on",
+      "grounds the rubric does not capture.",
+      "",
+    )
+    for (const t of tied) answer(t, `### ${t.slug}`)
+  } else if (unscored) {
+    // Not a tie, and it must never be printed as one: nothing was ranked because no usable
+    // score ever arrived, so there is no disagreement here to report.
+    lines.push(
+      "## No ranking was possible",
+      "",
+      `${live.length} answer(s) came back, but not one usable cross-score did, so there is nothing`,
+      "to rank. This is not a tie — the council never voted. Every answer is below, in no",
+      "order, and the ordering is yours to supply.",
+      "",
+    )
+    for (const p of live) answer(p, `### ${p.slug}`)
+  }
+
+  if (ranked.length) {
+    lines.push(
+      "## Ranking",
+      "",
+      "| answer | role | confidence | mean | scores |",
+      "|---|---|---|---|---|",
+    )
+    for (const r of ranked) {
+      const p = proposals.find((x) => x.slug === r.proposal)
+      lines.push(
+        `| ${r.proposal}${winner?.slug === r.proposal ? " ✅" : ""} | ${p?.role ?? "?"} | ` +
+          `${p?.confidence ?? "?"} | ${r.mean.toFixed(2)} | ${r.scores} |`,
+      )
+    }
+    lines.push("")
+  }
+
+  if (runnerUp) answer(runnerUp, `## Runner-up — ${runnerUp.slug}`)
+
+  // Verbatim, and never truncated. An objection is the one thing in this report that
+  // survived losing, and a score of 5 with an objection attached is not agreement - it is
+  // the reservation the winning answer has not answered.
+  if (objections.length) {
+    lines.push("## Objections", "")
+    for (const o of objections)
+      lines.push(`- **${o.scorer}** on \`${o.proposal}\` — ${o.objection}`)
+    lines.push("")
+  }
+
+  // tally() ranks only what it received scores for, so a proposal whose scorers all failed
+  // is in ranked/winner/tied/runnerUp nowhere - and `unscored` is false, so the section
+  // above never fires for it either. Without this it vanishes from a report that otherwise
+  // looks complete. Skipped when nothing ranked at all, because the unranked section has
+  // already printed every answer along with the reason.
+  const orphaned = unscored ? [] : live.filter((p) => !ranked.some((r) => r.proposal === p.slug))
+  if (orphaned.length) {
+    lines.push("## Answered, but unscored", "")
+    lines.push(
+      `${orphaned.length} model(s) answered, and every scorer assigned to them failed. They carry`,
+      "no mean and appear nowhere in the ranking above. They are not worse than the ranked",
+      "answers — they are unjudged, which is a different thing.",
+      "",
+    )
+    for (const p of orphaned) answer(p, `### ${p.slug}`)
+  }
+
+  if (dropped.length) {
+    lines.push("## Models that did not answer", "")
+    for (const d of dropped)
+      lines.push(`- ${d.role} / ${d.slug} — \`${d.state}\` ${(d.detail ?? "").slice(0, 90)}`)
+    lines.push("", `> ${dropped.length} of ${proposals.length} models are missing from this answer.`, "")
   }
 
   return lines.join("\n")
