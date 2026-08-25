@@ -619,6 +619,13 @@ test("an unknown lane name fails the parse rather than silently never running", 
   )
 })
 
+test("a widened role set accepts the new lanes and still rejects typos", () => {
+  // KNOWN_ROLES gaining architect and infrastructure widens what a repo's crew block may
+  // legally name. Widening the accept side must not blunt the reject side.
+  assert.ok(parseCrewBlock("```crew\nverify: npm test\nbase: main\nlanes: architect, reviewer\n```")?.lanes)
+  assert.equal(parseCrewBlock("```crew\nverify: npm test\nbase: main\nlanes: coed\n```"), undefined)
+})
+
 test("a lockfile-less repo still installs on a manifest change", () => {
   // Returning null when only package.json changed meant the edit was never installed and
   // the check ran against the parent's versions through the symlink.

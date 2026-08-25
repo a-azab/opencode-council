@@ -40,6 +40,13 @@ test("migrations wake systems and security", () => {
   assert.ok(roles.includes("security"))
 })
 
+test("a terraform diff wakes infrastructure without costing more nodes", () => {
+  const roles = selectRoles(["envs/prod/main.tf"])
+  assert.ok(roles.includes("infrastructure"), "the specific role must win over generic ops")
+  assert.ok(!roles.includes("ops"), "infrastructure REPLACES ops here; it does not add to it")
+  assert.equal(selectNodes(roles).length, 7, "node count must stay flat")
+})
+
 test("reviewer always runs, even on an unrecognised path", () => {
   assert.deepEqual(selectRoles(["weird/thing.xyz"]), ["reviewer"])
 })
@@ -79,10 +86,14 @@ test("every role's model cap is actually satisfiable by the roster", () => {
   }
 })
 
-test("every roster role is answerable by at least one model", () => {
-  const roles = new Set(ROSTER.flatMap((m) => m.roles))
-  for (const r of ["security", "systems", "code", "reviewer", "skeptic", "docs", "qa", "ops", "product", "breadth", "pragmatist"])
-    assert.ok(roles.has(r as any), `no model can serve role: ${r}`)
+test("every role a config may name is answerable by some model", () => {
+  // Derived from KNOWN_ROLES, not ALL_ROLES: ALL_ROLES deliberately omits `skeptic`, and
+  // dropping that assertion would leave skepticPool, verifyGroup and fixOne's verifier
+  // depending on a lane nothing is proven to carry.
+  for (const role of KNOWN_ROLES) {
+    const carriers = ROSTER.filter((m) => m.roles.includes(role as any) && canSchema(m))
+    assert.ok(carriers.length, `no schema-capable model carries '${role}' — a silent empty lane`)
+  }
 })
 
 test("skeptics never include the model that raised the finding", () => {

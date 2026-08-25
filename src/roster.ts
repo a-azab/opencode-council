@@ -7,6 +7,7 @@ import path from "node:path"
 export type Role =
   | "security" | "systems" | "code" | "pragmatist" | "product"
   | "breadth" | "reviewer" | "docs" | "qa" | "ops" | "skeptic"
+  | "architect" | "infrastructure"
 
 export type Member = {
   slug: string
@@ -38,7 +39,7 @@ export type Member = {
  * or tier signal.
  */
 export const ROSTER: Member[] = [
-  { slug: "opus5",     model: "anthropic/claude-opus-5",                roles: ["reviewer", "security"],   ms: 4263, capability: ["schema", "agentic"] },
+  { slug: "opus5",     model: "anthropic/claude-opus-5",                roles: ["reviewer", "security", "architect"], ms: 4263, capability: ["schema", "agentic"] },
   { slug: "fable",     model: "anthropic/claude-fable-5",               roles: ["security", "skeptic"],    ms: 6704 },
   { slug: "kimik3",    model: "kimi-for-coding/k3",                     roles: ["code"],                   ms: 21151 },
   // The requested quota fallback: when kimi-for-coding/k3 hits its billing-cycle limit, the
@@ -46,7 +47,7 @@ export const ROSTER: Member[] = [
   // 2026-08-23: emits schema-valid structured output, 6782ms on a trivial task.
   { slug: "kimik3go",  model: "opencode-go/kimi-k3",                    roles: ["code"],                   ms: 6782 },
   { slug: "gemini36",  model: "google/gemini-3.6-flash",                roles: ["breadth", "docs"],        ms: 9028 },
-  { slug: "grok45",    model: "opencode-go/grok-4.5",                   roles: ["systems", "skeptic"],     ms: 7146 },
+  { slug: "grok45",    model: "opencode-go/grok-4.5",                   roles: ["systems", "skeptic", "infrastructure"], ms: 7146 },
   { slug: "mimo",      model: "opencode-go/mimo-v2.5-pro",              roles: ["pragmatist", "skeptic"],  ms: 7027 },
   { slug: "minimax",   model: "opencode-go/minimax-m3",                 roles: ["reviewer", "skeptic"],    ms: 4532 },
   { slug: "nemoultra", model: "opencode/nemotron-3-ultra-free",         roles: ["reviewer", "systems", "breadth"], ms: 7307, free: true },
@@ -58,7 +59,7 @@ export const ROSTER: Member[] = [
   // 2026-08-23, this one holds the schema at 6.1s.
   { slug: "hy3",       model: "opencode-go/hy3",                         roles: ["qa", "ops"],              ms: 6117 },
   // openai's three are TIERS, not variants - peak / balanced / fast.
-  { slug: "gpt56sol",   model: "openai/gpt-5.6-sol",   roles: ["security", "systems"],
+  { slug: "gpt56sol",   model: "openai/gpt-5.6-sol",   roles: ["security", "systems", "architect"],
     ms: 3696, tier: "deep",     capability: ["schema", "agentic"] },
   { slug: "gpt56terra", model: "openai/gpt-5.6-terra", roles: ["product", "reviewer", "docs"],
     ms: 2664, tier: "standard", capability: ["schema", "agentic"] },
@@ -66,7 +67,7 @@ export const ROSTER: Member[] = [
   // tier is unreachable from the highest-volume loop in the system.
   { slug: "gpt56luna",  model: "openai/gpt-5.6-luna",  roles: ["reviewer", "qa", "skeptic"],
     ms: 4228, tier: "fast",     capability: ["schema", "agentic"] },
-  { slug: "glm53", model: "zai-coding-plan/glm-5.3", roles: ["systems", "reviewer"],
+  { slug: "glm53", model: "zai-coding-plan/glm-5.3", roles: ["systems", "reviewer", "infrastructure"],
     ms: 6007, capability: ["schema", "agentic"] },
   // Implementer class: drives tools, refuses a named schema call.
   { slug: "deepseek", model: "deepseek/deepseek-v4-pro", roles: [], ms: 9459, capability: ["agentic"] },
@@ -85,6 +86,7 @@ export const bySlug = (slug: string) => ROSTER.find((m) => m.slug === slug)
 export const ALL_ROLES: Role[] = [
   "security", "systems", "code", "pragmatist", "product",
   "breadth", "reviewer", "docs", "qa", "ops",
+  "architect", "infrastructure",
 ]
 
 /** Every role a repo's crew block may legally name. Lives here, not in crew.ts, so the
@@ -93,7 +95,13 @@ export const KNOWN_ROLES: string[] = [...ALL_ROLES, "skeptic"]
 
 /** Changed-path globs to the roles they should wake. Ported from lets-workflow §4.1. */
 export const ROUTES: [string, Role[]][] = [
-  ["**/{Dockerfile,docker-compose*,Makefile,*.tf}", ["ops", "security"]],
+  // `infrastructure` REPLACES `ops` here rather than joining it: the specific lane covers
+  // what the generic one would have said, and a swap keeps the node count flat.
+  ["**/{Dockerfile,docker-compose*,Makefile,*.tf}", ["infrastructure", "security"]],
+  ["**/*.tfvars", ["infrastructure", "security"]],
+  ["**/k8s/**", ["infrastructure", "security"]],
+  ["**/{terraform,infra,infrastructure}/**", ["infrastructure", "security"]],
+  // CI and runtime config stay `ops`: a pipeline is not topology.
   ["**/.github/workflows/**", ["ops", "security"]],
   ["**/{migrations,migrate}/**", ["systems", "security"]],
   ["**/*.sql", ["systems", "security"]],
