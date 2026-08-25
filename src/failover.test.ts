@@ -47,6 +47,23 @@ test("the lane is only lost when the roster is genuinely exhausted", () => {
     "with nothing alive the lane is honestly lost, not faked")
 })
 
+test("an exhausted roster can recruit from the catalog, by injection", () => {
+  // The pool is passed in, never fetched here: the test below asserts a fully benched
+  // roster returns []. If this function fetched a catalogue, that assertion would depend on
+  // live network state and the suite would pass or fail by weather.
+  const everything: Bench = new Map(ROSTER.map((m) => [m.slug, "dead"]))
+  assert.deepEqual(substitutesFor(codeNode, round, everything, new Set()), [],
+    "with no pool offered, behaviour is exactly what it is today")
+
+  // codeNode is kimik3, so the FAMILY here is `kimi-for-coding`. A sibling from another
+  // provider would never exercise the family rule.
+  const sibling = { slug: "k3-sib", model: "kimi-for-coding/k3-256k", roles: ["code"], ms: 9999 } as any
+  const far = { slug: "far", model: "other/model", roles: ["code"], ms: 100 } as any
+  const subs = substitutesFor(codeNode, round, everything, new Set(), [far, sibling])
+  assert.deepEqual(subs.map((m) => m.slug), ["k3-sib", "far"],
+    "same provider family first, even though the stranger is 100x faster by ms")
+})
+
 test("model-level failures bench; call-level ones do not", () => {
   // A timeout may be this diff being large. A malformed response means the model cannot
   // emit a forced tool call at all, and will fail identically on all 14 lanes.

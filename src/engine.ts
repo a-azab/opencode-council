@@ -387,14 +387,33 @@ export type Bench = Map<string, string>
 /**
  * Deterministic substitute order for a failed node, most-diverse first.
  *
- * Three tiers, and the third one matters: on a full-panel run every model is already
+ * Four tiers, and the later ones matter: on a full-panel run every model is already
  * assigned to some lane, so restricting substitutes to unassigned models offers **zero**
  * stand-ins at exactly the moment coverage is being lost. Reusing a model that is already
  * working another lane costs correlation - two lanes answered by one model are not two
  * independent opinions - but a correlated lane beats an absent one, and `substituted` on
  * the result records it so the report cannot pass it off as independent.
+ *
+ * Tier 4 goes off-roster entirely, and only when the roster has nothing left: an unpinned
+ * model is unproven, so it is the last resort rather than a shortcut past the four vetted
+ * tiers above it.
  */
-export function substitutesFor(node: Node, round: Node[], bench: Bench, tried: Set<string>): Member[] {
+export function substitutesFor(
+  node: Node,
+  round: Node[],
+  bench: Bench,
+  tried: Set<string>,
+  /**
+   * Models from outside the roster, for when all four roster tiers come back empty.
+   *
+   * A PARAMETER, never a fetch inside this function. `substitutesFor` is pure today and the
+   * suite leans on that - "with nothing alive the lane is honestly lost" asserts an empty
+   * result over a fully benched roster, and a catalogue call in here would make that
+   * assertion depend on which providers happen to be up. Whoever wants recruitment fetches
+   * the pool and hands it over.
+   */
+  extra: Member[] = [],
+): Member[] {
   const unavailable = new Set([...tried, ...bench.keys()])
   const inRound = new Set(round.map((n) => n.slug))
   // canSchema, not just availability: tier 2 below is `byRole(false)` - "does not carry
@@ -403,11 +422,22 @@ export function substitutesFor(node: Node, round: Node[], bench: Bench, tried: S
   const usable = ROSTER.filter((m) => !unavailable.has(m.slug) && canSchema(m))
   const byRole = (want: boolean) => (m: Member) => m.roles.includes(node.role) === want
 
+  // Tier 4: recruits, ordered same-provider-family first and only then by measured latency.
+  // Family beats speed because the failed lane was routed to this model for what it is, and
+  // a sibling behind the same provider is the nearest thing to what was lost - a stranger
+  // that answers a trivial probe in 100ms has demonstrated nothing about the lane's work.
+  const family = (model: string) => model.split("/")[0]
+  const sameFamily = (m: Member) => Number(family(m.model) === family(node.model))
+  const recruits = [...extra]
+    .filter((m) => !unavailable.has(m.slug) && canSchema(m))
+    .sort((a, b) => sameFamily(b) - sameFamily(a) || a.ms - b.ms)
+
   return [
     ...usable.filter((m) => !inRound.has(m.slug)).filter(byRole(true)), // free, carries the role
     ...usable.filter((m) => !inRound.has(m.slug)).filter(byRole(false)), // free, any role
     ...usable.filter((m) => inRound.has(m.slug)).filter(byRole(true)), // busy, carries the role
     ...usable.filter((m) => inRound.has(m.slug)).filter(byRole(false)), // busy, any role
+    ...recruits, // off-roster, only once the roster is genuinely out
   ]
 }
 
