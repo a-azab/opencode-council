@@ -204,13 +204,40 @@ never ran are listed as `not-attempted` with the reason — a plan that stopped 
 says **"NOT independently judged — checks only"**. That is enforced by tests, because the
 one lie that would matter is the report that hides what happened.
 
-### `/lets:status` — what's still lying around
+### `/lets:worktree` — what's still lying around
 
 Lists live lets worktrees with their branch, age, and the exact command to remove each.
 Works in any git repo, including one with no lets config — that's precisely where a
 worktree gets stranded and forgotten.
 
 lets wrote this one.
+
+### The session spine — `/lets:start`, `/lets:status`, `/lets:end`, `/lets:note`
+
+The pipeline above is the *work*. This is the *continuity*: a session you start and end,
+with context that survives the window closing.
+
+| command | does |
+|---|---|
+| `/lets:start` | reads the last snapshots back, orients, then claims a task and cuts `feature/<id>-<slug>`. Takes a task id, or `--continue` to resume the one in progress. |
+| `/lets:status` | read-only orientation — where you are, what's in flight, what's next. Argless, mutates nothing. |
+| `/lets:end` | writes a recovery-grade `## RESUME` snapshot to `.lets/sessions/`. `--pre-compact` writes the same file without ending anything. |
+| `/lets:note` | appends a note to the active task, or to the session trail when nothing is tracked. |
+
+The shared logic lives in `skills/` — `lets-orient`, `lets-detect-task`,
+`lets-artifact-path`, `lets-session-snapshot` — so `/lets:status` and `/lets:start` cannot
+drift into rendering the same snapshot two different ways.
+
+**The snapshot is file-primary.** It always lands in `.lets/sessions/`, task or no task; a
+tracked task gets a one-line pointer to it and nothing more. The file is the record, so
+losing the tracker never loses the session.
+
+**Task tracking is optional.** [beads](https://github.com/steveyegge/beads) is used when
+`bd` is on PATH *and* the repo has a `.beads/` directory — both, because the binary alone
+would make every repo on the machine "tracked" and the first write would create a database
+in a project that never asked for one. Without both, the tracker is `none`: `/lets:status`
+still tells you the branch, the task pointer and the dirty-file count, and simply omits the
+sections that have no data source.
 
 ### Tracking — optional, and off by default
 

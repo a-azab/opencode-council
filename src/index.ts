@@ -573,6 +573,13 @@ export const CouncilPlugin = async (input: any) => ({
       }
     }
 
+    // The session spine's shared logic lives in skills/, not in the command files, so that
+    // orient renders identically from /lets:status and /lets:start and cannot drift between
+    // them. Registered as a PATH rather than read here: skills are prompt documents with
+    // their own directory-per-skill layout, and opencode owns loading them.
+    config.skills ??= {}
+    config.skills.paths = [...new Set([...(config.skills.paths ?? []), join(PKG, "skills")])]
+
     config.agent ??= {}
     for (const { name, data, body } of readMarkdownDir("agent")) {
       config.agent[name] = {
