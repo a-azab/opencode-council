@@ -85,6 +85,18 @@ test("commands are registered for every lets entry point", async () => {
     assert.ok(tool.lets.args.mode.safeParse(m).success, `lets rejects mode '${m}'`)
 })
 
+test("the plugin registers its own skills directory", async () => {
+  // Skills are the session spine's shared logic - orient, detect-task, artifact-path,
+  // session-snapshot. A command that invokes a skill opencode never registered fails at
+  // the invocation, not at load, so an unregistered directory is silent until a user runs
+  // /lets:start and gets nothing.
+  const { config } = await load()
+  assert.ok(
+    config.skills.paths.some((p: string) => p.endsWith("/skills")),
+    "the plugin's own skills/ directory is not on config.skills.paths",
+  )
+})
+
 test("status answers in a repo with no lets config, and writes nothing", async () => {
   // Placement, not output: the branch sits above the config lookup on purpose. A repo whose
   // config was never written or was removed is exactly where worktrees get stranded, so
