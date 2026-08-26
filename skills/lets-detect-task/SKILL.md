@@ -21,14 +21,22 @@ bug waiting for the next format change.
 ## Precedence
 
 1. **Explicit id** — the calling command was invoked with a `<task-id>` argument. Authoritative; stop, do not parse anything.
-2. **Branch name** — `feature/<id>-<slug>`.
-3. **Pointer file** — `.lets/sessions/.task-<branch-slug>`, which fills the gap when the branch carries no id.
+2. **Pointer file** — `.lets/sessions/.task-<branch-slug>`, written when a task is taken.
+3. **Branch name** — `feature/<id>-<slug>`.
 4. Otherwise **None**. None is a correct answer.
 
-> Divergence from the Claude Code LETS plugin, deliberate: there the pointer file outranks
-> the branch name, because its `take-task` can host several tasks in sequence on one frozen
-> worktree branch. This spine has no such flow — `/lets:start` cuts the branch from the id —
-> so the branch is the stronger signal and the file covers the id-less cases.
+> **The file outranks the branch, and that ordering is load-bearing.** A branch is frozen at
+> the moment it is cut, so it records only the task it was *created* for. A worktree can then
+> host several tasks in sequence, and the file is the one that says which is current. Reading
+> the branch first would resume the wrong task — silently, and with a plausible-looking id.
+>
+> This matches the Claude Code LETS plugin, whose `detect-task` Step 1.5 makes the same call
+> for the same reason.
+
+**The id's shape is tracker-dependent.** Do not apply a beads-style `<prefix>-<alphanum>`
+pattern on a repo whose tracker is not beads: on `feature/48647-lifecycle-test` it captures
+`lifecycle-test` rather than the numeric id `48647`. Match against the active tracker's id
+shape, and when the branch is ambiguous prefer the pointer file over a branch-name guess.
 
 ## Step 1: Read both sources
 
@@ -53,8 +61,11 @@ The id sits immediately after `feature/`, up to the `-<slug>` boundary. Its shap
   "first two dash-separated fields" split returns the wrong thing.
 - **tracker `none`**: there is no id shape. Skip this step; go to the pointer file.
 
-When the branch does not start with `feature/`, or the parse is ambiguous, do **not** guess
-— fall through to the pointer file.
+When the branch does not start with `feature/`, or the parse is ambiguous, do **not** guess.
+
+**Resolve:** the pointer file wins whenever it has a value. Use the branch-parsed id only
+when the file is absent or empty. Step 1 reads both so this is a comparison, not a
+fall-through — the branch is the *fallback*, never the first answer.
 
 ## Step 3: Validate before returning
 

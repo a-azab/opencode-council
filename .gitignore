@@ -3,3 +3,7 @@ node_modules/
 .spike/
 council-artifacts/
 .worktrees/
+
+# Local session state: snapshots and the task pointer are per-machine recovery notes,
+# not shared history. Un-ignore deliberately if your team wants them in the repo.
+.lets/
