@@ -1,13 +1,40 @@
 ---
-description: List this repo's live lets worktrees — branch, age, and the command to remove each. Read-only; writes nothing.
+description: Read-only orientation snapshot — where you are, what's in flight, what's next. Argless; mutates nothing.
 ---
 
-Call the `lets` tool with `mode: "status"` and no other arguments.
+A fast, read-only orientation: where you are, what is in flight, what is next. No menu, no
+dialog, no mutation. Argless.
 
-Show the result to the user as-is. It is already a finished table — one row per live lets
-worktree with its branch and age, and the `git worktree remove` line for each. Do not
-summarise it, and do not remove anything yourself; the removal commands are there for the
-user to run once they have looked at what is in them.
+To claim a task and start working, `/lets:start`. To list stranded lets worktrees,
+`/lets:worktree`.
 
-This works in any git repo, including one with no lets config — a repo whose config was
-never written, or was removed, is precisely where a worktree gets stranded and forgotten.
+## Step 1: Render
+
+Invoke `skill(name: "lets-orient")`. It renders `## Where you are` / `## In flight` /
+`## Next up` / `## Project`, degrading section-by-section: with no task tracker it shows
+`## Where you are` and a `Tracker: none — task tracking off` line, and omits the other three
+entirely rather than rendering them empty.
+
+Show it as-is. If an argument was passed, ignore it and note once that status is a single
+snapshot and takes none.
+
+## Step 2: Footer, then stop
+
+Then the footer below, and nothing else. **This command never claims, never mutates, and
+never advises on the work itself** — it tells you where you are and names the next command.
+
+---
+
+## Response Footer
+
+- **Uncommitted changes** → `/lets:commit` — **not built yet in this plugin.** Say so
+  outright and suggest `git add -p && git commit` instead. Never point at a command that
+  does not exist.
+- **Active task, clean tree** → `/lets:note` to record something, or `/council:check` for a
+  fast review pass.
+- **No active task** → `/lets:start`.
+
+## Rules
+
+- Read-only — never mutate or claim from here.
+- Respond in the user's language.

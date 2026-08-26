@@ -77,12 +77,38 @@ test("lets-dev is the one agent granted tools, via its own frontmatter", async (
 
 test("commands are registered for every lets entry point", async () => {
   const { tool, config } = await load()
-  for (const c of ["lets:plan", "lets:init", "lets:execute", "lets:status"])
+  for (const c of ["lets:plan", "lets:init", "lets:execute", "lets:worktree"])
     assert.ok(config.command[c]?.template?.length > 100, `command ${c} missing or empty`)
-  // A command is only half an entry point: /lets:status tells the agent to call the tool
+  // A command is only half an entry point: /lets:worktree tells the agent to call the tool
   // with mode 'status', so the enum has to accept it or the command fails at the call.
+  // (It was /lets:status until the session spine landed and took that name for the orient
+  // snapshot, which is what /lets:status means in the LETS plugin this ports from.)
   for (const m of ["init", "plan", "run", "status"])
     assert.ok(tool.lets.args.mode.safeParse(m).success, `lets rejects mode '${m}'`)
+})
+
+test("the worktree list kept a slash command when status was repurposed", async () => {
+  // The tool's `mode: "status"` is still the only way to find a stranded worktree, and a
+  // capability reachable only by direct tool call is a capability users stop finding. This
+  // asserts the relocation, not just that some file exists: exactly one command may drive
+  // that mode, and /lets:status must no longer be it.
+  const { config } = await load()
+  assert.match(config.command["lets:worktree"].template, /mode: "status"/)
+  assert.doesNotMatch(
+    config.command["lets:status"].template,
+    /mode: "status"/,
+    "/lets:status is the orient snapshot now; it must not also drive the worktree list",
+  )
+  assert.match(config.command["lets:status"].template, /lets-orient/)
+})
+
+test("every lets session command registers", async () => {
+  // The spine is the continuity half of lets: a session you start and end, with context
+  // surviving across sessions. Each of these is a separate file, and a command file whose
+  // name is wrong is silently absent rather than an error.
+  const { config } = await load()
+  for (const c of ["lets:start", "lets:status", "lets:end", "lets:note"])
+    assert.ok(config.command[c]?.template?.length > 100, `${c} missing or empty`)
 })
 
 test("the plugin registers its own skills directory", async () => {
