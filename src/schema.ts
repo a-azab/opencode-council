@@ -101,6 +101,48 @@ export const SCORE_SCHEMA = {
   additionalProperties: false,
 } as const
 
+/**
+ * A task answer. `/council:task` asks for the answer itself, not a plan for producing one,
+ * so this is deliberately not PROPOSAL_SCHEMA's summary/steps/risks/tradeoff shape.
+ */
+export const TASK_PROPOSAL_SCHEMA = {
+  type: "object",
+  properties: {
+    answer: { type: "string", description: "the actual answer to the task, not a description of one" },
+    reasoning: { type: "string", description: "why this answer, briefly" },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+  },
+  required: ["answer", "reasoning", "confidence"],
+  additionalProperties: false,
+} as const
+
+/**
+ * SCORE_SCHEMA's four dimensions verbatim, because `tally()` sums exactly those four and
+ * compares means against TIE_MARGIN, which is calibrated to their 4-20 scale. A scalar
+ * `score: 1-10` here would make every term undefined and every mean NaN; NaN comparisons
+ * are falsy, so tally()'s sort would fall through to alphabetical-by-slug and still name a
+ * confident winner - a false consensus, the exact failure this command exists to prevent.
+ *
+ * `objection` is the one addition: `reason` is praise when the score is high, so dissent
+ * needs a field of its own to be preserved verbatim rather than averaged away.
+ */
+export const TASK_SCORE_SCHEMA = {
+  type: "object",
+  properties: {
+    correctness: { type: "integer", minimum: 1, maximum: 5, description: "does the answer actually answer it?" },
+    simplicity: { type: "integer", minimum: 1, maximum: 5, description: "least machinery for the result" },
+    risk: { type: "integer", minimum: 1, maximum: 5, description: "5 = lowest risk" },
+    completeness: { type: "integer", minimum: 1, maximum: 5, description: "does it cover the whole task?" },
+    reason: { type: "string", description: "one sentence, the deciding factor" },
+    objection: {
+      type: "string",
+      description: "your specific objection to this answer, empty string if you have none",
+    },
+  },
+  required: ["correctness", "simplicity", "risk", "completeness", "reason", "objection"],
+  additionalProperties: false,
+} as const
+
 export const VERDICT_SCHEMA = {
   type: "object",
   properties: {

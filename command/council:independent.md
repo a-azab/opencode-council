@@ -16,5 +16,6 @@ When it returns:
   *uninvited*.
 - Name any model that failed to answer, so the user knows how wide the sample actually was.
 
-For a question where you want *one* answer rather than several, `mode: "plan"` votes and
-`mode: "review"` aggregates. This mode is the escape hatch from both.
+For a question where you want *one* answer rather than several, `/council:task` is the
+command: every model still answers, but the answers are cross-scored and one comes back
+with its dissent attached. This mode is the escape hatch from that aggregation.

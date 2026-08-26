@@ -17,5 +17,5 @@ When it returns:
   user wants, and apply only those.
 - Patches marked as needing a decision are not failures — the fixer declined to guess where
   the right fix depends on intent it was not given. Surface the question, don't paper over it.
-- After applying anything, suggest re-running `/council-review` to confirm the finding is
+- After applying anything, suggest re-running `/council:review` to confirm the finding is
   gone and nothing regressed. Verification of a fix is a fresh review, not a claim.

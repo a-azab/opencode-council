@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, existsSync } from "node:fs"
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -104,4 +104,69 @@ test("work mode is gone from every surface", async () => {
     !JSON.stringify(tool.council.args.mode).includes("work"),
     "council still advertises a work mode",
   )
+})
+
+test("the council tool accepts task mode and a context argument", async () => {
+  const { tool } = await load()
+  assert.ok(tool.council.args.mode.safeParse("task").success, "mode enum must accept 'task'")
+  assert.ok(tool.council.args.context, "context is a new arg, used by task and independent")
+})
+
+test("the council tool accepts models mode", async () => {
+  const { tool } = await load()
+  assert.ok(tool.council.args.mode.safeParse("models").success)
+})
+
+test("every council command registers under its colon name", async () => {
+  // The mirror of the negative grep test: that one proves no stale name survives, this
+  // proves the new ones actually load. A command file whose name is wrong is silently
+  // absent, never an error.
+  const { config } = await load()
+  for (const c of ["council:review", "council:fix", "council:plan", "council:independent", "council:check", "council:task", "council:models"])
+    assert.ok(config.command[c]?.template?.length > 100, `command ${c} missing or empty`)
+})
+
+test("no live file still refers to a pre-colon council name", () => {
+  // The likely failure of a rename is a dangling cross-reference, not a missing file.
+  //
+  // Two exclusions, both load-bearing. Match the five exact names and never the bare
+  // `/council-` prefix: that also hits the legitimate "/council-work" message below, the
+  // 12 agent/council-*.md files, and the `council-${role}` literals in engine.ts. And skip
+  // *.test.ts: this very file must contain the old names to search for them, so scanning
+  // itself would make the test permanently red.
+  const OLD = ["/council-review", "/council-fix", "/council-plan", "/council-independent", "/check"]
+  const files = [
+    ...readdirSync(join(PKG, "command")).map((f) => `command/${f}`),
+    ...readdirSync(join(PKG, "src")).map((f) => `src/${f}`),
+    "README.md",
+  ].filter((f) => /\.(md|ts)$/.test(f) && !f.endsWith(".test.ts"))
+
+  const offenders: string[] = []
+  for (const rel of files) {
+    const text = readFileSync(join(PKG, rel), "utf8")
+    for (const name of OLD) {
+      // (?![\w-]) so /checkout and /check-in are left alone; end-of-line counts as a match.
+      if (new RegExp(`${name.replace("/", "\\/")}(?![\\w-])`).test(text)) offenders.push(`${rel} → ${name}`)
+    }
+  }
+  assert.deepEqual(offenders, [], `stale command references:\n${offenders.join("\n")}`)
+})
+
+test("council reviews the whole panel with debate; crew keeps routing and 0 rounds", async () => {
+  // The real call sites need a live fan-out and this suite mocks nothing
+  // (tool.test.ts:14 - "Only paths that return BEFORE any model call are exercised here"),
+  // so the values are asserted through the pure seam index.ts reads, plus source text for
+  // the crew side.
+  const { councilArgs } = await import("./engine.ts")
+  const { ALL_ROLES } = await import("./roster.ts")
+  assert.deepEqual(councilArgs().roles, ALL_ROLES, "council must wake every lane")
+  assert.equal(councilArgs().maxRounds, 2, "council must debate")
+
+  const engine = readFileSync(join(PKG, "src/engine.ts"), "utf8")
+  assert.match(engine, /DEFAULT_MAX_ROUNDS = 0/, "crew inherits this default; it must stay 0")
+
+  const crew = readFileSync(join(PKG, "src/crew.ts"), "utf8")
+  const call = crew.slice(crew.indexOf("runReview(ctx, {"), crew.indexOf("runReview(ctx, {") + 200)
+  assert.doesNotMatch(call, /maxRounds|roles:/,
+    "crew's review must inherit both defaults, or every crew run costs a council run")
 })

@@ -2,7 +2,7 @@
 
 Multi-model code review for [opencode](https://opencode.ai), shipped as one plugin.
 
-Eleven models review your diff in parallel, each in the role it is assigned. Every finding
+Fifteen models review your diff in parallel, each in the role it is assigned. Every finding
 is then challenged by independent skeptics that did not raise it, and what survives is
 decided by arithmetic — not by asking a model to summarise.
 
@@ -57,7 +57,7 @@ plugin fails to load, opencode starts anyway and swallows the error — check
 Verify:
 
 ```bash
-opencode agent list | grep -E '^council-.* \(all\)'   # expect 12 roles
+opencode agent list | grep -E '^council-.* \(all\)'   # expect 14 agents
 ```
 
 (Match on `(all)`. A plain `grep council-` will also catch any older model-named council
@@ -67,19 +67,19 @@ agents you may still have, which are unrelated to this plugin.)
 
 ## Use
 
-### `/check` — fast, inline, no subagents
+### `/council:check` — fast, inline, no subagents
 
 Six lenses (bug, security, performance, quality, compliance, docs), max 5 findings, ~30s.
 It never asks a question and never moves HEAD, so it is safe to fire mid-edit.
 
 ```
-/check
+/council:check
 ```
 
-### `/council-review` — the full graph
+### `/council:review` — the full graph
 
 ```
-/council-review
+/council:review
 ```
 
 Or call the tool directly for a different base:
@@ -95,16 +95,20 @@ The commands are thin wrappers over one tool:
 | `council({ mode: "review", base: "HEAD" })` | the full graph (default) |
 | `council({ mode: "fix" })` | patches for the last review's findings |
 | `council({ mode: "plan", goal: "..." })` | propose and vote on an approach |
+| `council({ mode: "task", goal: "..." })` | every model does the task; one answer, dissent attached |
 | `council({ mode: "independent", goal: "..." })` | every model answers alone, nothing merged |
+| `council({ mode: "models" })` | what this server offers that the roster does not pin |
 
-`goal` is required for `mode: "plan"` and ignored otherwise. `base` accepts any git ref.
+`goal` is required for `plan` and `task`, and ignored by `review`, `fix` and `models`.
+`context` passes supporting material — file contents, output, a spec — to `task` and
+`independent` as data rather than instructions. `base` accepts any git ref.
 
 To **build** something rather than judge it, use the `crew` tool — see below.
 
-### `/council-fix` — patches, verified, behind your gate
+### `/council:fix` — patches, verified, behind your gate
 
 ```
-/council-fix
+/council:fix
 ```
 
 Takes the last review's findings and writes a patch for each. **Applies nothing.**
@@ -250,13 +254,15 @@ it isn't offered at all. It is an implementation of the same seam, not a privile
 **A tracker can never break a run.** An outage, an expired token, or a preview-API change
 costs you a warning line. The work is real; the mirror is not.
 
-### `/council-independent` — the raw takes, unmerged
+### `/council:independent` — the raw takes, unmerged
 
 ```
-/council-independent what's the biggest risk of an in-memory rate limiter?
+/council:independent what's the biggest risk of an in-memory rate limiter?
 ```
 
-Every model in the roster answers **alone**. No routing, no dedupe, no debate, no
+Every model in the roster answers **alone** — all seventeen, including the two
+implementer-class members that hold no lane, since this mode sends no schema and their
+limit is structured output rather than inference. No routing, no dedupe, no debate, no
 verification, no synthesis. One file per model in
 `council-artifacts/<timestamp>-independent/`, plus an index.
 
@@ -266,12 +272,12 @@ you want is to read the disagreement yourself before any machinery decides what 
 
 It is also the only mode that sends **no schema** — the output is prose for a human, and
 forcing a tool call to carry free text costs models that can't do it for no benefit
-(measured: 7/11 with a one-field schema, 11/11 without).
+(measured on the then 11-member roster: 7/11 with a one-field schema, 11/11 without).
 
-### `/council-plan` — pick an approach by vote
+### `/council:plan` — pick an approach by vote
 
 ```
-/council-plan add rate limiting without adding Redis
+/council:plan add rate limiting without adding Redis
 ```
 
 Five lanes propose an approach. Every model then scores every proposal **except its own**
@@ -281,8 +287,55 @@ arithmetic, not a model's preference.
 **Ties come to you.** Two proposals within `TIE_MARGIN` are not meaningfully ranked, so no
 winner is declared; picking one would be false precision the numbers don't support.
 
-Artifacts land in `council-artifacts/<timestamp>-<kind>/` — `report.md`, `findings.json`,
-`patches.md`, or `plan.md` + `plan.json`.
+### `/council:task` — one answer, the dissent still attached
+
+```
+/council:task write the retry policy for the payment webhook
+```
+
+Where `plan` asks five lanes *how they would approach* a goal, `task` asks every model to
+actually do the thing. All fifteen schema-capable members answer, then each answer is
+scored by three others — never its own author — on the same four dimensions `plan` uses.
+The highest mean is returned as the answer.
+
+What comes back with it is the point:
+
+- **The runner-up, and every scorer's objection, verbatim.** A winning answer's score is an
+  average, and an average erases the one scorer who spotted the flaw. An answer delivered
+  without its dissent is a summary of the vote, not the result of it.
+- **A tie is reported as a tie.** Within `TIE_MARGIN` no winner is declared and both
+  answers are shown side by side. At three scorers the means land on thirds, so exact ties
+  are common rather than hypothetical — manufacturing a winner from one would be the same
+  false consensus this command exists to prevent.
+- **"Unranked" is a third state, not a tie.** If answers arrived but every scoring call
+  failed, nothing was compared; the report says so and prints every answer. A council that
+  never voted is not a close call.
+- **An answer whose own scorers all failed is still printed**, under "answered, but
+  unscored". Nothing that came back is dropped for lacking a number.
+
+`context` passes material the models should read — file contents, output, a spec.
+
+### `/council:models` — discover, measure, propose
+
+```
+/council:models
+```
+
+Reads the server's live catalogue, keeps the entries on providers the roster already uses,
+probes the ones it has budget for with a single structured-output call, and writes a
+proposal to `council-artifacts/<timestamp>-models/models.md`.
+
+**It never writes the roster.** Model identity changes what the council *is* — swap a
+member and every verdict afterwards comes from a different panel. A later version number is
+not a measurement: `google/gemini-3.7-flash` times out at 90s on the probe `3.6-flash`
+answers in 9s, so an updater chasing "latest" would have adopted it, cost a lane, and
+reported the loss as an upgrade. Discovery is worth automating. Adoption is not.
+
+Probes are capped per run, so a candidate can come back unmeasured. That is reported as
+unknown, not as probably-fine.
+
+Artifacts land in `council-artifacts/<timestamp>-<kind>/` — `report.md` + `findings.json`,
+`patches.md`, `plan.md` + `plan.json`, `task.md` + `task.json`, or `models.md`.
 
 ---
 
@@ -299,8 +352,9 @@ Artifacts land in `council-artifacts/<timestamp>-<kind>/` — `report.md`, `find
               disputed? ─no──────────────────┐
                          │yes                │
                          ▼                   │
-                      debate — OFF by default (see below); only ever wakes for
-                         │                   disputed findings, disputing models
+                      debate — 2 rounds on `/council:*`, off elsewhere (see below);
+                         │                   only ever wakes for disputed findings,
+                         │                   and only the models that disagree
                          ▼                   ▼
                      verify ── skeptics: 3 per BLOCKER, 2 per SUGGESTION
                          │      never the model that raised it
@@ -313,6 +367,13 @@ Artifacts land in `council-artifacts/<timestamp>-<kind>/` — `report.md`, `find
 **Routing** wakes only the roles a change implicates. A docs typo costs one node; a
 migration wakes systems and security. `reviewer` always runs.
 
+**`/council:review` opts out of routing** and passes every lane, because routing is a cost
+control that is right for the crew and wrong for "my council" — you asked the whole body, so
+the whole body answers. Routing still governs every call that does *not* ask for all lanes,
+crew's branch review above all. The split lives at the call site, in `councilArgs()`, and is
+pinned by a test: moving it into a shared default would silently put every crew run on the
+expensive path.
+
 **Substitution — a lane never drops while a usable model remains.** When a node fails,
 it walks a substitute list: an unassigned model carrying the role, then any unassigned
 model, then a model already working another lane. That third tier matters most: on a full
@@ -324,11 +385,17 @@ report names every stand-in and flags one that reused a busy model, because two 
 answered by one model are correlated, not independent — which is the thing a multi-model
 panel buys its way out of.
 
-**Debate is off by default** (`DEFAULT_MAX_ROUNDS = 0`). Huang et al. (ICLR 2024) found
+**Debate runs on `/council:*` and nowhere else.** `DEFAULT_MAX_ROUNDS` is still `0`;
+`councilArgs()` passes `maxRounds: 2`.
+
+The evidence that turned it off has not been overturned — Huang et al. (ICLR 2024) found
 multi-agent debate *losing* to self-consistency at matched budget with round 2 worse than
-round 1, and our own measurement agreed: one debate round re-judged six findings and
-changed zero positions while wall time tripled. The code remains; turning it back on is a
-one-line experiment that needs a positive result to justify itself.
+round 1, and our own measurement agreed: one round re-judged six findings and changed zero
+positions while wall time went 74s → 212s. It is being **re-tested where it can be seen**,
+at the human's explicit request. Every report prints a `## Convergence` block giving, per
+round, the re-judgement count and each position that actually moved. So the next several
+reviews either produce the positive result the rounds have never had, or retire them on a
+second measurement rather than on a preference.
 
 **Verification** exists because multi-model review generates false positives, and a
 fabricated BLOCKER costs a human real time to disprove. Skeptics are drawn from models that
@@ -345,7 +412,8 @@ did not raise the finding — self-verification is not verification.
 | keep / downgrade / drop | `decide()` over skeptic votes |
 | the report | template-filled from data |
 | a fix is resolved | an independent model's verdict on the patched content, not the fixer's |
-| which plan wins | mean of cross-scores; ties escalate rather than resolve |
+| which plan or task answer wins | mean of cross-scores; ties escalate rather than resolve |
+| who scores whose task answer | cyclic over roster order — every member scores exactly 3, never its own |
 
 A model may summarise the report, but cannot add, remove, or re-tier a finding.
 
@@ -370,27 +438,47 @@ applied by code — no model or role holds a veto.
 
 ## Roster
 
-Fourteen models. `ms` is measured latency on a trivial structured task — for setting
-timeouts, not a quality signal. Every member was smoke-tested on joining; two of the
-fourteen are carried on user directive despite currently failing that smoke (noted below) —
-the bench makes a model-level failure cost one call per run, so they are cheap to carry.
+Seventeen members: fifteen carry council lanes, two are implementer-class and carry none
+(see below). `ms` is measured latency on a trivial structured task — for setting timeouts,
+**not a quality signal and never a tier**. Every member is smoke-tested on joining.
 
-| slug | model | roles | ms |
-|---|---|---|---|
-| `opus5` | anthropic/claude-opus-5 | reviewer, security | 4263 |
-| `fable` | anthropic/claude-fable-5 | security, skeptic | 6704 |
-| `gpt55` | openai/gpt-5.5 | product, reviewer, security | 4369 |
-| `glm52` | zai-coding-plan/glm-5.2 | systems, reviewer | 8403 |
-| `kimik3` | kimi-for-coding/k3 | code | 21151 |
-| `kimik3go` | opencode-go/kimi-k3 | code | 6782 |
-| `gemini36` | google/gemini-3.6-flash | breadth, docs | 9028 |
-| `grok45` | opencode-go/grok-4.5 | systems, skeptic | 7146 |
-| `mimo` | opencode-go/mimo-v2.5-pro | pragmatist, skeptic | 7027 |
-| `minimax` | opencode-go/minimax-m3 | reviewer, skeptic | 4532 |
-| `nemoultra` | opencode/nemotron-3-ultra-free | reviewer, systems | 7307 · free |
-| `nemolight` | opencode/nemotron-3.5-lightning-free | skeptic, qa, ops | 4672 · free |
-| `musespark` | opencode/muse-spark-1.2-contributor-free | breadth, docs | 8000 · free · **chats but no structured output as of 2026-08-23** |
-| `hy3` | opencode/hy3-free | qa, ops | 5000 · free · **chats but no structured output as of 2026-08-23** |
+| slug | model | roles | tier | capability | ms |
+|---|---|---|---|---|---|
+| `opus5` | anthropic/claude-opus-5 | reviewer, security, architect | | schema, agentic | 4263 |
+| `fable` | anthropic/claude-fable-5 | security, skeptic | | schema | 6704 |
+| `kimik3` | kimi-for-coding/k3 | code | | schema | 21151 |
+| `kimik3go` | opencode-go/kimi-k3 | code | | schema | 6782 |
+| `gemini36` | google/gemini-3.6-flash | breadth, docs | | schema | 9028 |
+| `grok45` | opencode-go/grok-4.5 | systems, skeptic, infrastructure | | schema | 7146 |
+| `mimo` | opencode-go/mimo-v2.5-pro | pragmatist, skeptic | | schema | 7027 |
+| `minimax` | opencode-go/minimax-m3 | reviewer, skeptic | | schema | 4532 |
+| `nemoultra` | opencode/nemotron-3-ultra-free | reviewer, systems, breadth | | schema | 7307 · free |
+| `nemolight` | opencode/nemotron-3.5-lightning-free | skeptic, qa, ops | | schema | 4672 · free |
+| `hy3` | opencode-go/hy3 | qa, ops | | schema | 6117 |
+| `gpt56sol` | openai/gpt-5.6-sol | security, systems, architect | **deep** | schema, agentic | 3696 |
+| `gpt56terra` | openai/gpt-5.6-terra | product, reviewer, docs | **standard** | schema, agentic | 2664 |
+| `gpt56luna` | openai/gpt-5.6-luna | reviewer, qa, skeptic | **fast** | schema, agentic | 4228 |
+| `glm53` | zai-coding-plan/glm-5.3 | systems, reviewer, infrastructure | | schema, agentic | 6007 |
+| `musespark` | opencode/muse-spark-1.2-contributor-free | *none* | | agentic | 8000 · free |
+| `deepseek` | deepseek/deepseek-v4-pro | *none* | | agentic | 9459 |
+
+**`capability` is measured, never read off a catalogue flag.** `schema` means the model can
+emit forced-tool-call structured output — every council lane needs it. `agentic` means it
+can drive tools in a session — an implementer needs only that. A member with `agentic`
+alone gets no lane, and every role-based selector excludes it twice over: by capability and
+by its empty `roles`.
+
+**The `gpt-5.6` three are tiers, not variants** — Sol is peak reasoning (slowest, dearest),
+Terra the balanced production default, Luna the fast high-volume budget tier. Note what the
+`ms` column does *not* say: Luna, the tier built for speed, measured **slowest of the
+three**. A one-call probe ranks queue noise, not capability, which is why `tier` records the
+vendor's class and is never derived from latency.
+
+`gpt56luna` carries `skeptic` deliberately. `skepticPool` filters on that role and then
+*slices*, so the ordering there decides who actually runs — without the role, the fast tier
+would be unreachable from the highest-volume loop in the system. The `council:task` scoring
+pass gets no such lever: its assignment is cyclic, so every member scores exactly three
+regardless of order, and sorting it moves no volume.
 
 `kimik3go` exists as the `code` lane's billing-cycle fallback: when kimi-for-coding's
 quota trips, the lane substitutes to it first (same role, same model, other provider).
@@ -400,24 +488,60 @@ correlated and near-worthless; three from different models are evidence.
 
 Edit `src/roster.ts` to change it. **Smoke-test anything you add** — `models.json`'s
 `structured_output` flag is unreliable in both directions, and several catalogued models
-are not actually served.
+are not actually served. `/council:models` does the discovery and the measuring for you,
+and stops short of the edit.
+
+### Implementer-class, not excluded
+
+Two members chat and drive tools perfectly well, and 400 on a *named* tool call. Their
+errors name the cause:
+
+```
+deepseek/deepseek-v4-pro
+  400  Thinking mode does not support this tool_choice
+
+opencode/muse-spark-1.2-contributor-free
+  400  only "auto" is supported for tool_choice; "none", "required", and named
+       function choices are not currently supported
+```
+
+That is a capability class, not a quirk of one model, and it falls exactly on the boundary
+between an implementer and a council lane: `tool_choice: auto` works, a forced named call
+does not. Both are in the roster with `capability: ["agentic"]` and no roles.
+`deepseek/deepseek-v4-pro` is verified agentic — drove bash, returned an exact marker,
+9459ms — and is the designated implementer for build work.
+
+They still answer `/council:independent`, which sends no schema. The limit is structured
+output, not inference.
+
+`opencode-go/muse-spark-1.2-contributor` is a third case again: **gated, not broken.** It
+requires a data-collection opt-in at `opencode.ai/workspace/.../go` — consent that is the
+human's to give, so it is not pinned here.
 
 ### Excluded, with cause
 
 | model | cause | remedy |
 |---|---|---|
-| `deepseek/*` | `400 Thinking mode does not support this tool_choice`, every variant | opt in to `opencode-go/deepseek-v4-pro` at `opencode.ai/workspace/.../go` |
 | `opencode-go/qwen3.{7,8}-max` | deterministic timeouts (120s, 150s, 240s) | none found |
+| `opencode/hy3-free` | `malformed` 3/3 — the free route, not the model | use `opencode-go/hy3`, which holds the schema at 6117ms |
+| `google/gemini-3.7-flash` | times out at 90s where `3.6-flash` answers in 9s | stay on `3.6-flash`; a higher version number is not a measurement |
 
-There is no text-JSON fallback by design. A model either passes the smoke test or is not
-in the roster; a second parse path for two models is complexity for marginal diversity.
+There is no text-JSON fallback by design. A model either passes the smoke test or gets no
+schema lane; a second parse path for two models is complexity for marginal diversity.
 
 ---
 
 ## Known limits
 
-- **A full review takes ~1–3 minutes.** Rounds are sequential and each is bounded by its
-  slowest member, so worst case is roughly 4× the per-node timeout.
+- **`/council:review` is now the most expensive path in the system.** That is the intended
+  trade, so here it is in numbers: a full panel is **23 nodes**, each subject to **up to 2
+  debate rounds**, before verification adds 3 skeptic calls per BLOCKER and 2 per
+  SUGGESTION. `/council:task` is **15 proposals + 45 scoring calls** (all-pairs would have
+  been 210). Rounds are sequential and each is bounded by its slowest member, so wall time
+  scales with both. The ~1–3 minutes measured previously was on the routed, debate-off
+  path — it still describes crew's branch review, which inherits both defaults, and it is a
+  floor rather than a forecast for a full panel. **`/council:check` is the cheap option**
+  and did not change: six lenses, inline, no subagents.
 - **`anthropic/*` models only work in your main opencode process.** They route through a
   local proxy that a second server cannot reach.
 - **Nodes fail, and the report says so.** Failed nodes substitute first (see above); one
@@ -441,12 +565,13 @@ it, the two asymmetries above are the things most likely to be "simplified" into
 |---|---|
 | `src/decide.ts` | pure judgement: dedupe, disputes, convergence, `decide`, `tally` |
 | `src/roster.ts` | models, routing table, node and skeptic selection |
-| `src/engine.ts` | fan-out, debate, verification, fix, plan — moves data, holds no judgement |
+| `src/engine.ts` | fan-out, debate, verification, fix, plan, task — moves data, holds no judgement |
+| `src/catalog.ts` | the live catalogue, the measured capability cache, and the probe budget |
 | `src/schema.ts` | JSON Schemas enforced by the runtime as forced tool calls |
-| `src/report.ts` | report, patch and plan rendering |
+| `src/report.ts` | report, patch, plan and task rendering |
 | `src/index.ts` | plugin entry: registers agents, commands, and the `council` tool |
-| `agent/*.md` | the 12 role prompts — expertise and tier calibration only |
-| `src/*.test.ts` | 46 tests: `decide`, `roster`, `tally`, patch classification |
+| `agent/*.md` | the 14 agent prompts — 13 roles plus the fixer, expertise and tier calibration only |
+| `src/*.test.ts` | 178 tests: `decide`, `roster`, `tally`, task states, catalog, patch classification |
 
 The rule the whole design rests on: **anything that decides an outcome lives in
 `decide.ts` and is tested.** `engine.ts` may move data and call models, but if you find
@@ -455,6 +580,10 @@ yourself writing a judgement there, it belongs one file over.
 **[PLAN.md](./PLAN.md)** carries the design decisions with rationale, the measured spike
 results, and 18 opencode runtime gotchas that cost real time to discover. Read it before
 changing the architecture.
+
+**[docs/adr/](./docs/adr/)** carries one file per decision, named `YYYY-MM-DD-slug.md` —
+dates and slugs rather than sequential numbers, because `0007-` has to be allocated and two
+workers deciding concurrently both allocate the same one.
 
 ## License
 
