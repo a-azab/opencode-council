@@ -41,6 +41,19 @@ test("both tools are primary, so subagents cannot recurse into them", async () =
     assert.ok(config.experimental.primary_tools.includes(name), `${name} is not a primary tool`)
 })
 
+test("the spawned-worker deny rule names the tools that actually exist", () => {
+  // The SECOND confinement control, and the one with no other coverage. engine.ts denies
+  // each tool BY NAME so a worker it spawns cannot re-enter it and recurse. Rename a tool
+  // and miss this string and the deny silently stops matching - it guards nothing, and
+  // nothing fails. Source-text assertion, following the precedent below that reads
+  // engine.ts the same way; a live check would need a server this suite refuses to call.
+  const engine = readFileSync(join(PKG, "src/engine.ts"), "utf8")
+  for (const name of ["council", "lets"])
+    assert.match(engine, new RegExp(`permission: "${name}"`), `${name} is not denied to workers`)
+  assert.doesNotMatch(engine, /permission: "crew"/,
+    "a deny rule for a tool that no longer exists guards nothing")
+})
+
 test("every agent file is registered and read-only unless it opts in", async () => {
   const { config } = await load()
   const agents = Object.keys(config.agent)
