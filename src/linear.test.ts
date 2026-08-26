@@ -2,7 +2,7 @@ import { test } from "node:test"
 import assert from "node:assert/strict"
 import { createServer, type Server } from "node:http"
 import { issueIdentifierIn, findIssue, LinearError, type LinearCtx } from "./linear.ts"
-import { linearTracker } from "./crew.ts"
+import { linearTracker } from "./lets.ts"
 
 // No Linear workspace is reachable from here, so these run against a stub that records
 // what was sent. That cannot prove Linear accepts these mutations - only a real workspace
@@ -183,5 +183,5 @@ test("an unreachable Linear never reaches the run", async () => {
   // The work is real; the mirror is not.
   const t = linearTracker({ token: "t", endpoint: "http://127.0.0.1:1" }, "ENG-7", () => {})
   await assert.rejects(() => t.start({ directive: "d", items: [], branch: "b" }))
-  // ...which is why trackerFor wraps it in guarded(); proven separately in crew.test.ts.
+  // ...which is why trackerFor wraps it in guarded(); proven separately in lets.test.ts.
 })

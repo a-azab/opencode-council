@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { substitutesFor, benchable, MAX_SUBSTITUTIONS, type Bench } from "./engine.ts"
 import { selectNodes, ALL_ROLES, ROSTER } from "./roster.ts"
 
-// Measured 2026-08-21, full-panel review of the crew: 24 of 56 lanes reported. `code` had
+// Measured 2026-08-21, full-panel review of lets: 24 of 56 lanes reported. `code` had
 // no working model at all (kimi quota exhausted) and four models returned `malformed` on
 // every slice. Dropping a lane while eight unused models sat idle is the gap these cover.
 

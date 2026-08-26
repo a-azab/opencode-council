@@ -103,7 +103,7 @@ The commands are thin wrappers over one tool:
 `context` passes supporting material — file contents, output, a spec — to `task` and
 `independent` as data rather than instructions. `base` accepts any git ref.
 
-To **build** something rather than judge it, use the `crew` tool — see below.
+To **build** something rather than judge it, use the `lets` tool — see below.
 
 ### `/council:fix` — patches, verified, behind your gate
 
@@ -135,17 +135,17 @@ Results are sorted into four buckets that never merge:
 The distinction matters: a patch nobody checked is not done, and presenting it beside a
 verified one would make the guarantee meaningless.
 
-## The crew — a directive to a PR
+## lets — a directive to a PR
 
-The council judges work. The **crew** does it.
+The council judges work. **lets** does it.
 
 ```
-/crew:init                                    # once per repo
-/crew add a --json flag to the export command # plan it, and stop
-/crew:execute                                     # build the plan you approved
+/lets:init                                    # once per repo
+/lets:plan add a --json flag to the export command # plan it, and stop
+/lets:execute                                     # build the plan you approved
 ```
 
-### `/crew:init` — hire for this repo
+### `/lets:init` — hire for this repo
 
 Detects the stack, the command that proves the project still works, the branch PRs target,
 and which review lanes this repo needs. Proposes all of it, and **asks about what is
@@ -153,11 +153,11 @@ genuinely ambiguous** rather than picking. On a monorepo it offers `nx affected`
 the whole-workspace command — running 900 files of tests to check a one-file change is how
 a run becomes an hour.
 
-The answers land in a fenced `crew` block in your `AGENTS.md`. Editing it by hand is the
+The answers land in a fenced `lets` block in your `AGENTS.md`. Editing it by hand is the
 intended way to change your mind; re-running init only ever rewrites that block, never
 prose you wrote.
 
-### `/crew:plan <directive>` — intake, then a gate
+### `/lets:plan <directive>` — intake, then a gate
 
 Two lanes, in sequence, handing an artifact to each other:
 
@@ -171,7 +171,7 @@ Two lanes, in sequence, handing an artifact to each other:
 Then it **stops**. Nothing is written until you approve. If a lane failed to answer, the
 gate says so — a thin plan is never presented as a simple one.
 
-### `/crew:execute` — build it
+### `/lets:execute` — build it
 
 Runs **the plan you approved**, not a fresh one. Re-planning here would build something
 other than what you read.
@@ -183,7 +183,7 @@ that *didn't write it* judge the diff against the item's acceptance criteria →
 limiting stays green whether or not you added it. That is why acceptance is judged
 separately, and by someone else.
 
-When an item gets stuck, the crew escalates instead of giving up: a lane that isn't the
+When an item gets stuck, lets escalates instead of giving up: a lane that isn't the
 implementer reads the failure and writes the brief for the next attempt. When all items
 land, the council reviews the branch and any **blocker** becomes another item. Suggestions
 and nits go in the PR body — looping on taste spends the budget a real defect needs.
@@ -204,18 +204,18 @@ never ran are listed as `not-attempted` with the reason — a plan that stopped 
 says **"NOT independently judged — checks only"**. That is enforced by tests, because the
 one lie that would matter is the report that hides what happened.
 
-### `/crew:status` — what's still lying around
+### `/lets:status` — what's still lying around
 
-Lists live crew worktrees with their branch, age, and the exact command to remove each.
-Works in any git repo, including one with no crew config — that's precisely where a
+Lists live lets worktrees with their branch, age, and the exact command to remove each.
+Works in any git repo, including one with no lets config — that's precisely where a
 worktree gets stranded and forgotten.
 
-The crew wrote this one.
+lets wrote this one.
 
 ### Tracking — optional, and off by default
 
-Runs report to your terminal. If you want them mirrored somewhere, `/crew:init` asks once
-and records the answer in the `crew` block.
+Runs report to your terminal. If you want them mirrored somewhere, `/lets:init` asks once
+and records the answer in the `lets` block.
 
 | `tracker:` | behaviour |
 |---|---|
@@ -225,13 +225,13 @@ and records the answer in the `crew` block.
 | `linear` | mirrored into a Linear agent session (native fast path) |
 
 **`none` and absent are different on purpose.** Creating issues in someone's workspace
-uninvited is worse than asking one question, so the crew never guesses.
+uninvited is worse than asking one question, so lets never guesses.
 
 With `mcp`, the tracker is whatever you already run: name one of your opencode.json
 `mcpServers` entries and map the run's moments to that server's tools. Argument names are
 the server's, not ours — a small template adapts them:
 
-```crew
+```lets
 tracker: mcp
 mcp-server: jira
 mcp-start: create_issue
@@ -243,9 +243,9 @@ mcp-args: {"issueKey": "${issue}", "comment": "${text}"}
 `${issue}` (matched from the directive, e.g. `fix ENG-123`), `${directive}`, `${branch}`,
 `${text}` and `${state}` substitute into template values. Every tool is optional — a
 tracker that only posts the final summary is valid. Local (stdio) servers only, resolved
-from opencode.json so the crew adds no server configuration of its own.
+from opencode.json so lets adds no server configuration of its own.
 
-With `linear`, the crew registers as a real workspace member and streams into a native
+With `linear`, lets registers as a real workspace member and streams into a native
 agent session: a live plan checklist, one entry per item, and the PR link attached when it
 opens. Outbound only — no webhook, no public endpoint, no daemon. Needs `LINEAR_API_TOKEN`
 from an OAuth app installed with `actor=app` (workspace admin required). Without the token
@@ -368,10 +368,10 @@ Artifacts land in `council-artifacts/<timestamp>-<kind>/` — `report.md` + `fin
 migration wakes systems and security. `reviewer` always runs.
 
 **`/council:review` opts out of routing** and passes every lane, because routing is a cost
-control that is right for the crew and wrong for "my council" — you asked the whole body, so
+control that is right for lets and wrong for "my council" — you asked the whole body, so
 the whole body answers. Routing still governs every call that does *not* ask for all lanes,
-crew's branch review above all. The split lives at the call site, in `councilArgs()`, and is
-pinned by a test: moving it into a shared default would silently put every crew run on the
+lets's branch review above all. The split lives at the call site, in `councilArgs()`, and is
+pinned by a test: moving it into a shared default would silently put every lets run on the
 expensive path.
 
 **Substitution — a lane never drops while a usable model remains.** When a node fails,
@@ -539,7 +539,7 @@ schema lane; a second parse path for two models is complexity for marginal diver
   SUGGESTION. `/council:task` is **15 proposals + 45 scoring calls** (all-pairs would have
   been 210). Rounds are sequential and each is bounded by its slowest member, so wall time
   scales with both. The ~1–3 minutes measured previously was on the routed, debate-off
-  path — it still describes crew's branch review, which inherits both defaults, and it is a
+  path — it still describes lets's branch review, which inherits both defaults, and it is a
   floor rather than a forecast for a full panel. **`/council:check` is the cheap option**
   and did not change: six lenses, inline, no subagents.
 - **`anthropic/*` models only work in your main opencode process.** They route through a

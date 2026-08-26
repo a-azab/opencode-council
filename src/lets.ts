@@ -1,4 +1,4 @@
-// Crew: a human directive taken through intake, an approved plan, implementation,
+// Lets: a human directive taken through intake, an approved plan, implementation,
 // verification and review, to a PR. See PLAN.md §9.
 //
 // Config and detection, intake, execution, and the tracker seam.
@@ -27,7 +27,7 @@ import {
 } from "./linear.ts"
 
 /**
- * What `/crew init` writes and every later phase reads.
+ * What `/lets:init` writes and every later phase reads.
  *
  * ponytail: `verify` is an ordered list of whole commands, not a path->command map. The
  * narrowing a monorepo needs is better done by the build tool that already computes it
@@ -35,10 +35,10 @@ import {
  * turns up that has neither, add the map then.
  */
 /** Every valid lane name — the full Role union, including skeptic. Defined in roster.ts;
- *  re-exported (not `export ... from`) because parseCrewBlock reads it as a local. */
+ *  re-exported (not `export ... from`) because parseLetsBlock reads it as a local. */
 export { KNOWN_ROLES }
 
-export type CrewConfig = {
+export type LetsConfig = {
   /** run in order; all must pass. */
   verify: string[]
   /** PR target. */
@@ -48,7 +48,7 @@ export type CrewConfig = {
   /**
    * Where the work is mirrored, or `none`.
    *
-   * Absent is NOT the same as `none`: absent means init never asked, so the crew asks once
+   * Absent is NOT the same as `none`: absent means init never asked, so lets asks once
    * and offers to record the answer. `none` means the human said no, and is never
    * re-asked. Guessing either way would be wrong - creating issues in someone's tracker
    * uninvited is worse than one question.
@@ -78,17 +78,17 @@ export type TrackerName = (typeof TRACKERS)[number]
 
 // ------------------------------------------------------------------ AGENTS.md block
 
-const FENCE = /^```crew[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/m
+const FENCE = /^```(?:lets|crew)[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/m
 
 /**
- * Flat `key: value` inside a ```crew fence. Same shape as the agent-file frontmatter
+ * Flat `key: value` inside a ```lets fence (a pre-rename ```crew fence still parses). Same shape as the agent-file frontmatter
  * parser in index.ts, and flat for the same reason: nothing here needs nesting, and
  * needing a YAML dependency to read four keys would be the tail wagging the dog.
  *
  * Returns undefined when a fence exists but its contents are not a valid config - an
  * unknown lane name, for instance, must fail the parse rather than silently never run.
  */
-export function parseCrewBlock(markdown: string): Partial<CrewConfig> | undefined {
+export function parseLetsBlock(markdown: string): Partial<LetsConfig> | undefined {
   const m = FENCE.exec(markdown)
   if (!m) return {}
   const raw: Record<string, string> = {}
@@ -117,7 +117,7 @@ export function parseCrewBlock(markdown: string): Partial<CrewConfig> | undefine
       .map((x) => x.trim())
       .filter(Boolean)
 
-  const out: Partial<CrewConfig> = {}
+  const out: Partial<LetsConfig> = {}
   if (verify.length) out.verify = verify
   if (raw.base) out.base = raw.base
   if (raw.lanes) {
@@ -127,7 +127,7 @@ export function parseCrewBlock(markdown: string): Partial<CrewConfig> | undefine
     if (bad.length) return undefined // a typo like `coed` must fail loudly, not silently never run
     out.lanes = wanted as Role[]
   }
-  // An unrecognised tracker name is dropped rather than carried: readCrewConfig would then
+  // An unrecognised tracker name is dropped rather than carried: readLetsConfig would then
   // see "never asked" and ask again, which is the safe direction. Silently accepting
   // `tracker: jyra` would mean a typo disables tracking with no signal.
   if (raw.tracker && (TRACKERS as readonly string[]).includes(raw.tracker))
@@ -155,9 +155,9 @@ export function parseCrewBlock(markdown: string): Partial<CrewConfig> | undefine
   return out
 }
 
-export function renderCrewBlock(cfg: CrewConfig): string {
+export function renderLetsBlock(cfg: LetsConfig): string {
   return [
-    "```crew",
+    "```lets",
     // One key per command, so a command containing a comma survives. A single
     // comma-joined line could not represent `sh -c 'a, b'` and would silently split it
     // into two commands that both fail.
@@ -179,23 +179,23 @@ export function renderCrewBlock(cfg: CrewConfig): string {
   ].join("\n")
 }
 
-const HEADING = "## Crew"
+const HEADING = "## Lets"
 
 /**
- * Replace the crew block in place, or append a section if there is none.
+ * Replace the lets block in place, or append a section if there is none.
  *
  * Idempotent and surgical on purpose: AGENTS.md is a file the user wrote and their team
  * reviews. Rewriting anything outside our own fence would be the single most annoying
  * thing this tool could do.
  */
-export function upsertCrewBlock(markdown: string, cfg: CrewConfig): string {
-  const block = renderCrewBlock(cfg)
+export function upsertLetsBlock(markdown: string, cfg: LetsConfig): string {
+  const block = renderLetsBlock(cfg)
   // A function replacement, not a string: `$&`, "$`", `$'` and `$1` are special in a
   // replacement string, so a verify command containing any of them would be silently
   // mangled on write.
   if (FENCE.test(markdown)) return markdown.replace(FENCE, () => block)
   const body = markdown.trimEnd()
-  const section = `${HEADING}\n\nConfig for \`/crew\`. Edit freely - it is read, not regenerated.\n\n${block}\n`
+  const section = `${HEADING}\n\nConfig for \`/lets\`. Edit freely - it is read, not regenerated.\n\n${block}\n`
   return body ? `${body}\n\n${section}` : section
 }
 
@@ -258,7 +258,7 @@ export type VerifyCandidate = { command: string; why: string }
  *
  * When the repo has a build tool that already knows how to narrow work to what changed
  * (`nx affected`), prefer that over the whole-workspace command. Running 900 files of tests
- * to check a one-file item is how a crew run becomes an hour.
+ * to check a one-file item is how a lets run becomes an hour.
  *
  * Never collapses to a guess. A verify command that passes trivially is the worst outcome
  * available here - the loop would run it and report unfinished work as done - so ambiguity
@@ -393,25 +393,25 @@ export function graphState(root: string): GraphState {
 
 // ------------------------------------------------------------------ ignores
 
-/** Crew scratch that must never reach the user's team. */
-export const CREW_IGNORES = [".worktrees/", "council-artifacts/", "graphify-out/cost.json"]
+/** Lets scratch that must never reach the user's team. */
+export const LETS_IGNORES = [".worktrees/", "council-artifacts/", "graphify-out/cost.json"]
 
 /**
  * Lines missing from `.git/info/exclude`.
  *
  * `.git/info/exclude` rather than `.gitignore` on purpose: it is per-clone and never
- * committed, so the crew stays invisible in the team's diffs and review.
+ * committed, so lets stays invisible in the team's diffs and review.
  */
 export function missingIgnores(root: string): string[] {
   const path = join(root, ".git", "info", "exclude")
   const have = existsSync(path) ? readFileSync(path, "utf8").split(/\r?\n/).map((l) => l.trim()) : []
-  return CREW_IGNORES.filter((line) => !have.includes(line))
+  return LETS_IGNORES.filter((line) => !have.includes(line))
 }
 
 // ------------------------------------------------------------------ instructions
 
 /**
- * The repo's own rules, prepended to every crew prompt (PLAN.md C11).
+ * The repo's own rules, prepended to every lets prompt (PLAN.md C11).
  *
  * Read here rather than relied upon from opencode's session injection: sessions the engine
  * creates over the HTTP API may or may not load them, and "may or may not" is not a
@@ -470,7 +470,7 @@ export const graphQuery = (root: string, question: string, budget = GRAPH_BUDGET
 /**
  * What the intake lanes get to see of the codebase.
  *
- * This is the answer to "the crew plans without reading the code". A persistent graph beats
+ * This is the answer to "lets plans without reading the code". A persistent graph beats
  * re-exploring every run: measured on thiqwave-platform, 903 files map in 13.6s with zero
  * LLM calls, and a scoped query returns the relevant neighbourhood instead of a file tree.
  *
@@ -513,16 +513,16 @@ export type InitProposal = {
   graph: GraphState
   ignores: string[]
   /** what is already configured, if this is a re-init */
-  existing: Partial<CrewConfig>
+  existing: Partial<LetsConfig>
 }
 
 const AGENTS = "AGENTS.md"
 
 /** Config as recorded by init, or null when this repo has never been initialised. */
-export function readCrewConfig(root: string): CrewConfig | null {
+export function readLetsConfig(root: string): LetsConfig | null {
   const path = join(root, AGENTS)
   if (!existsSync(path)) return null
-  const c = parseCrewBlock(readFileSync(path, "utf8"))
+  const c = parseLetsBlock(readFileSync(path, "utf8"))
   if (!c.verify?.length || !c.base || !c.lanes?.length) return null
   // `mcp` rides along with its tracker: dropping it here meant a written tracker: mcp
   // config came back as "mcp" with no server, which runCmd then reports as unrecorded —
@@ -550,7 +550,7 @@ export function proposeInit(
     lanes: proposeLanes(root),
     graph: graphState(root),
     ignores: missingIgnores(root),
-    existing: existsSync(agentsPath) ? parseCrewBlock(readFileSync(agentsPath, "utf8")) : {},
+    existing: existsSync(agentsPath) ? parseLetsBlock(readFileSync(agentsPath, "utf8")) : {},
   }
 }
 
@@ -563,7 +563,7 @@ export function renderInitProposal(p: InitProposal): string {
   ]
 
   if (Object.keys(p.existing).length)
-    out.push(`Already configured: \`${JSON.stringify(p.existing)}\` — re-init replaces the crew block only.`, "")
+    out.push(`Already configured: \`${JSON.stringify(p.existing)}\` — re-init replaces the lets block only.`, "")
 
   out.push("**Verify** — all must pass; first is the recommendation:")
   if (!p.verify.length)
@@ -627,7 +627,7 @@ export function renderInitProposal(p: InitProposal): string {
 
   out.push(
     "",
-    "Confirm or correct, then I write the crew block to AGENTS.md.",
+    "Confirm or correct, then I write the lets block to AGENTS.md.",
   )
   return out.join("\n")
 }
@@ -636,14 +636,14 @@ export function renderInitProposal(p: InitProposal): string {
 // ------------------------------------------------------------------ intake
 
 /**
- * Models the crew drives directly - intake lanes AND the implementer - in order of
+ * Models lets drives directly - intake lanes AND the implementer - in order of
  * preference, first to answer wins.
  *
  * A list rather than one pick for the same reason `WORKERS` is a list: hardcoding a single
  * model makes it a single point of failure, and a run that dies at intake has produced
  * nothing at all.
  */
-export const CREW_MODELS = ["opus5", "gpt56terra", "glm53", "minimax", "kimik3"] as const
+export const LETS_MODELS = ["opus5", "gpt56terra", "glm53", "minimax", "kimik3"] as const
 
 export type WorkItem = { title: string; detail: string; files: string[]; acceptance: string }
 
@@ -731,8 +731,8 @@ export async function runIntake(
   let calls = 0
 
   const askAny = async <T>(agent: string, text: string, schema?: unknown): Promise<T | null> => {
-    let last = { state: "failed" as NodeState, detail: "no model in CREW_MODELS resolved" }
-    for (const slug of CREW_MODELS) {
+    let last = { state: "failed" as NodeState, detail: "no model in LETS_MODELS resolved" }
+    for (const slug of LETS_MODELS) {
       const member = bySlug(slug)
       if (!member) continue
       calls++
@@ -753,14 +753,14 @@ export async function runIntake(
   // CTO silently fell back to the raw directive - the CPO lane has been paid for and
   // discarded on every run since intake landed. Nothing failed loudly; the plans just came
   // from one lane instead of two.
-  const cpo = await askAny<string>("crew-cpo", cpoPrompt(input.directive, input.instructions))
+  const cpo = await askAny<string>("lets-cpo", cpoPrompt(input.directive, input.instructions))
   // The CTO can still work from the raw directive, but the plan will be weaker and the
   // gate must show that rather than present a confident-looking list.
   const outcomes = cpo ?? ""
 
   const graph = graphContext(input.root, input.directive)
   const plan = await askAny<{ items: WorkItem[] }>(
-    "crew-cto",
+    "lets-cto",
     ctoPrompt(input.directive, outcomes || input.directive, graph, input.instructions),
     WORKITEMS_SCHEMA,
   )
@@ -779,7 +779,7 @@ export async function runIntake(
 /**
  * Where a run is mirrored while it happens.
  *
- * Four calls, all optional to implement meaningfully. The crew works with none of them
+ * Four calls, all optional to implement meaningfully. Lets works with none of them
  * doing anything, which is the point: tracking is a mirror, not a component. A tracker that
  * breaks must never be able to stop the work.
  */
@@ -848,7 +848,7 @@ export function guarded(inner: Tracker, onStep: (m: string) => void): Tracker {
 /**
  * Mirrors a run into a Linear agent session (PLAN.md §9 Phase 5).
  *
- * Outbound only: the crew creates its own session rather than waiting to be assigned one,
+ * Outbound only: lets creates its own session rather than waiting to be assigned one,
  * so there is no webhook, no public endpoint and no daemon. In the Linear UI it renders
  * identically to an agent that was delegated the issue.
  *
@@ -959,8 +959,8 @@ export function availableTrackers(
   repoRoot?: string,
 ): TrackerName[] {
   // `mcp` is offered the moment ANY local MCP server is configured — it names the generic
-  // path, and the specific server is chosen per-repo in the crew block. Jira, GitHub,
-  // Plane, anything with an MCP server: all one tracker from the crew's side.
+  // path, and the specific server is chosen per-repo in the lets block. Jira, GitHub,
+  // Plane, anything with an MCP server: all one tracker from the lets side.
   return [
     "none",
     ...(env.LINEAR_API_TOKEN ? (["linear"] as const) : []),
@@ -1000,7 +1000,7 @@ export function trackerFor(
   if (name === "mcp") {
     // resolved lazily by the caller passing cfg through opts.mcp — see below
     if (!opts.mcp?.server) {
-      onStep(`  tracker(mcp): no mcp-server recorded — run /crew:init to configure one`)
+      onStep(`  tracker(mcp): no mcp-server recorded — run /lets:init to configure one`)
       return stdout
     }
     const spec = localMcpServers(opts.repoRoot).get(opts.mcp.server)
@@ -1061,11 +1061,11 @@ export function openWorktree(
   base?: string,
 ): { path: string; branch: string } {
   git(root, ["worktree", "prune"])
-  const branch = `crew/${slug}`
+  const branch = `lets/${slug}`
   const path = join(root, ".worktrees", slug)
   // From the configured base, NOT session HEAD. The review and acceptance stages diff
   // `<base>...HEAD`; branching from HEAD would fold the user's own unmerged commits into
-  // what the reviewer is told the crew did, and judge the crew for work it did not do.
+  // what the reviewer is told lets did, and judge lets for work it did not do.
   const from = base ?? "HEAD"
   git(root, ["worktree", "add", "-b", branch, path, from])
 
@@ -1096,28 +1096,34 @@ export function closeWorktree(root: string, path: string) {
   }
 }
 
-export type CrewWorktree = { slug: string; branch: string; path: string; ageMs: number }
+export type LetsWorktree = { slug: string; branch: string; path: string; ageMs: number }
 
 /**
- * The live crew worktrees, so a human can see what is safe to remove. Only `crew/<slug>`
- * branches - the exact name openWorktree writes - which keeps the main worktree and any
- * worktree the user made themselves out of a list whose whole purpose is deletion.
+ * The live lets worktrees, so a human can see what is safe to remove. Only `lets/<slug>`
+ * branches - the exact name openWorktree writes - plus `crew/<slug>` from before the rename,
+ * which keeps the main worktree and any worktree the user made themselves out of a list
+ * whose whole purpose is deletion.
  *
  * Age is the directory's own birthtime, not the HEAD commit date: a worktree branches from
  * the parent's HEAD, so a run started a minute ago in a repo last committed to last week
  * would report a week and read as abandoned.
  */
-export function listWorktrees(root: string): CrewWorktree[] {
+export function listWorktrees(root: string): LetsWorktree[] {
   const now = Date.now()
   return git(root, ["worktree", "list", "--porcelain"])
     .split("\n\n")
     .flatMap((block) => {
       const path = block.match(/^worktree (.+)$/m)?.[1]
-      const slug = block.match(/^branch refs\/heads\/crew\/(.+)$/m)?.[1]
+      // Capture the branch, never rebuild it from the slug: reconstructing `crew/${slug}`
+      // would report a `lets/foo` worktree as branch `crew/foo` - a branch that does not
+      // exist, printed in a removal command a human is expected to run.
+      const m = block.match(/^branch refs\/heads\/((?:lets|crew)\/(.+))$/m)
+      const branch = m?.[1]
+      const slug = m?.[2]
       // a registration whose directory is gone is `prune` material, not a live worktree
-      if (!path || !slug || !existsSync(path)) return []
+      if (!path || !branch || !slug || !existsSync(path)) return []
       const s = statSync(path)
-      return [{ slug, branch: `crew/${slug}`, path, ageMs: now - (s.birthtimeMs || s.mtimeMs) }]
+      return [{ slug, branch, path, ageMs: now - (s.birthtimeMs || s.mtimeMs) }]
     })
 }
 
@@ -1129,8 +1135,8 @@ const humanAge = (ms: number) => {
 }
 
 /** One row per worktree, each carrying the exact removal command - the point is cleanup. */
-export function renderWorktrees(list: CrewWorktree[]): string {
-  if (!list.length) return "No live crew worktrees."
+export function renderWorktrees(list: LetsWorktree[]): string {
+  if (!list.length) return "No live lets worktrees."
   return list
     .map((w) => `- ${w.slug} — \`${w.branch}\`, ${humanAge(w.ageMs)} old\n  git worktree remove ${w.path} --force`)
     .join("\n")
@@ -1233,7 +1239,7 @@ export type ItemOutcome = {
   judged?: boolean
 }
 
-/** Plain retries before the crew brings in extra lanes to diagnose (C5). */
+/** Plain retries before lets brings in extra lanes to diagnose (C5). */
 export const MAX_ATTEMPTS = 2
 /** Diagnosed retries after that. Beyond this the item is reported stuck, not retried forever (C7). */
 export const MAX_ESCALATIONS = 3
@@ -1247,7 +1253,7 @@ export const MAX_RUN_SECONDS = 60 * 60
  *
  * Passing checks prove nothing broke; they do not prove the item was addressed. A suite
  * that never tested rate limiting stays green whether or not rate limiting was added, and
- * without this the crew would report that item done. §6b names this directly: "many
+ * without this lets would report that item done. §6b names this directly: "many
  * existing verifiers perform only superficial checks".
  *
  * Judged by a model that did not write the code. Self-assessment is not assessment -
@@ -1268,7 +1274,7 @@ async function checkAcceptance(
    * Without this the judge sees an incremental diff with no idea what preceded it.
    * Measured on the first real run: item 2 added a caller for a function item 1 had
    * already committed, and the judge — seeing only item 2's diff — reported the function
-   * "is not defined anywhere in src/crew.ts" and rejected the item twice. Two wasted
+   * "is not defined anywhere in src/lets.ts" and rejected the item twice. Two wasted
    * attempts and an escalation for a non-problem.
    */
   const context = input.landed.length
@@ -1314,7 +1320,7 @@ something as undefined merely because its definition is not in this diff.
  * Why is this item stuck? Read by a lane that is not the implementer, given the failure and
  * the work so far, and fed back as the next attempt's brief.
  *
- * This is C5: a stuck item pulls in more of the crew rather than aborting the run.
+ * This is C5: a stuck item pulls in more lanes rather than aborting the run.
  */
 async function diagnose(
   ctx: Ctx,
@@ -1346,7 +1352,7 @@ async function diagnose(
   return r.ok ? `A reviewer diagnosed the failure:\n\n${r.value}` : input.failure
 }
 
-const implementPrompt = (item: WorkItem, cfg: CrewConfig, instructions: string, feedback?: string) =>
+const implementPrompt = (item: WorkItem, cfg: LetsConfig, instructions: string, feedback?: string) =>
   `${instructions}
 
 You are in a git worktree created for this run. Everything you do stays here.
@@ -1394,7 +1400,7 @@ export async function runItem(
   input: {
     item: WorkItem
     worktree: string
-    cfg: CrewConfig
+    cfg: LetsConfig
     instructions: string
     maxAttempts?: number
     maxEscalations?: number
@@ -1439,12 +1445,12 @@ export async function runItem(
     say(`  attempt ${attempt}/${total}: implementing`)
 
     let answered = false
-    for (const slug of CREW_MODELS) {
+    for (const slug of LETS_MODELS) {
       const member = bySlug(slug)
       if (!member) continue
       const r = await ask<string>(ctx, {
         model: member.model,
-        agent: "crew-dev",
+        agent: "lets-dev",
         text: implementPrompt(input.item, input.cfg, input.instructions, feedback),
         directory: input.worktree,
         allow: ["edit", "bash"],
@@ -1536,7 +1542,7 @@ export async function runItem(
     let commit: string
     try {
       git(input.worktree, [
-        "-c", "user.name=crew", "-c", "user.email=crew@local",
+        "-c", "user.name=lets", "-c", "user.email=lets@local",
         "commit", "-m", commitMessage(input.item),
       ])
       commit = git(input.worktree, ["rev-parse", "--short", "HEAD"])
@@ -1568,7 +1574,7 @@ export type RunResult = {
 }
 
 /**
- * Council review of everything on the branch, reduced to items the crew can act on.
+ * Council review of everything on the branch, reduced to items lets can act on.
  *
  * Only BLOCKERs come back as work. Suggestions and nits go in the PR body for the human -
  * looping on them would spend the run's budget on taste while a real defect waits.
@@ -1609,7 +1615,7 @@ export async function runExecute(
   input: {
     root: string
     items: WorkItem[]
-    cfg: CrewConfig
+    cfg: LetsConfig
     instructions: string
     directive: string
     onStep?: (msg: string) => void
@@ -1627,8 +1633,14 @@ export async function runExecute(
   // branch behind (commits are the deliverable, so the branch is kept), and `git worktree
   // add -b` refuses an existing branch name. Second-resolution stamps also collided with
   // any re-run inside the same second.
+  // Both namespaces: a stranded branch from before the rename collides just as hard as a
+  // new one, and `git worktree add -b` throws on either.
+  const taken = (s: string) =>
+    existsSync(join(input.root, ".worktrees", s)) ||
+    branchExists(input.root, `lets/${s}`) ||
+    branchExists(input.root, `crew/${s}`)
   let slug = stamp
-  for (let n = 2; existsSync(join(input.root, ".worktrees", slug)) || branchExists(input.root, `crew/${slug}`); n++)
+  for (let n = 2; taken(slug); n++)
     slug = `${stamp}-${n}`
   const { path: worktree, branch } = openWorktree(input.root, slug, input.cfg.base)
   const outcomes: ItemOutcome[] = []
@@ -1777,7 +1789,7 @@ function prBody(directive: string, outcomes: ItemOutcome[]): string {
       : []),
     "",
     "---",
-    "Opened by the crew. Every commit passed the project's own verify command in an isolated",
+    "Opened by lets. Every commit passed the project's own verify command in an isolated",
     "worktree; that is a claim about the local checks, not about CI.",
   ].join("\n")
 }
@@ -1829,7 +1841,7 @@ const WHY_STOPPED: Record<RunResult["stoppedBy"], string> = {
   crashed: "the run crashed",
 }
 
-export function renderRun(r: RunResult, cfg: CrewConfig): string {
+export function renderRun(r: RunResult, cfg: LetsConfig): string {
   const done = r.outcomes.filter((o) => o.state === "done")
   const stuck = r.outcomes.filter((o) => o.state !== "done")
   const out: string[] = [
@@ -1923,7 +1935,7 @@ export function commitMessage(item: WorkItem): string {
 const humanBytes = (n: number) => (n < 1024 ? `${n}B` : `${(n / 1024).toFixed(0)}KB`)
 
 /** The gate. Nothing has been written when this is shown (PLAN.md C3). */
-export function renderGate(intake: Intake, cfg: CrewConfig, scope: { root: string; branch: string }): string {
+export function renderGate(intake: Intake, cfg: LetsConfig, scope: { root: string; branch: string }): string {
   const out: string[] = []
 
   if (intake.dropped.length) {
@@ -1935,7 +1947,7 @@ export function renderGate(intake: Intake, cfg: CrewConfig, scope: { root: strin
     if (intake.dropped.some((d) => d.state === "autherror"))
       out.push(
         "",
-        "An auth error means the crew could not reach the opencode server, not that the work is hard.",
+        "An auth error means lets could not reach the opencode server, not that the work is hard.",
         "Check `OPENCODE_SERVER_USERNAME` / `OPENCODE_SERVER_PASSWORD`.",
       )
     out.push("")
@@ -1977,12 +1989,12 @@ export function renderGate(intake: Intake, cfg: CrewConfig, scope: { root: strin
  * user's file and is not modified.
  */
 
-export function applyInit(root: string, cfg: CrewConfig): string[] {
+export function applyInit(root: string, cfg: LetsConfig): string[] {
   const written: string[] = []
 
   const agentsPath = join(root, AGENTS)
   const before = existsSync(agentsPath) ? readFileSync(agentsPath, "utf8") : ""
-  const after = upsertCrewBlock(before, cfg)
+  const after = upsertLetsBlock(before, cfg)
   if (after !== before) {
     writeFileSync(agentsPath, after)
     written.push(AGENTS)
@@ -1993,7 +2005,7 @@ export function applyInit(root: string, cfg: CrewConfig): string[] {
     const path = join(root, ".git", "info", "exclude")
     const prev = existsSync(path) ? readFileSync(path, "utf8") : ""
     const body = prev && !prev.endsWith("\n") ? prev + "\n" : prev
-    writeFileSync(path, `${body}# opencode crew\n${missing.join("\n")}\n`)
+    writeFileSync(path, `${body}# opencode lets\n${missing.join("\n")}\n`)
     written.push(".git/info/exclude")
   }
 

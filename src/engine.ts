@@ -170,7 +170,7 @@ export type AskOpts = {
    * Pin the session to this directory. Everything the agent does - reads, edits, bash -
    * happens here rather than in the server's own directory.
    *
-   * This is the only reason a crew worker can be given tools at all. Verified 2026-08-21:
+   * This is the only reason a lets worker can be given tools at all. Verified 2026-08-21:
    * a session created with `?directory=<worktree>` reports that path from `pwd` and the
    * worktree's branch from `git rev-parse`. Without it, granting `edit` would let a worker
    * modify the user's actual checkout, which is the exact catastrophe the worktree exists
@@ -238,7 +238,7 @@ async function askOnce<T>(
         // and a lane that hangs on a prompt is a dropped lane.
         permission: [
           { permission: "council", pattern: "*", action: "deny" },
-          { permission: "crew", pattern: "*", action: "deny" },
+          { permission: "lets", pattern: "*", action: "deny" },
           { permission: "task", pattern: "*", action: "deny" },
           { permission: "external_directory", pattern: "*", action: "deny" },
           ...(opts.allow?.includes("edit") ? [] : [{ permission: "edit", pattern: "*", action: "deny" }]),
@@ -599,7 +599,7 @@ export type Review = {
  * That experiment is now running, and this default is no longer the whole story: as of
  * 2026-08-25 `councilArgs()` below passes `maxRounds: 2` on the `/council:*` path, because
  * the human asked for debate explicitly. This constant still governs everything that does
- * NOT pass the argument - crew's branch review above all - which is exactly why the split
+ * NOT pass the argument - the lets branch review above all - which is exactly why the split
  * lives at the call site rather than here.
  *
  * The evidence above is not overturned; it is being re-tested where it can be seen. The
@@ -612,9 +612,9 @@ export const DEFAULT_MAX_ROUNDS = 0
 /**
  * What `council:review` asks the engine for, as data rather than inline literals.
  *
- * Routing is a cost control that is right for crew and wrong for "my council", and the
- * rounds split MUST live at the call site: crew.ts calls runReview with neither argument,
- * so raising DEFAULT_MAX_ROUNDS would silently give every crew branch-review two debate
+ * Routing is a cost control that is right for lets and wrong for "my council", and the
+ * rounds split MUST live at the call site: lets.ts calls runReview with neither argument,
+ * so raising DEFAULT_MAX_ROUNDS would silently give every lets branch-review two debate
  * rounds.
  *
  * `council:task` is deliberately absent. runTask (a later chunk) takes {goal, context} and

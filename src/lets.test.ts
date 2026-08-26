@@ -5,9 +5,9 @@ import { execFileSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
-  parseCrewBlock,
-  renderCrewBlock,
-  upsertCrewBlock,
+  parseLetsBlock,
+  renderLetsBlock,
+  upsertLetsBlock,
   resolveScope,
   detectStack,
   detectVerifyCandidates,
@@ -31,44 +31,46 @@ import {
   renderRun,
   type ItemOutcome,
   type RunResult,
-  CREW_IGNORES,
+  LETS_IGNORES,
   TRACKERS,
   availableTrackers,
   stdoutTracker,
   guarded,
   type Tracker,
-  type CrewConfig,
+  type LetsConfig,
   type WorkItem,
-} from "./crew.ts"
+} from "./lets.ts"
 
 const gitOut = (cwd: string, args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8" })
 
-const CFG: CrewConfig = {
+const CFG: LetsConfig = {
   verify: ["npm test", "npm run lint"],
   base: "develop",
   lanes: ["code", "qa", "reviewer"],
 }
 
 test("a config survives a render/parse round trip", () => {
-  assert.deepEqual(parseCrewBlock(renderCrewBlock(CFG)), CFG)
+  assert.deepEqual(parseLetsBlock(renderLetsBlock(CFG)), CFG)
 })
 
-test("no crew block parses to nothing, not to defaults", () => {
+test("no lets block parses to nothing, not to defaults", () => {
   // A missing block and an empty block must be distinguishable from a configured one,
   // or init cannot tell "never run here" from "configured with blanks".
-  assert.deepEqual(parseCrewBlock("# AGENTS\n\nSome prose.\n"), {})
+  assert.deepEqual(parseLetsBlock("# AGENTS\n\nSome prose.\n"), {})
 })
 
 test("comments and blank lines inside the block are ignored", () => {
+  // Deliberately ```crew, not ```lets: this is the compatibility path. A repo configured
+  // before the rename must still parse, and these fixtures are the only thing proving it.
   const md = "```crew\n# what to run\nverify: npm test\n\nbase: main\n```"
-  assert.deepEqual(parseCrewBlock(md), { verify: ["npm test"], base: "main" })
+  assert.deepEqual(parseLetsBlock(md), { verify: ["npm test"], base: "main" })
 })
 
 test("upsert appends a section when the file has none", () => {
-  const out = upsertCrewBlock("# AGENTS\n\nHouse rules.\n", CFG)
+  const out = upsertLetsBlock("# AGENTS\n\nHouse rules.\n", CFG)
   assert.ok(out.startsWith("# AGENTS\n\nHouse rules."), "existing prose must lead")
-  assert.deepEqual(parseCrewBlock(out), CFG)
+  assert.deepEqual(parseLetsBlock(out), CFG)
 })
 
 test("upsert replaces the block in place and touches nothing else", () => {
@@ -90,18 +92,18 @@ lanes: reviewer
 
 Prose below that must survive.
 `
-  const after = upsertCrewBlock(before, CFG)
-  assert.deepEqual(parseCrewBlock(after), CFG)
+  const after = upsertLetsBlock(before, CFG)
+  assert.deepEqual(parseLetsBlock(after), CFG)
   assert.ok(after.includes("Rules above."))
   assert.ok(after.includes("Prose below that must survive."))
   assert.ok(after.includes("## Something the user wrote after"))
   assert.ok(!after.includes("old command"))
-  assert.equal(after.match(/```crew/g)?.length, 1, "must not accumulate blocks")
+  assert.equal(after.match(/```lets/g)?.length, 1, "must not accumulate blocks")
 })
 
 test("upsert is idempotent", () => {
-  const once = upsertCrewBlock("# AGENTS\n", CFG)
-  assert.equal(upsertCrewBlock(once, CFG), once)
+  const once = upsertLetsBlock("# AGENTS\n", CFG)
+  assert.equal(upsertLetsBlock(once, CFG), once)
 })
 
 test("resolveScope reports a non-repo instead of throwing", () => {
@@ -111,7 +113,7 @@ test("resolveScope reports a non-repo instead of throwing", () => {
 test("resolveScope finds the enclosing repo from a subdirectory", () => {
   // Asserted against git's own answer rather than a directory name. The name check that
   // was here failed inside a worktree (`.worktrees/probe`) — which is exactly where the
-  // crew runs its own tests, so it would have failed on every run.
+  // lets runs its own tests, so it would have failed on every run.
   const here = new URL(".", import.meta.url).pathname
   const scope = resolveScope(here)
   assert.equal(scope.kind, "ok")
@@ -142,7 +144,7 @@ test("nx repos are offered the affected-only command first", () => {
   // The narrowing that keeps a monorepo run from taking an hour. Ordering matters: the
   // caller shows candidates in order and the first is the recommendation, so a whole-
   // workspace command winning here would silently cost an hour a run.
-  const dir = mkdtempSync(join(tmpdir(), "crew-nx-"))
+  const dir = mkdtempSync(join(tmpdir(), "lets-nx-"))
   try {
     writeFileSync(join(dir, "nx.json"), "{}")
     writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "jest" } }))
@@ -174,12 +176,12 @@ test("graphState reports missing when there is no graph", () => {
 })
 
 test("missingIgnores lists everything when the exclude file is absent", () => {
-  assert.deepEqual(missingIgnores("/nonexistent"), CREW_IGNORES)
+  assert.deepEqual(missingIgnores("/nonexistent"), LETS_IGNORES)
 })
 
 /** A throwaway repo, so the write-path tests touch nothing real. */
 function scratchRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), "crew-repo-"))
+  const dir = mkdtempSync(join(tmpdir(), "lets-repo-"))
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir })
   execFileSync("git", ["config", "user.email", "t@t"], { cwd: dir })
   execFileSync("git", ["config", "user.name", "t"], { cwd: dir })
@@ -192,13 +194,13 @@ function scratchRepo(): string {
 test("applyInit writes both files and is idempotent", () => {
   const dir = scratchRepo()
   try {
-    const cfg: CrewConfig = { verify: ["npm test"], base: "main", lanes: ["reviewer"] }
+    const cfg: LetsConfig = { verify: ["npm test"], base: "main", lanes: ["reviewer"] }
 
     const first = applyInit(dir, cfg)
     assert.deepEqual(first.sort(), [".git/info/exclude", "AGENTS.md"])
-    assert.deepEqual(parseCrewBlock(readFileSync(join(dir, "AGENTS.md"), "utf8")), cfg)
+    assert.deepEqual(parseLetsBlock(readFileSync(join(dir, "AGENTS.md"), "utf8")), cfg)
     const exclude = readFileSync(join(dir, ".git", "info", "exclude"), "utf8")
-    for (const line of CREW_IGNORES) assert.ok(exclude.includes(line), `missing ignore: ${line}`)
+    for (const line of LETS_IGNORES) assert.ok(exclude.includes(line), `missing ignore: ${line}`)
 
     // Re-init must be a no-op, not a duplicate append. Init is expected to be re-run.
     assert.deepEqual(applyInit(dir, cfg), [])
@@ -216,8 +218,8 @@ test("applyInit preserves prose the user wrote in AGENTS.md", () => {
     applyInit(dir, { verify: ["npm run ci"], base: "develop", lanes: ["qa"] })
     const after = readFileSync(join(dir, "AGENTS.md"), "utf8")
     assert.ok(after.includes("Never commit to main. Money is integers."))
-    assert.equal(after.match(/```crew/g)?.length, 1)
-    assert.deepEqual(parseCrewBlock(after), { verify: ["npm run ci"], base: "develop", lanes: ["qa"] })
+    assert.equal(after.match(/```lets/g)?.length, 1)
+    assert.deepEqual(parseLetsBlock(after), { verify: ["npm run ci"], base: "develop", lanes: ["qa"] })
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -235,15 +237,15 @@ test("a tracker is only offered once it can actually be honoured", () => {
 test("an unrecognised tracker name is dropped, not silently honoured", () => {
   // A typo must read as "never asked" so init asks again. Accepting `tracker: jyra` would
   // disable tracking with no signal at all.
-  assert.equal(parseCrewBlock("```crew\nverify: x\nbase: m\nlanes: qa\ntracker: jyra\n```").tracker, undefined)
-  assert.equal(parseCrewBlock("```crew\nverify: x\nbase: m\nlanes: qa\ntracker: none\n```").tracker, "none")
+  assert.equal(parseLetsBlock("```crew\nverify: x\nbase: m\nlanes: qa\ntracker: jyra\n```").tracker, undefined)
+  assert.equal(parseLetsBlock("```crew\nverify: x\nbase: m\nlanes: qa\ntracker: none\n```").tracker, "none")
 })
 
 test("absent and 'none' are different states", () => {
   // Absent means init never asked. `none` means the human said no. Re-asking someone who
   // already declined is the behaviour this distinction exists to prevent.
-  assert.equal(parseCrewBlock(renderCrewBlock({ ...CFG, tracker: "none" })).tracker, "none")
-  assert.equal(parseCrewBlock(renderCrewBlock(CFG)).tracker, undefined)
+  assert.equal(parseLetsBlock(renderLetsBlock({ ...CFG, tracker: "none" })).tracker, "none")
+  assert.equal(parseLetsBlock(renderLetsBlock(CFG)).tracker, undefined)
 })
 
 test("the default tracker reports progress rather than staying silent", () => {
@@ -335,7 +337,7 @@ test("the symlinked node_modules counts as neither a change nor work to commit",
         /node_modules/,
         "precondition: git does see the symlink",
       )
-      assert.deepEqual(worktreeChanges(wt), [], "but the crew must not")
+      assert.deepEqual(worktreeChanges(wt), [], "but lets must not")
 
       writeFileSync(join(wt, "real.txt"), "work\n")
       assert.deepEqual(worktreeChanges(wt), ["?? real.txt"])
@@ -356,7 +358,7 @@ test("the symlinked node_modules counts as neither a change nor work to commit",
   }
 })
 
-test("listWorktrees returns the crew's own worktrees and never the repo's main one", () => {
+test("listWorktrees returns the lets worktrees and never the repo's main one", () => {
   const dir = scratchRepo()
   try {
     const alpha = openWorktree(dir, "alpha")
@@ -368,7 +370,7 @@ test("listWorktrees returns the crew's own worktrees and never the repo's main o
         ["alpha", "beta"],
         "exactly the two worktrees openWorktree made",
       )
-      assert.deepEqual(live.map((w) => w.branch).sort(), ["crew/alpha", "crew/beta"])
+      assert.deepEqual(live.map((w) => w.branch).sort(), ["lets/alpha", "lets/beta"])
       for (const w of live) assert.ok(w.ageMs >= 0, `${w.slug} reported age ${w.ageMs}`)
 
       // The list drives deletion, so the working tree the human is standing in must be absent.
@@ -376,7 +378,7 @@ test("listWorktrees returns the crew's own worktrees and never the repo's main o
       assert.ok(!live.some((w) => realpathSync(w.path) === main), `main worktree ${main} was listed`)
 
       assert.match(renderWorktrees(live), /git worktree remove .*alpha --force/)
-      assert.match(renderWorktrees([]), /No live crew worktrees/)
+      assert.match(renderWorktrees([]), /No live lets worktrees/)
     } finally {
       closeWorktree(dir, alpha.path)
       closeWorktree(dir, beta.path)
@@ -386,9 +388,27 @@ test("listWorktrees returns the crew's own worktrees and never the repo's main o
   }
 })
 
+test("a worktree branched before the rename is still listed, under its real branch name", () => {
+  // The read half of the branch prefix. openWorktree writes `lets/` now, so nothing else in
+  // this suite can produce a `crew/` worktree - and a stranded one is exactly what status
+  // exists to surface. Also pins the capture: rebuilding the branch from the slug would
+  // report this as `lets/legacy`, a branch that does not exist, inside a removal command a
+  // human is expected to run.
+  const dir = scratchRepo()
+  try {
+    const path = join(dir, ".worktrees", "legacy")
+    execFileSync("git", ["worktree", "add", "-b", "crew/legacy", path, "HEAD"], { cwd: dir })
+    const live = listWorktrees(dir)
+    assert.deepEqual(live.map((w) => w.slug), ["legacy"])
+    assert.deepEqual(live.map((w) => w.branch), ["crew/legacy"])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 // ---------------------------------------------------------------- phase 3
 
-const CFG3: CrewConfig = { verify: ["npm test"], base: "master", lanes: ["reviewer"] }
+const CFG3: LetsConfig = { verify: ["npm test"], base: "master", lanes: ["reviewer"] }
 const run = (over: Partial<RunResult> = {}): RunResult => ({
   branch: "crew/x",
   worktree: "/w",
@@ -468,11 +488,11 @@ test("a worktree is created on its own branch and removed cleanly", () => {
   const dir = scratchRepo()
   try {
     const { path, branch } = openWorktree(dir, "test-run")
-    assert.equal(branch, "crew/test-run")
+    assert.equal(branch, "lets/test-run")
     assert.ok(existsSync(path), "worktree directory must exist")
     assert.equal(
       execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: path, encoding: "utf8" }).trim(),
-      "crew/test-run",
+      "lets/test-run",
     )
     closeWorktree(dir, path)
     assert.ok(!existsSync(path), "worktree must be gone after close")
@@ -484,7 +504,7 @@ test("a worktree is created on its own branch and removed cleanly", () => {
 test("proposeInit surfaces an existing config so re-init is not silent", () => {
   const dir = scratchRepo()
   try {
-    const cfg: CrewConfig = { verify: ["npm test"], base: "main", lanes: ["reviewer"] }
+    const cfg: LetsConfig = { verify: ["npm test"], base: "main", lanes: ["reviewer"] }
     applyInit(dir, cfg)
     assert.deepEqual(proposeInit(dir, "main").existing, cfg)
   } finally {
@@ -549,17 +569,17 @@ test("a verify command containing a comma survives the round trip", () => {
   // `nx affected -t lint,test` is ONE command containing a comma. The comma-joined form
   // could not represent it, and a back-compat shim that still split on commas re-broke the
   // exact case the fix existed for.
-  const cfg: CrewConfig = { verify: ["npx nx affected -t lint,test", "npm run check"], base: "main", lanes: ["qa"] }
-  assert.deepEqual(parseCrewBlock(renderCrewBlock(cfg)).verify, cfg.verify)
+  const cfg: LetsConfig = { verify: ["npx nx affected -t lint,test", "npm run check"], base: "main", lanes: ["qa"] }
+  assert.deepEqual(parseLetsBlock(renderLetsBlock(cfg)).verify, cfg.verify)
 })
 
 test("config survives replacement-string metacharacters", () => {
   // `String.replace` treats `$&`, "$`", `$'` and `$1` specially in a replacement STRING, so
   // a verify command containing any of them was silently mangled on write.
-  const cfg: CrewConfig = { verify: ["echo $& $1 $` $'"], base: "main", lanes: ["qa"] }
-  const once = upsertCrewBlock("# A\n\nprose\n", cfg)
-  assert.deepEqual(parseCrewBlock(once).verify, cfg.verify)
-  assert.deepEqual(parseCrewBlock(upsertCrewBlock(once, cfg)).verify, cfg.verify)
+  const cfg: LetsConfig = { verify: ["echo $& $1 $` $'"], base: "main", lanes: ["qa"] }
+  const once = upsertLetsBlock("# A\n\nprose\n", cfg)
+  assert.deepEqual(parseLetsBlock(once).verify, cfg.verify)
+  assert.deepEqual(parseLetsBlock(upsertLetsBlock(once, cfg)).verify, cfg.verify)
 })
 
 test("a base that exists only on the remote is named so it resolves", () => {
@@ -612,18 +632,18 @@ test("a branch name cannot inject through the recommended nx command", async () 
 test("an unknown lane name fails the parse rather than silently never running", () => {
   // `lanes: coed` used to cast straight through to Role[], so the typo'd lane matched no
   // model and never ran — with nothing anywhere saying so.
-  assert.equal(parseCrewBlock("```crew\nverify: npm test\nbase: main\nlanes: coed\n```"), undefined)
+  assert.equal(parseLetsBlock("```crew\nverify: npm test\nbase: main\nlanes: coed\n```"), undefined)
   assert.deepEqual(
-    parseCrewBlock("```crew\nverify: npm test\nbase: main\nlanes: qa, skeptic\n```")?.lanes,
+    parseLetsBlock("```crew\nverify: npm test\nbase: main\nlanes: qa, skeptic\n```")?.lanes,
     ["qa", "skeptic"],
   )
 })
 
 test("a widened role set accepts the new lanes and still rejects typos", () => {
-  // KNOWN_ROLES gaining architect and infrastructure widens what a repo's crew block may
+  // KNOWN_ROLES gaining architect and infrastructure widens what a repo's lets block may
   // legally name. Widening the accept side must not blunt the reject side.
-  assert.ok(parseCrewBlock("```crew\nverify: npm test\nbase: main\nlanes: architect, reviewer\n```")?.lanes)
-  assert.equal(parseCrewBlock("```crew\nverify: npm test\nbase: main\nlanes: coed\n```"), undefined)
+  assert.ok(parseLetsBlock("```crew\nverify: npm test\nbase: main\nlanes: architect, reviewer\n```")?.lanes)
+  assert.equal(parseLetsBlock("```crew\nverify: npm test\nbase: main\nlanes: coed\n```"), undefined)
 })
 
 test("a lockfile-less repo still installs on a manifest change", () => {
@@ -645,7 +665,7 @@ test("a lockfile-less repo still installs on a manifest change", () => {
 
 test("the worktree branches from the configured base, not session HEAD", () => {
   // The review and acceptance stages diff `<base>...HEAD`. Branching from HEAD would fold
-  // the user's own unmerged commits into what the reviewer is told the crew did.
+  // the user's own unmerged commits into what the reviewer is told lets did.
   const dir = scratchRepo()
   try {
     execFileSync("git", ["checkout", "-q", "-b", "feature"], { cwd: dir })
@@ -654,7 +674,7 @@ test("the worktree branches from the configured base, not session HEAD", () => {
     const merged = execFileSync("git", ["rev-list", "--count", `main...${branch}`], {
       cwd: join(dir, ".worktrees", "base-probe"),
     }).toString().trim()
-    assert.equal(merged, "0", `base...branch must contain only crew work, found ${merged} commits`)
+    assert.equal(merged, "0", `base...branch must contain only lets work, found ${merged} commits`)
   } finally {
     execFileSync("git", ["worktree", "remove", "--force", join(dir, ".worktrees", "base-probe")], { cwd: dir }).catch?.(() => {})
     rmSync(dir, { recursive: true, force: true })
@@ -756,17 +776,17 @@ test("origin/HEAD naming a deleted remote branch is not offered", () => {
 test("a CPO lane failure is reported once, by askAny", () => {
   // The round-4 fix pushed a second `dropped` entry on top of the one askAny already
   // records, so the gate said the lane failed twice under two names.
-  const dropped = [{ lane: "crew-cpo", state: "failed", detail: "all models exhausted" }]
+  const dropped = [{ lane: "lets-cpo", state: "failed", detail: "all models exhausted" }]
   const gate = renderGate(
     { outcomes: "", items: [item({ title: "x" })], instructionBytes: 10, dropped },
     CFG,
     { root: "/repo", branch: "main" },
   )
-  assert.equal(gate.match(/crew-cpo did not answer/g)?.length, 1)
+  assert.equal(gate.match(/lets-cpo did not answer/g)?.length, 1)
 })
 
 test("verify candidates are deduped", () => {
-  const dir = mkdtempSync(join(tmpdir(), "crew-py-"))
+  const dir = mkdtempSync(join(tmpdir(), "lets-py-"))
   try {
     writeFileSync(join(dir, "pytest.ini"), "")
     writeFileSync(join(dir, "pyproject.toml"), "[tool.pytest.ini_options]")

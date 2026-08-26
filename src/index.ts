@@ -10,7 +10,7 @@ import {
   proposeInit,
   renderInitProposal,
   applyInit,
-  readCrewConfig,
+  readLetsConfig,
   readInstructions,
   runIntake,
   renderGate,
@@ -20,8 +20,8 @@ import {
   availableTrackers,
   listWorktrees,
   renderWorktrees,
-  type CrewConfig,
-} from "./crew.ts"
+  type LetsConfig,
+} from "./lets.ts"
 import { ROSTER, type Role } from "./roster.ts"
 import { catalog, probe, probeBudget, upgradeCandidates, type Result } from "./catalog.ts"
 import {
@@ -78,7 +78,7 @@ const AGENT_DEFAULTS = {
   // Council roles analyse and propose patches as text. They never touch the workspace;
   // the only writer is `git apply`, run by the human after the gate. (D5)
   //
-  // The crew implementer is the one exception and it opts in explicitly via `tools:` in
+  // The lets implementer is the one exception and it opts in explicitly via `tools:` in
   // its frontmatter. That is safe only because its session is pinned to a worktree
   // (`directory` on AskOpts) - the grant applies there, never to the user's checkout.
   // Deny stays the default so a new agent file is read-only unless it says otherwise.
@@ -123,7 +123,7 @@ function ctxFor(input: any) {
 /**
  * Artifacts belong to the repo, not to wherever the session happens to be standing.
  *
- * Using the session cwd meant `/crew:plan` run from `apps/api/` wrote its plan somewhere `run`
+ * Using the session cwd meant `/lets:plan` run from `apps/api/` wrote its plan somewhere `run`
  * would never look, and — worse — that any directory the user happened to be in became a
  * place plans could be read from.
  */
@@ -147,10 +147,13 @@ function artifactDir(repoRoot: string, kind: string): string {
  * grant. Restricting to our own `<stamp>-<kind>` shape means only something this tool
  * wrote can be selected.
  */
-function latestArtifact(repoRoot: string, kind: string, file: string): { dir: string; path: string } | null {
+function latestArtifact(repoRoot: string, kind: string | string[], file: string): { dir: string; path: string } | null {
   const root = artifactRoot(repoRoot)
   if (!existsSync(root)) return null
-  const shape = new RegExp(`^\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-${kind}$`)
+  // A list, so a plan approved before the rename is still found. Alternation goes INSIDE the
+  // anchored template rather than loosening it: `<stamp>-lets-plan-extra` must still lose.
+  const kinds = (Array.isArray(kind) ? kind : [kind]).join("|")
+  const shape = new RegExp(`^\\d{4}-\\d{2}-\\d{2}T\\d{2}-\\d{2}-\\d{2}-(?:${kinds})$`)
   const dir = readdirSync(root)
     .filter((d) => shape.test(d) && existsSync(join(root, d, file)))
     .sort()
@@ -160,9 +163,9 @@ function latestArtifact(repoRoot: string, kind: string, file: string): { dir: st
 
 export const CouncilPlugin = async (input: any) => ({
   tool: {
-    crew: {
+    lets: {
       description:
-        "The crew: take a directive from intake through an approved plan, implementation, " +
+        "lets: take a directive from intake through an approved plan, implementation, " +
         "verification and review, to a PR. mode:'init' inspects the repo and proposes its " +
         "config (verify command, PR base, review lanes), then writes it to AGENTS.md once " +
         "you confirm. Run init once per repo before anything else.",
@@ -171,7 +174,7 @@ export const CouncilPlugin = async (input: any) => ({
           .enum(["init", "plan", "run", "status"])
           .default("plan")
           .describe(
-            "init = detect and record this repo's crew config; plan = intake a directive into an ordered work item list and stop at the approval gate; run = execute the last approved plan in an isolated worktree and open a PR; status = list this repo's live crew worktrees and how to remove them",
+            "init = detect and record this repo's lets config; plan = intake a directive into an ordered work item list and stop at the approval gate; run = execute the last approved plan in an isolated worktree and open a PR; status = list this repo's live lets worktrees and how to remove them",
           ),
         directive: z.string().default("").describe("what you want built or changed (plan only)"),
         write: z
@@ -204,30 +207,30 @@ export const CouncilPlugin = async (input: any) => ({
         const cwd = context?.directory ?? input?.directory ?? process.cwd()
         const scope = resolveScope(cwd)
         if (scope.kind === "notrepo")
-          return `${cwd} is not a git repository. The crew's scope is the repo you are standing in, so there is nothing to configure here.`
+          return `${cwd} is not a git repository. The lets scope is the repo you are standing in, so there is nothing to configure here.`
 
-        // Before the config lookup below, deliberately: a repo whose crew config was never
+        // Before the config lookup below, deliberately: a repo whose lets config was never
         // written or has been removed is exactly where worktrees get stranded, and a
         // read-only query has no reason to demand config. Writes no artifact directory.
         if (args?.mode === "status") return renderWorktrees(listWorktrees(scope.root))
 
         if (args?.mode === "plan" || args?.mode === "run") {
-          const cfg = readCrewConfig(scope.root)
-          if (!cfg) return `This repo has no crew config yet. Run \`/crew:init\` first.`
+          const cfg = readLetsConfig(scope.root)
+          if (!cfg) return `This repo has no lets config yet. Run \`/lets:init\` first.`
 
           if (args.mode === "run") {
             // Execute the plan the human actually read. Re-running intake here would
             // produce a DIFFERENT list - intake is nondeterministic - so what they approved
             // and what gets built would not correspond. Same reason `fix` replays the last
             // review instead of running a fresh one.
-            const found = latestArtifact(scope.root, "crew-plan", "plan.json")
-            if (!found) return "No approved plan found. Run `/crew:plan <directive>` first and approve the plan."
+            const found = latestArtifact(scope.root, ["lets-plan", "crew-plan"], "plan.json")
+            if (!found) return "No approved plan found. Run `/lets:plan <directive>` first and approve the plan."
             const saved = JSON.parse(readFileSync(found.path, "utf8"))
             if (!saved.items?.length) return `The last plan (${found.dir}) had no items — nothing to run.`
             // A tool call returns once, at the end, so a 20-minute run would otherwise be
             // completely silent - indistinguishable from a hang. Progress is appended to a
             // file as it happens so it can be tailed while the run is still going.
-            const dir = artifactDir(scope.root, "crew-run")
+            const dir = artifactDir(scope.root, "lets-run")
             const logPath = join(dir, "run.log")
             const log: string[] = []
             const say = (m: string) => {
@@ -263,7 +266,7 @@ export const CouncilPlugin = async (input: any) => ({
           const directive = (args.directive ?? "").trim()
           if (!directive) return "No directive given. `plan` needs one — say what you want built or changed."
 
-          // A worktree branches from HEAD, so uncommitted work is invisible to the crew: it
+          // A worktree branches from HEAD, so uncommitted work is invisible to lets: it
           // would plan against a repo state that is not the one on your screen, and its PR
           // would then collide with your edits. Cheaper to stop here. (C9)
           if (scope.dirty.length)
@@ -272,7 +275,7 @@ export const CouncilPlugin = async (input: any) => ({
               ...scope.dirty.slice(0, 10).map((f) => `  • ${f}`),
               scope.dirty.length > 10 ? `  … and ${scope.dirty.length - 10} more` : "",
               "",
-              "The crew branches from HEAD, so it would plan against a state that is not what you",
+              "lets branches from HEAD, so it would plan against a state that is not what you",
               "see, and its PR would collide with your edits. Commit them, or say the word and",
               "I'll stash them first.",
             ]
@@ -285,7 +288,7 @@ export const CouncilPlugin = async (input: any) => ({
             directive,
             instructions: instructions.text,
           })
-          const dir = artifactDir(scope.root, "crew-plan")
+          const dir = artifactDir(scope.root, "lets-plan")
           writeFileSync(join(dir, "plan.json"), JSON.stringify({ directive, ...intake }, null, 2))
           return renderGate(intake, cfg, scope)
         }
@@ -294,7 +297,7 @@ export const CouncilPlugin = async (input: any) => ({
 
         // The write path takes only what the human confirmed. Defaulting a verify command
         // would reintroduce the failure detection deliberately refuses to make: a command
-        // that passes trivially, letting the crew report unfinished work as done.
+        // that passes trivially, letting lets report unfinished work as done.
         const list = (s?: string) =>
           (s ?? "")
             .split(",")
@@ -343,7 +346,7 @@ export const CouncilPlugin = async (input: any) => ({
                 ...(args.mcpArgs?.trim() ? { args: JSON.parse(args.mcpArgs) } : {}),
               }
             : undefined
-        const cfg: CrewConfig = {
+        const cfg: LetsConfig = {
           verify, base, lanes,
           ...(tracker ? { tracker: tracker as any } : {}),
           ...(mcp ? { mcp } : {}),
@@ -372,7 +375,7 @@ export const CouncilPlugin = async (input: any) => ({
               "task = one answer, cross-scored, dissent kept; " +
               "independent = every model answers alone, unmerged; " +
               "models = what this server offers that the roster does not pin, measured and proposed, never adopted. " +
-              "To BUILD something, use the `crew` tool.",
+              "To BUILD something, use the `lets` tool.",
           ),
         base: z.string().default("HEAD").describe("git ref to diff against (review/fix only)"),
         goal: z.string().default("").describe("what to plan / answer (plan, task, independent)"),
@@ -557,7 +560,7 @@ export const CouncilPlugin = async (input: any) => ({
     // their own deny list (engine.ts) because self-created children inherit nothing.
     config.experimental ??= {}
     config.experimental.primary_tools = [
-      ...new Set([...(config.experimental.primary_tools ?? []), "council", "crew"]),
+      ...new Set([...(config.experimental.primary_tools ?? []), "council", "lets"]),
     ]
 
     config.command ??= {}

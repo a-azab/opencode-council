@@ -1,11 +1,11 @@
-// Linear Agents API, as much of it as the crew needs and no more.
+// Linear Agents API, as much of it as lets needs and no more.
 //
 // Deliberately hand-rolled over `fetch` rather than @linear/sdk: this is six operations,
 // and both APIs it touches are previews - Agents API is a Developer Preview and Agent Plans
 // is a technology preview, so Linear says outright they may change. A thin file is a
 // one-file repair when they do; a dependency pinned to a preview schema is not.
 //
-// The crew is an OUTBOUND agent (PLAN.md §9 Phase 5, "Tier 2"): it creates its own session
+// Lets is an OUTBOUND agent (PLAN.md §9 Phase 5, "Tier 2"): it creates its own session
 // with agentSessionCreateOnIssue and streams activities into it. There is no webhook, no
 // public endpoint and no daemon. The cost is that `prompted` events do not reach us, so
 // iteration happens in the terminal rather than by replying in Linear.

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { execFileSync } from "node:child_process"
 import { localMcpServers, parseJsonc, mcpTracker, substitute } from "./mcp.ts"
-import { parseCrewBlock, renderCrewBlock, trackerFor, availableTrackers, type McpConfig } from "./crew.ts"
+import { parseLetsBlock, renderLetsBlock, trackerFor, availableTrackers, type McpConfig } from "./lets.ts"
 
 // The tracker seam was built Linear-shaped and had to become tracker-agnostic: any MCP
 // server configured in opencode.json (Jira, GitHub Issues, Plane, …) is a mirror now.
@@ -13,7 +13,7 @@ import { parseCrewBlock, renderCrewBlock, trackerFor, availableTrackers, type Mc
 // client this small is exactly the kind of thing that "looks right" and frames wrong.
 
 function scratch(): string {
-  return mkdtempSync(join(tmpdir(), "crew-mcp-"))
+  return mkdtempSync(join(tmpdir(), "lets-mcp-"))
 }
 
 /**
@@ -161,7 +161,7 @@ test("a tracker with only a finish tool only calls finish", async () => {
   }
 })
 
-test("the crew block round-trips mcp wiring", () => {
+test("the lets block round-trips mcp wiring", () => {
   const cfg = {
     verify: ["npm test"],
     base: "main",
@@ -169,15 +169,15 @@ test("the crew block round-trips mcp wiring", () => {
     tracker: "mcp" as const,
     mcp: { server: "jira", step: "add_comment", finish: "close_issue", args: { issueKey: "${issue}" } },
   }
-  const parsed = parseCrewBlock(renderCrewBlock(cfg))
+  const parsed = parseLetsBlock(renderLetsBlock(cfg))
   assert.equal(parsed?.tracker, "mcp")
   assert.deepEqual(parsed?.mcp, cfg.mcp)
 
   // tracker: mcp without a server is an invalid block, same rule as an unknown lane
-  assert.equal(parseCrewBlock("```crew\nverify: npm test\nbase: main\nlanes: qa\ntracker: mcp\n```"), undefined)
+  assert.equal(parseLetsBlock("```crew\nverify: npm test\nbase: main\nlanes: qa\ntracker: mcp\n```"), undefined)
   // malformed mcp-args JSON likewise
   assert.equal(
-    parseCrewBlock("```crew\nverify: x\nbase: main\nlanes: qa\ntracker: mcp\nmcp-server: j\nmcp-args: {nope\n```"),
+    parseLetsBlock("```crew\nverify: x\nbase: main\nlanes: qa\ntracker: mcp\nmcp-server: j\nmcp-args: {nope\n```"),
     undefined,
   )
 })

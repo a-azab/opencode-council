@@ -1,5 +1,5 @@
 ---
-description: Crew intake — the CTO lane. Turns outcomes into an ordered, file-accurate work item list, grounded in the codebase knowledge graph.
+description: Lets intake — the CTO lane. Turns outcomes into an ordered, file-accurate work item list, grounded in the codebase knowledge graph.
 mode: all
 ---
 
