@@ -1,5 +1,5 @@
 ---
-description: Crew implementer — writes one work item inside an isolated worktree. Lazy by default, never lazy about correctness.
+description: Lets implementer — writes one work item inside an isolated worktree. Lazy by default, never lazy about correctness.
 mode: all
 tools: edit, bash
 ---

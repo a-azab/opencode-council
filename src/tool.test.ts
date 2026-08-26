@@ -16,11 +16,11 @@ import plugin from "./index.ts"
 
 async function tool() {
   const p = await plugin({ directory: process.cwd() })
-  return (p.tool as Record<string, any>).crew
+  return (p.tool as Record<string, any>).lets
 }
 
 function scratchRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), "crew-tool-"))
+  const dir = mkdtempSync(join(tmpdir(), "lets-tool-"))
   const git = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" })
   git("init", "-q", "-b", "main")
   git("config", "user.email", "t@t")
@@ -38,9 +38,9 @@ const withConfig = (dir: string) =>
   )
 
 test("every mode refuses outside a git repo", async () => {
-  const crew = await tool()
+  const lets = await tool()
   for (const mode of ["init", "plan", "run", "status"]) {
-    const out = await crew.execute({ mode, directive: "x" }, { directory: "/" })
+    const out = await lets.execute({ mode, directive: "x" }, { directory: "/" })
     assert.match(out, /not a git repository/i, `mode ${mode} did not refuse`)
   }
 })
@@ -57,11 +57,11 @@ test("init proposes without writing anything", async () => {
 })
 
 test("init refuses to write what the human has not confirmed", async () => {
-  // Defaulting a verify command would let the crew report unfinished work as done.
+  // Defaulting a verify command would let lets report unfinished work as done.
   const dir = scratchRepo()
   try {
-    const crew = await tool()
-    const out = await crew.execute({ mode: "init", write: true, base: "main" }, { directory: dir })
+    const lets = await tool()
+    const out = await lets.execute({ mode: "init", write: true, base: "main" }, { directory: dir })
     assert.match(out, /Not writing/)
     assert.match(out, /verify/)
     assert.ok(!existsSync(join(dir, "AGENTS.md")))
@@ -73,9 +73,9 @@ test("init refuses to write what the human has not confirmed", async () => {
 test("plan and run refuse before the repo is initialised", async () => {
   const dir = scratchRepo()
   try {
-    const crew = await tool()
+    const lets = await tool()
     for (const args of [{ mode: "plan", directive: "do a thing" }, { mode: "run" }])
-      assert.match(await crew.execute(args, { directory: dir }), /crew:init/, `${args.mode} did not refuse`)
+      assert.match(await lets.execute(args, { directory: dir }), /lets:init/, `${args.mode} did not refuse`)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -114,8 +114,27 @@ test("run ignores a plan this tool did not write", async () => {
   }
 })
 
+test("a plan approved before the rename is still found", async () => {
+  // The read half of the artifact kind. New plans are written `-lets-plan`, so nothing else
+  // in this suite produces a `-crew-plan` directory - and failing to find one does not error,
+  // it reports "No approved plan", which reads as "you never planned" rather than "your plan
+  // is under the old name". Empty items so this returns before any model call.
+  const dir = scratchRepo()
+  withConfig(dir)
+  try {
+    const old = join(dir, "council-artifacts", "2026-01-01T00-00-00-crew-plan")
+    mkdirSync(old, { recursive: true })
+    writeFileSync(join(old, "plan.json"), JSON.stringify({ directive: "from before", items: [] }))
+    const out = await (await tool()).execute({ mode: "run" }, { directory: dir })
+    assert.match(out, /had no items/, "the pre-rename plan was not found")
+    assert.match(out, /crew-plan/, "must name the directory it actually read")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("artifacts are written under the repo root, not the session directory", async () => {
-  // Running /crew from apps/api/ used to write the plan somewhere `run` would never look.
+  // Running lets from apps/api/ used to write the plan somewhere `run` would never look.
   const dir = scratchRepo()
   withConfig(dir)
   const sub = join(dir, "apps", "api")
@@ -123,7 +142,7 @@ test("artifacts are written under the repo root, not the session directory", asy
   try {
     // status is the one mode that reaches the repo without a model call
     const out = await (await tool()).execute({ mode: "status" }, { directory: sub })
-    assert.match(out, /No live crew worktrees|crew\//)
+    assert.match(out, /No live lets worktrees|lets\//)
     assert.ok(!existsSync(join(sub, "council-artifacts")), "must not scatter artifacts in subdirectories")
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -135,8 +154,8 @@ test("status answers in a repo that was never initialised", async () => {
   const dir = scratchRepo()
   try {
     const out = await (await tool()).execute({ mode: "status" }, { directory: dir })
-    assert.match(out, /No live crew worktrees/)
-    assert.ok(!/crew:init/.test(out), "status must not demand config")
+    assert.match(out, /No live lets worktrees/)
+    assert.ok(!/lets:init/.test(out), "status must not demand config")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -186,9 +205,9 @@ test("a confirmed init writes exactly two things", async () => {
   }
 })
 
-test("crew:init with tracker mcp writes wiring that survives the read-back", async () => {
-  // Round 6's critical finding: /crew:init validated mcpServer and then wrote a config
-  // WITHOUT it, and readCrewConfig dropped `mcp` even when present — so tracker: mcp could
+test("lets:init with tracker mcp writes wiring that survives the read-back", async () => {
+  // Round 6's critical finding: /lets:init validated mcpServer and then wrote a config
+  // WITHOUT it, and readLetsConfig dropped `mcp` even when present — so tracker: mcp could
   // never actually be configured end to end. The E2E tracker test called trackerFor
   // directly and skipped this path entirely, which is exactly how it shipped.
   const dir = scratchRepo()
@@ -197,8 +216,8 @@ test("crew:init with tracker mcp writes wiring that survives the read-back", asy
     `{"mcp":{"jira":{"type":"local","command":["node","jira.mjs"]}}}`,
   )
   try {
-    const crew = await tool()
-    const out = await crew.execute(
+    const lets = await tool()
+    const out = await lets.execute(
       {
         mode: "init", write: true, verify: "npm test", base: "main", lanes: "reviewer",
         tracker: "mcp", mcpServer: "jira",
@@ -208,8 +227,8 @@ test("crew:init with tracker mcp writes wiring that survives the read-back", asy
       { directory: dir },
     )
     assert.match(out, /tracker: mcp/)
-    const { readCrewConfig } = await import("./crew.ts")
-    const cfg = readCrewConfig(dir)
+    const { readLetsConfig } = await import("./lets.ts")
+    const cfg = readLetsConfig(dir)
     assert.equal(cfg?.tracker, "mcp")
     assert.equal(cfg?.mcp?.server, "jira", "the wiring must survive the read-back")
     assert.equal(cfg?.mcp?.start, "create_issue")

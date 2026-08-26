@@ -1,5 +1,5 @@
 ---
-description: Crew intake — the CPO lane. Turns a directive into outcomes and checkable acceptance criteria. Never proposes an implementation.
+description: Lets intake — the CPO lane. Turns a directive into outcomes and checkable acceptance criteria. Never proposes an implementation.
 mode: all
 ---
 

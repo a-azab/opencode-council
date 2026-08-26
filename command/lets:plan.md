@@ -2,7 +2,7 @@
 description: Take a directive through intake to an approved plan — CPO outcomes, CTO work items grounded in the codebase graph. Stops at the gate; writes no code.
 ---
 
-Call the `crew` tool with `mode: "plan"` and `directive` set to what the user asked for,
+Call the `lets` tool with `mode: "plan"` and `directive` set to what the user asked for,
 verbatim. Do not paraphrase the directive or resolve its ambiguities yourself — the CPO
 lane is built to surface them, and pre-resolving robs the user of the chance to correct.
 
@@ -21,4 +21,4 @@ Things worth pointing out if the gate shows them:
   It is local tree-sitter AST, no LLM calls, and takes seconds. Planning against a stale
   graph is worse than planning against none: it is confidently wrong.
 
-If the repo has no crew config, the tool says so — run `/crew:init` first.
+If the repo has no lets config, the tool says so — run `/lets:init` first.

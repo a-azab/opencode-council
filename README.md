@@ -140,12 +140,12 @@ verified one would make the guarantee meaningless.
 The council judges work. The **crew** does it.
 
 ```
-/crew:init                                    # once per repo
+/lets:init                                    # once per repo
 /crew add a --json flag to the export command # plan it, and stop
-/crew:execute                                     # build the plan you approved
+/lets:execute                                     # build the plan you approved
 ```
 
-### `/crew:init` — hire for this repo
+### `/lets:init` — hire for this repo
 
 Detects the stack, the command that proves the project still works, the branch PRs target,
 and which review lanes this repo needs. Proposes all of it, and **asks about what is
@@ -157,7 +157,7 @@ The answers land in a fenced `crew` block in your `AGENTS.md`. Editing it by han
 intended way to change your mind; re-running init only ever rewrites that block, never
 prose you wrote.
 
-### `/crew:plan <directive>` — intake, then a gate
+### `/lets:plan <directive>` — intake, then a gate
 
 Two lanes, in sequence, handing an artifact to each other:
 
@@ -171,7 +171,7 @@ Two lanes, in sequence, handing an artifact to each other:
 Then it **stops**. Nothing is written until you approve. If a lane failed to answer, the
 gate says so — a thin plan is never presented as a simple one.
 
-### `/crew:execute` — build it
+### `/lets:execute` — build it
 
 Runs **the plan you approved**, not a fresh one. Re-planning here would build something
 other than what you read.
@@ -204,7 +204,7 @@ never ran are listed as `not-attempted` with the reason — a plan that stopped 
 says **"NOT independently judged — checks only"**. That is enforced by tests, because the
 one lie that would matter is the report that hides what happened.
 
-### `/crew:status` — what's still lying around
+### `/lets:status` — what's still lying around
 
 Lists live crew worktrees with their branch, age, and the exact command to remove each.
 Works in any git repo, including one with no crew config — that's precisely where a
@@ -214,7 +214,7 @@ The crew wrote this one.
 
 ### Tracking — optional, and off by default
 
-Runs report to your terminal. If you want them mirrored somewhere, `/crew:init` asks once
+Runs report to your terminal. If you want them mirrored somewhere, `/lets:init` asks once
 and records the answer in the `crew` block.
 
 | `tracker:` | behaviour |

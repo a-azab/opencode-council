@@ -89,7 +89,7 @@ export const ALL_ROLES: Role[] = [
   "architect", "infrastructure",
 ]
 
-/** Every role a repo's crew block may legally name. Lives here, not in crew.ts, so the
+/** Every role a repo's lets block may legally name. Lives here, not in lets.ts, so the
  *  roster suite can assert on it without importing a 2000-line module. */
 export const KNOWN_ROLES: string[] = [...ALL_ROLES, "skeptic"]
 

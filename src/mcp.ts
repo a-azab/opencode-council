@@ -3,7 +3,7 @@
 // Linear was the first native implementation and stays as a fast path, but the seam was
 // never meant to end there — any tracker that ships an MCP server (Jira, GitHub Issues,
 // Plane, you name it) should be mirrorable without us writing a client for it. This file
-// resolves servers from the opencode config the user already maintains, so the crew adds
+// resolves servers from the opencode config the user already maintains, so lets adds
 // zero new configuration of its own for HOW to run a server — only WHAT to call on it.
 //
 // Deliberately stdio-only. Remote (HTTP) MCP servers are a different transport and
@@ -12,7 +12,7 @@ import { spawn, type ChildProcess } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import type { ItemOutcome, McpConfig, RunResult, Tracker, WorkItem } from "./crew.ts"
+import type { ItemOutcome, McpConfig, RunResult, Tracker, WorkItem } from "./lets.ts"
 
 // ------------------------------------------------------------------ server resolution
 
@@ -157,7 +157,7 @@ class McpSession {
       ...(spec.cwd ? { cwd: spec.cwd } : {}),
     })
     // stderr must be drained: a chatty server on a pipe nobody reads fills the buffer and
-    // deadlocks the child. Not logged — server noise is not crew progress.
+    // deadlocks the child. Not logged — server noise is not lets progress.
     child.stderr?.resume()
     const s = new McpSession(child)
     try {
@@ -236,7 +236,7 @@ export function substitute(tpl: string, vars: Record<string, string>): string {
 const summaryOf = (r: RunResult): string => {
   const done = r.outcomes.filter((o) => o.state === "done").length
   const lines = [
-    `crew run ${r.stoppedBy}: ${done}/${r.outcomes.length} item(s) landed in ${Math.round(r.seconds)}s`,
+    `lets run ${r.stoppedBy}: ${done}/${r.outcomes.length} item(s) landed in ${Math.round(r.seconds)}s`,
     ...r.outcomes.map(
       (o) => `- ${o.state === "done" ? "✓" : "✗"} ${o.item.title}${o.commit ? ` (${o.commit})` : ""}`,
     ),
@@ -246,7 +246,7 @@ const summaryOf = (r: RunResult): string => {
 }
 
 /**
- * Build the MCP tracker. Only the tool names configured in the crew block are called — a
+ * Build the MCP tracker. Only the tool names configured in the lets block are called — a
  * tracker that just comments on finish is as valid as one that calls all four. Argument
  * names differ per server (`issueKey` vs `issue`), so `mcp-args` templates are merged over
  * our defaults and win: the server's names are the ones that have to match, not ours.
@@ -262,7 +262,7 @@ export function mcpTracker(
 
   // Spread order is the contract: built-in defaults < per-call values < user templates.
   // Templates win because the server's argument names are the ones that must match — a
-  // user's {"text": "crew: ${text}"} overriding the raw call value is the whole point of
+  // user's {"text": "lets: ${text}"} overriding the raw call value is the whole point of
   // having templates at all.
   const vars = (extra: Record<string, string>): Record<string, unknown> => ({
     issue: issueRef ?? "",

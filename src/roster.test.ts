@@ -128,7 +128,7 @@ test("the skeptic pool is actually wired to preferFast, not merely coincident wi
   // fast-tier carrier AND the lowest-ms one, so un-routing skepticPool back to a plain ms
   // sort leaves every assertion green. Verified by mutation - reverting the call changed
   // no test outcome. Until a fast-tier skeptic exists that is not also fastest by ms, the
-  // wiring needs pinning directly. Same technique the suite already uses for crew's
+  // wiring needs pinning directly. Same technique the suite already uses for the lets
   // runReview call site.
   const src = readFileSync(join(PKG, "src/roster.ts"), "utf8")
   const fn = src.slice(src.indexOf("export function skepticPool"))

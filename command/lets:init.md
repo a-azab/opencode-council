@@ -1,8 +1,8 @@
 ---
-description: Inspect this repo and record its crew config — verify command, PR base, review lanes. Run once per repo before /crew.
+description: Inspect this repo and record its lets config — verify command, PR base, review lanes. Run once per repo before /lets:plan.
 ---
 
-Call the `crew` tool with `mode: "init"` and no other arguments.
+Call the `lets` tool with `mode: "init"` and no other arguments.
 
 Show the proposal to the user verbatim. It is a proposal, not a decision — do not write
 anything yet.
@@ -10,7 +10,7 @@ anything yet.
 Then resolve, in this order, asking only about what is genuinely ambiguous:
 
 1. **Verify** — if exactly one candidate was found, say you are taking it. If several, ask
-   which. If none, you must ask; a crew with no verify command has no way to know when the
+   which. If none, you must ask; a lets run with no verify command has no way to know when the
    work is done, and guessing one that passes trivially is the worst outcome available.
 2. **Base** — if more than one candidate came back, ask. `origin/HEAD` frequently disagrees
    with the branch a team actually merges to, and a wrong base makes every PR wrong.
@@ -27,9 +27,9 @@ Then resolve, in this order, asking only about what is genuinely ambiguous:
    tracker they did not ask for: creating issues in someone's workspace uninvited is worse
    than one question.
 
-Once the user has confirmed, call `crew` again with `write: true` and the confirmed
+Once the user has confirmed, call `lets` again with `write: true` and the confirmed
 `verify`, `base`, `lanes` and `tracker`.
 
-Report which files changed. Only two ever do: the `crew` fenced block in `AGENTS.md`, and
+Report which files changed. Only two ever do: the `lets` fenced block in `AGENTS.md`, and
 `.git/info/exclude` — which is per-clone and never committed, so nothing here reaches the
 user's team.
