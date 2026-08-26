@@ -692,6 +692,15 @@ beats one large diff.
 
 ## 9. Crew — directive to PR
 
+> **Renamed 2026-08-25.** Everything this section calls `crew` is now `lets`: the tool, the
+> commands (`/lets:{init,plan,execute,status}`), the module (`src/lets.ts`), the agents
+> (`agent/lets-*.md`) and the config fence (` ```lets `, though ` ```crew ` still parses).
+> The name `crew` was freed for the orchestrator that runs several `lets` — sub-project 3.
+>
+> The entries below are left in their original wording on purpose. This is a dated record of
+> decisions as they were made, and rewriting it to match a later rename would make the
+> journal lie about itself. Read `crew` as `lets` throughout.
+
 ### 9.1 Why this exists
 
 `review` judges a diff. `plan` votes on an approach. `work` implements a goal until the

@@ -1,8 +1,8 @@
-## Crew
+## Lets
 
-Config for `/crew:plan`. Edit freely - it is read, not regenerated.
+Config for `/lets:plan`. Edit freely - it is read, not regenerated.
 
-```crew
+```lets
 verify: npm test
 base: master
 lanes: code, docs, qa, reviewer
