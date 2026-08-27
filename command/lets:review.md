@@ -25,6 +25,11 @@ the single-model judgement the design removes.
 Zero skeptic votes **keeps** a finding. "Verification did not run" and "the finding was
 refuted" are different facts, and collapsing them is how a real bug disappears quietly.
 
+**Verification is per tier, not universal**: `SKEPTICS_PER_TIER` gives a BLOCKER three
+skeptics and a SUGGESTION two, and a **NIT none at all** — `verifyGroup` returns early
+before dispatching. So a NIT in the report is one model's unchecked opinion. Treat it as
+such; the tiers above it are the ones that were tested.
+
 ## When the report is incomplete, say so
 
 If it names failed nodes, repeat that plainly: coverage was partial and the verdict is

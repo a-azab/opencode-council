@@ -140,7 +140,7 @@ verified one would make the guarantee meaningless.
 
 The council judges work. **lets** does it.
 
-Eleven commands. Seven of them are the loop, in this order:
+Seventeen commands. Seven of them are the loop, in this order:
 
 ```
 /lets:init                                         # once per repo
@@ -168,6 +168,41 @@ Eleven commands. Seven of them are the loop, in this order:
 
 `status`, `note`, `backlog` and `worktree` are the ones you reach for in between. None of
 the four mutates a task.
+
+### The delegating six
+
+LETS's quality commands and this plugin's council solve the same problem, and the council is
+further along. These six carry the LETS name and framing, and hand the work to the engine
+that already exists rather than to a second copy of it:
+
+| command | delegates to | why you would run it |
+|---|---|---|
+| `/lets:check` | `/council:check` | the 30-second pre-commit pass — six lenses, inline, no subagents |
+| `/lets:review` | `/council:review` | the full pass: skeptics that did not raise a finding verify it, ties are computed, a failed node is substituted and then reported |
+| `/lets:opinion` | `/council:plan` | competing approaches, scored by cross-model vote instead of by a summariser |
+| `/lets:ask` | `/council:task` or `/council:independent` | one converged answer with its dissent attached, or the unmerged takes — the command's main content is choosing between them |
+| `/lets:research` | `webfetch` and the browser MCP servers | reading sources you name. **There is no search tool on this machine** — see below |
+| `/lets:team` | nothing yet | LETS's autonomous-agents command. `/crew` is unimplemented, and this says so rather than simulating it |
+
+**`/lets:research` cannot search.** `webfetch` works and the playwright, chrome-devtools and
+puppeteer MCP servers are reachable, including from spawned sessions. `websearch` is a valid
+permission key with no tool behind it — a spawned session reaches for it and reports
+`NO-TOOL`. So the command asks for a URL or a starting page rather than implying it can find
+one, and its findings are meant to land in an ADR with their source URLs attached. All three
+states verified 2026-08-25 (`docs/superpowers/specs/2026-08-25-council-design.md`).
+
+### Deliberately absent
+
+Six of LETS's 22 commands are not here and are not planned. Each is a decision, not a gap:
+
+- **`review-round`** and **`review-handoff`** — council internals. `/council:review` already
+  runs its own debate rounds and passes findings to skeptics; exposing the round mechanics as
+  user commands would be two ways to drive one loop.
+- **`plan-workflow`**, **`update`** and **`statusline`** — LETS-plugin machinery with no
+  opencode equivalent. The first drives Claude Code's Dynamic Workflows tool, the second
+  updates the LETS plugin itself, and the third renders Claude Code's status line.
+- **`github-pr`** — 1,225 lines, and it needs a repo with a remote to develop honestly
+  against. This one has none, so any port would be written blind and tested never.
 
 ### `/lets:init` — hire for this repo
 
