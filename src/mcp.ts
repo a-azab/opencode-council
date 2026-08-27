@@ -233,7 +233,8 @@ export function substitute(tpl: string, vars: Record<string, string>): string {
   return tpl.replace(/\$\{(issue|directive|branch|text|state)\}/g, (_, k) => vars[k] ?? "")
 }
 
-const summaryOf = (r: RunResult): string => {
+/** Reused by the beads tracker's closing note — one run summary, not two that drift. */
+export const summaryOf = (r: RunResult): string => {
   const done = r.outcomes.filter((o) => o.state === "done").length
   const lines = [
     `lets run ${r.stoppedBy}: ${done}/${r.outcomes.length} item(s) landed in ${Math.round(r.seconds)}s`,

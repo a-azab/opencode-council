@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process"
 import { z } from "zod"
 import { runReview, runFix, runPlan, runIndependent, runTask, councilArgs } from "./engine.ts"
 import { localMcpServers } from "./mcp.ts"
+import { activeTaskId } from "./beads.ts"
 import {
   resolveScope,
   proposeInit,
@@ -254,7 +255,22 @@ export const CouncilPlugin = async (input: any) => ({
               instructions: readInstructions(scope.root).text,
               directive: saved.directive ?? "",
               tracker: trackerFor(cfg.tracker, say, {
-                issueRef: issueIdentifierIn(saved.directive ?? ""),
+                // The run's own task first — /lets:start recorded it, and it is the only
+                // source that can name a beads id. Falling back to the directive scrape
+                // keeps linear and mcp resolving exactly as they did.
+                // Which ref a tracker wants depends on which tracker it is, so ask per
+                // tracker rather than picking one winner. beads learns the task from the
+                // pointer file `/lets:start` wrote - its ids are lowercase and dash-heavy
+                // (`oci-infrastructure-ovb`), so `issueIdentifierIn`'s Linear-shaped regex
+                // rejects every one of them. Linear and MCP keep scraping the directive.
+                //
+                // Resolving beads-first for ALL trackers would hand Linear a beads id in a
+                // repo that has both: findIssue misses, the tracker prints "not found" and
+                // no-ops, and a mirror that used to work quietly stops.
+                issueRef:
+                  cfg.tracker === "beads"
+                    ? activeTaskId(scope.root)
+                    : issueIdentifierIn(saved.directive ?? ""),
                 repoRoot: scope.root,
                 mcp: cfg.mcp,
               }),
@@ -317,7 +333,7 @@ export const CouncilPlugin = async (input: any) => ({
 
         const tracker = (args.tracker ?? "").trim()
         if (tracker && !availableTrackers(process.env, scope.root).includes(tracker as any))
-          return `Unknown or unavailable tracker \`${tracker}\`. Available here: ${availableTrackers(process.env, scope.root).join(", ")}. \`mcp\` needs a local \`mcpServers\` entry in opencode.json; \`linear\` needs LINEAR_API_TOKEN.`
+          return `Unknown or unavailable tracker \`${tracker}\`. Available here: ${availableTrackers(process.env, scope.root).join(", ")}. \`mcp\` needs a local \`mcpServers\` entry in opencode.json; \`linear\` needs LINEAR_API_TOKEN; \`beads\` needs \`bd\` on PATH and a \`.beads/\` in this repo.`
         // tracker: mcp additionally needs to name a resolvable server
         if (tracker === "mcp") {
           const server = (args.mcpServer ?? "").trim()
