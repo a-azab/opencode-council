@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process"
 import { z } from "zod"
 import { runReview, runFix, runPlan, runIndependent, runTask, councilArgs } from "./engine.ts"
 import { localMcpServers } from "./mcp.ts"
+import { activeTaskId } from "./beads.ts"
 import {
   resolveScope,
   proposeInit,
@@ -254,7 +255,10 @@ export const CouncilPlugin = async (input: any) => ({
               instructions: readInstructions(scope.root).text,
               directive: saved.directive ?? "",
               tracker: trackerFor(cfg.tracker, say, {
-                issueRef: issueIdentifierIn(saved.directive ?? ""),
+                // The run's own task first — /lets:start recorded it, and it is the only
+                // source that can name a beads id. Falling back to the directive scrape
+                // keeps linear and mcp resolving exactly as they did.
+                issueRef: activeTaskId(scope.root) ?? issueIdentifierIn(saved.directive ?? ""),
                 repoRoot: scope.root,
                 mcp: cfg.mcp,
               }),
@@ -317,7 +321,7 @@ export const CouncilPlugin = async (input: any) => ({
 
         const tracker = (args.tracker ?? "").trim()
         if (tracker && !availableTrackers(process.env, scope.root).includes(tracker as any))
-          return `Unknown or unavailable tracker \`${tracker}\`. Available here: ${availableTrackers(process.env, scope.root).join(", ")}. \`mcp\` needs a local \`mcpServers\` entry in opencode.json; \`linear\` needs LINEAR_API_TOKEN.`
+          return `Unknown or unavailable tracker \`${tracker}\`. Available here: ${availableTrackers(process.env, scope.root).join(", ")}. \`mcp\` needs a local \`mcpServers\` entry in opencode.json; \`linear\` needs LINEAR_API_TOKEN; \`beads\` needs \`bd\` on PATH and a \`.beads/\` in this repo.`
         // tracker: mcp additionally needs to name a resolvable server
         if (tracker === "mcp") {
           const server = (args.mcpServer ?? "").trim()

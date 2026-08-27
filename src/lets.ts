@@ -14,6 +14,7 @@ import { join } from "node:path"
 import { selectRoles, bySlug, skepticPool, ROSTER, KNOWN_ROLES, type Role } from "./roster.ts"
 import { ask, runReview, type Ctx, type NodeState } from "./engine.ts"
 import { localMcpServers, mcpTracker } from "./mcp.ts"
+import { beadsAvailable, beadsTracker } from "./beads.ts"
 import { WORKITEMS_SCHEMA, VERDICT_SCHEMA } from "./schema.ts"
 import {
   findIssue,
@@ -73,7 +74,7 @@ export type McpConfig = {
   args?: Record<string, string>
 }
 
-export const TRACKERS = ["none", "linear", "mcp"] as const
+export const TRACKERS = ["none", "linear", "mcp", "beads"] as const
 export type TrackerName = (typeof TRACKERS)[number]
 
 // ------------------------------------------------------------------ AGENTS.md block
@@ -616,7 +617,10 @@ export function renderInitProposal(p: InitProposal): string {
           .map((n) => `\`${n}\``)
           .join(", ")}${servers.length > 6 ? ", …" : ""} (Jira, GitHub Issues, …)`,
       )
-    else if (!p.env.LINEAR_API_TOKEN)
+    else if (!others.length)
+      // Only when there is genuinely nothing. `beads` needs no configuring — it is offered
+      // the moment `bd` and `.beads/` are both there — so telling someone to go set up a
+      // tracker they already have would be advice to ignore.
       out.push(
         "  to mirror runs into a tracker: add an MCP server to opencode.json (`mcpServers`), or set LINEAR_API_TOKEN",
       )
@@ -965,6 +969,11 @@ export function availableTrackers(
     "none",
     ...(env.LINEAR_API_TOKEN ? (["linear"] as const) : []),
     ...(localMcpServers(repoRoot).size ? (["mcp"] as const) : []),
+    // `repoRoot` is optional on this signature and beads needs it: availability is a
+    // property of a REPO (does it have `.beads/`?), not of the machine. With no root there
+    // is nothing to ask, and guessing the cwd would offer a tracker that writes into
+    // whichever database happened to be underfoot. Absent root => not available.
+    ...(repoRoot && beadsAvailable(repoRoot) ? (["beads"] as const) : []),
   ]
 }
 
@@ -995,6 +1004,17 @@ export function trackerFor(
       return stdout
     }
     return fanout(stdout, guarded(linearTracker({ token: env.LINEAR_API_TOKEN! }, opts.issueRef, onStep), onStep))
+  }
+
+  if (name === "beads") {
+    // The id comes from the pointer file `/lets:start` wrote (see activeTaskId), not from
+    // scraping the directive — beads ids are lowercase with dashes in the prefix, so the
+    // Linear-shaped ISSUE_IDENTIFIER never matched one and this branch was unreachable.
+    if (!opts.issueRef) {
+      onStep(`  tracker(beads): no active task on this branch (run \`/lets:start\`) — terminal only`)
+      return stdout
+    }
+    return fanout(stdout, guarded(beadsTracker(opts.repoRoot!, opts.issueRef, onStep), onStep))
   }
 
   if (name === "mcp") {
