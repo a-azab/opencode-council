@@ -567,21 +567,18 @@ so tail the log if you want to watch a long run rather than guess whether it has
 ### Cost, honestly
 
 crew runs up to `MAX_WAVE_WIDTH` concurrent `lets` executions, so the per-task cost is a
-`lets` run's, multiplied by N — and **review is structurally N+1 councils, not one.** Each
-task runs a council review of its own branch inside `runExecute` (up to
-`MAX_REVIEW_CYCLES` = 3 passes, routed, debate off), and then the integrated branch runs
-another with the recruited lanes.
+`lets` run's, multiplied by N — plus **one** council, on the integrated branch, with the
+recruited lanes.
 
-For **3 tasks × 2 items** that is roughly **115–130 model calls at minimum, and 250+ in the
-worst case** — where the per-task reviews are about 3 × 25 of it and the final review
-another ~18. Wave width caps how much of that runs at once; it does not reduce the total.
+Tasks pass `review: false`, so a task does **not** also run a council on its own branch.
+That is deliberate and it is the largest saving in the design: reviewing both would be
+structurally **N+1 councils**, roughly doubling a 3-task run. Nothing is lost from the
+per-task signal — `verify` and the acceptance judge (a different model than the implementer)
+both still run inside every task, and neither depended on the branch review.
 
-> **The design intended to be cheaper than this.** `docs/superpowers/specs/2026-08-26-crew-design.md`
-> concludes that 3c "should drop the per-task council review" and keep `verify` plus
-> acceptance judging as the per-task signal, leaving one council on the integrated branch.
-> **That was never implemented.** `runExecute` calls `reviewBranch` unconditionally and
-> exposes no option to suppress it, so every crew task still pays for a full branch review.
-> The N+1 figures above are what the code does today, not what the spec recommends.
+For **3 tasks × 2 items**: intake and implementation ~30, the integrated review ~18, so on
+the order of **50–60 model calls**, against 115–130 had each task reviewed its own branch
+too. Wave width caps how much runs at once; it does not change the total.
 
 The cheap way to sanity-check a run before paying for it is `/crew:status`, which computes
 the wave schedule fresh against the current graph and makes no model calls at all.
@@ -886,8 +883,9 @@ schema lane; a second parse path for two models is complexity for marginal diver
   calls, and the hand-off into integration, verify and review — is exercised only by its
   refusals. `schedule`, `integrate`, `recruitFloor` and `renderCrewReport` are each tested
   directly and hard; the wiring between them is not tested at all.
-- **crew is N+1 councils, not one** (above). The per-task review the spec recommended
-  dropping is still there, so a 3-task run costs roughly four branch reviews.
+- **crew's `crew:execute` orchestration has never run end to end.** No test may call a
+  model, so the path from waves through `runExecute` to integrate, verify and review is
+  unexercised as a whole; `integrate` and the report renderer are tested directly.
 - **This repo's own dependency graph is stale**, so crew here schedules close to
   sequentially. `/crew:status` reports it; rebuilding the graph is what fixes it.
 

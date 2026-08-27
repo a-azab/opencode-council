@@ -241,15 +241,17 @@ exact step the design exists to parallelise, justified by a hazard nobody had ob
 - **A merge conflict is now a bug report about the scheduler**, not a routine event. It stops
   integration, names the branch and files, and leaves the partial branch. The fix is the
   task's `files` list, which makes `files` load-bearing in every plan.
-- **Cost is N+1 councils, not one — and this diverges from the spec.**
-  `docs/superpowers/specs/2026-08-26-crew-design.md` concludes that 3c "should drop the
-  per-task council review", keeping `verify` plus acceptance judging as the per-task signal
-  and one council on the integrated branch. **That was not implemented.** `runExecute` calls
-  `reviewBranch` unconditionally (`lets.ts:1829`) and exposes no option to suppress it, so
-  every crew task still pays for a full branch review and the integrated branch pays for
-  another. A 3-task × 2-item run is roughly **115–130 model calls minimum, 250+ worst case**.
-  The README documents the behaviour as it is; closing the gap needs a `review?: boolean` on
-  `runExecute`, which is a `lets` change and is not made here.
+- **One council, on the integrated branch — and the gap that nearly shipped.** The spec
+  concluded that crew "should drop the per-task council review", keeping `verify` plus
+  acceptance judging as the per-task signal. When crew was built, `runExecute` called
+  `reviewBranch` unconditionally and exposed **no way to opt out**, so the recommendation
+  could not be honoured — and a commit message claimed it had been, which was true of what
+  `index.ts` called and false of the run as a whole. Documentation review caught the
+  divergence by reading the source rather than the message.
+  `runExecute` now takes `review?: boolean`; crew passes `false`. The saving is the largest
+  in the design: reviewing both task branches and the integrated one is structurally
+  **N+1 councils**, roughly doubling a 3-task run to ~115–130 calls where ~50–60 suffice.
+  Nothing weakens — `verify` and the acceptance judge still run per task.
 - **`src/crew.ts` and `crew-plan` are permanently unavailable as names** until the graph is
   rebuilt and the `/lets:run` alias is retired. Both are currently load-bearing in the
   negative: `index.test.ts` guards that no module imports `./crew.ts` and that no non-crew
