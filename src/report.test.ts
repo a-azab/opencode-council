@@ -92,3 +92,56 @@ test("a debate round that moves a position is reported as having moved it", () =
   assert.match(out, /1 changed position/)
   assert.match(out, /opus5→SUGGESTION/)
 })
+
+// --- essential reviewers ------------------------------------------------------------
+
+const node = (role: string, slug: string, state = "ok", over: Record<string, unknown> = {}) =>
+  ({ node: { role, slug, model: `m/${slug}` }, state, ms: 1, findings: [], ...over }) as any
+
+test("a lane that ran without its essential reviewer says so", () => {
+  // The whole point of pinning a reviewer is that you notice when it did not review, and
+  // the substituted case is the one that hides best: the participation table shows three
+  // security nodes, all `ok`, and the panel looks complete.
+  const out = renderReport(
+    reviewFixture({
+      nodes: [
+        node("security", "gpt56sol"),
+        node("security", "opus5"),
+        node("security", "minimax", "ok", {
+          substituted: [{ from: "fable", state: "timeout", detail: "aborted after 90s" }],
+        }),
+      ],
+    }),
+    { files: ["src/auth.ts"], ms: 1 },
+  )
+  assert.match(out, /Security ran without fable, its essential reviewer/)
+  assert.match(out, /timeout/, "the reason it was absent must be named, not just the absence")
+})
+
+test("an essential reviewer that dropped outright is named with its state", () => {
+  const dropped = node("security", "fable", "autherror", { detail: "401 from the provider" })
+  const out = renderReport(
+    reviewFixture({ nodes: [node("security", "opus5"), dropped], dropped: [dropped] }),
+    { files: ["src/auth.ts"], ms: 1 },
+  )
+  assert.match(out, /Security ran without fable, its essential reviewer/)
+  assert.match(out, /401 from the provider/)
+})
+
+test("no line when the essential reviewer actually reviewed", () => {
+  const out = renderReport(
+    reviewFixture({ nodes: [node("security", "fable"), node("security", "opus5")] }),
+    { files: ["src/auth.ts"], ms: 1 },
+  )
+  assert.doesNotMatch(out, /ran without fable/, "it reviewed; there is nothing to report")
+})
+
+test("no line when the lane was never part of this run", () => {
+  // A docs-only diff does not wake security, and reporting a missing security reviewer on
+  // a run that never asked for one would be noise that trains people to ignore the line.
+  const out = renderReport(reviewFixture({ nodes: [node("docs", "gemini36")] }), {
+    files: ["README.md"],
+    ms: 1,
+  })
+  assert.doesNotMatch(out, /essential reviewer/)
+})

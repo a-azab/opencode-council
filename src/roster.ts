@@ -30,6 +30,10 @@ export type Member = {
    * three. Latency ranks queue noise, not capability.
    */
   tier?: "deep" | "standard" | "fast"
+  /** Roles this member ALWAYS covers when it is available, ahead of the per-role cap.
+   *  A cap is a cost control; an essential reviewer is a correctness requirement, so the
+   *  pin wins. */
+  essential?: Role[]
 }
 
 /**
@@ -40,7 +44,11 @@ export type Member = {
  */
 export const ROSTER: Member[] = [
   { slug: "opus5",     model: "anthropic/claude-opus-5",                roles: ["reviewer", "security", "architect"], ms: 4263, capability: ["schema", "agentic"] },
-  { slug: "fable",     model: "anthropic/claude-fable-5",               roles: ["security", "skeptic"],    ms: 6704 },
+  // `essential` on security: fable is the SLOWEST of the three security carriers, so under
+  // the (timesUsed, ms) sort it is last and would be the first dropped the moment a fourth
+  // carrier joins. It is in the lane today by arithmetic coincidence - the pin makes it a
+  // rule, so a roster edit cannot silently take the security panel's named reviewer out.
+  { slug: "fable",     model: "anthropic/claude-fable-5",               roles: ["security", "skeptic"],    ms: 6704, essential: ["security"] },
   { slug: "kimik3",    model: "kimi-for-coding/k3",                     roles: ["code"],                   ms: 21151 },
   // The requested quota fallback: when kimi-for-coding/k3 hits its billing-cycle limit, the
   // code lane substitutes here first (same role) before borrowing another model. Measured
@@ -141,6 +149,26 @@ export function selectRoles(files: string[], changedLines = 0): Role[] {
 export type Node = { role: Role; slug: string; model: string }
 
 /**
+ * Members pinned to this role first, then the cap's remaining slots from the rest in the
+ * order they arrived.
+ *
+ * If the pins alone exceed the cap, they ALL run and the cap is exceeded. That is a
+ * deliberate inversion of the usual precedence: everywhere else the cap is the last word,
+ * because it is a cost control - but an essential reviewer is a correctness requirement,
+ * and correctness outranks cost.
+ *
+ * `candidates` arrives already filtered and sorted by the caller, and this only ever picks
+ * out of it - so a member that cannot answer (not `canSchema`, or benched by failover) is
+ * never here to be pinned back in. "Always covers" is conditional on being available; its
+ * absence is reported rather than papered over (report.ts).
+ */
+export function essentialFirst(candidates: Member[], role: Role, cap: number): Member[] {
+  const pinned = candidates.filter((m) => m.essential?.includes(role))
+  const rest = candidates.filter((m) => !m.essential?.includes(role))
+  return [...pinned, ...rest.slice(0, Math.max(0, cap - pinned.length))]
+}
+
+/**
  * One node per (role, model). Models already used this round are deprioritised: two roles
  * answered by the same model are correlated, and correlation is the thing a multi-model
  * council is buying its way out of.
@@ -156,7 +184,7 @@ export function selectNodes(roles: Role[]): Node[] {
     const candidates = ROSTER.filter((m) => m.roles.includes(role) && canSchema(m)).sort(
       (a, b) => (used.get(a.slug) ?? 0) - (used.get(b.slug) ?? 0) || a.ms - b.ms,
     )
-    for (const m of candidates.slice(0, cap)) {
+    for (const m of essentialFirst(candidates, role, cap)) {
       nodes.push({ role, slug: m.slug, model: m.model })
       used.set(m.slug, (used.get(m.slug) ?? 0) + 1)
     }

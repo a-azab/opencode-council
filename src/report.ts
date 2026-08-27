@@ -3,7 +3,7 @@
 import type { Review, TaskProposal, TaskResult } from "./engine.ts"
 import { TIE_MARGIN, type Finding } from "./decide.ts"
 import { upgradeCandidates, type Result } from "./catalog.ts"
-import type { Member } from "./roster.ts"
+import { ROSTER, type Member } from "./roster.ts"
 
 const TIER_ORDER = { BLOCKER: 0, SUGGESTION: 1, NIT: 2 } as const
 
@@ -78,6 +78,35 @@ export function renderReport(review: Review, meta: { files: string[]; ms: number
         "",
       )
   }
+
+  // The whole point of pinning a reviewer is that you notice when it did not review — a
+  // silent absence is the failure the pin exists to prevent. Both sections above can hide
+  // it: a lane a stand-in covered reads `ok` in the participation table, so three security
+  // nodes answer and the panel looks complete while the reviewer that was required to be
+  // there never ran. Named here, with what actually became of it.
+  const ran = new Set(nodes.filter((n) => n.state === "ok").map((n) => `${n.node.role}/${n.node.slug}`))
+  const inPlay = new Set(nodes.map((n) => n.node.role))
+  const absent: string[] = []
+  for (const m of ROSTER)
+    for (const role of m.essential ?? []) {
+      // Only lanes this run actually asked for: a docs-only diff never wakes security, and
+      // reporting a missing security reviewer there is noise that trains people to skip
+      // the line on the run where it matters.
+      if (!inPlay.has(role) || ran.has(`${role}/${m.slug}`)) continue
+      const own = nodes.find((n) => n.node.role === role && n.node.slug === m.slug)
+      const passed = nodes
+        .find((n) => n.node.role === role && n.substituted?.some((s) => s.from === m.slug))
+        ?.substituted?.find((s) => s.from === m.slug)
+      const why = own
+        ? `\`${own.state}\`: ${own.detail?.slice(0, 90) || "no detail given"}`
+        : passed
+          ? `\`${passed.state}\`: ${passed.detail?.slice(0, 90) || "passed over for a stand-in"}`
+          : "`not selected`: it was never in the panel"
+      absent.push(
+        `> ${role[0].toUpperCase()}${role.slice(1)} ran without ${m.slug}, its essential reviewer — ${why}`,
+      )
+    }
+  if (absent.length) lines.push("## Essential reviewer missing", "", ...absent, "")
 
   if (disputed.length) {
     lines.push("## Unresolved disagreements", "")
