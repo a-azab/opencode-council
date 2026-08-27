@@ -1,6 +1,7 @@
 # opencode-council
 
-Multi-model code review for [opencode](https://opencode.ai), shipped as one plugin.
+Multi-model code review for [opencode](https://opencode.ai), and the single-task workflow
+that does the building — two tools, `council` and `lets`, shipped as one plugin.
 
 Fifteen models review your diff in parallel, each in the role it is assigned. Every finding
 is then challenged by independent skeptics that did not raise it, and what survives is
@@ -139,11 +140,34 @@ verified one would make the guarantee meaningless.
 
 The council judges work. **lets** does it.
 
+Eleven commands. Seven of them are the loop, in this order:
+
 ```
-/lets:init                                    # once per repo
+/lets:init                                         # once per repo
+/lets:start                                        # restore context, claim a task, cut its branch
 /lets:plan add a --json flag to the export command # plan it, and stop
-/lets:execute                                     # build the plan you approved
+/lets:execute                                      # build the plan you approved
+/lets:commit                                       # stage what was reviewed, message linked to the task
+/lets:done                                         # push, PR, and close only if it landed
+/lets:end                                          # snapshot, so the next session can resume
 ```
+
+| command | does | when |
+|---|---|---|
+| `/lets:init` | detects the stack, the verify command, the PR base and the review lanes, and records them in the `lets` block | once per repo, before `/lets:plan` |
+| `/lets:start` | reads the last snapshots back, orients, then claims a task and cuts `feature/<id>-<slug>` | opening a session; `--continue` resumes the one in progress |
+| `/lets:plan` | CPO outcomes → CTO work items, then stops at a gate | you have a directive and no approved plan |
+| `/lets:execute` | runs the approved plan in a throwaway worktree, item by item, to a PR | after you have read a plan and approved it |
+| `/lets:commit` | conventional message matched to this repo's own log, linked to the active task, confirmed before it writes | committing by hand rather than through `execute` |
+| `/lets:done` | verifies the work is committed, pushes, opens a PR when there is a remote, and closes the task **only if it landed** | a task is finished — not a session |
+| `/lets:end` | writes a recovery-grade `## RESUME` snapshot to `.lets/sessions/` | closing a window, or before a compact |
+| `/lets:status` | read-only orientation — where you are, what's in flight, what's next | any time; argless, mutates nothing |
+| `/lets:note` | appends a note to the active task, or to the session trail when nothing is tracked | a decision, a finding, a blocker |
+| `/lets:backlog` | what is ready to work on, in dependency order, then hands the pick to `/lets:start` | choosing what to do next |
+| `/lets:worktree` | lists live lets worktrees with branch, age, and the command to remove each | something got stranded |
+
+`status`, `note`, `backlog` and `worktree` are the ones you reach for in between. None of
+the four mutates a task.
 
 ### `/lets:init` — hire for this repo
 
@@ -204,6 +228,39 @@ never ran are listed as `not-attempted` with the reason — a plan that stopped 
 says **"NOT independently judged — checks only"**. That is enforced by tests, because the
 one lie that would matter is the report that hides what happened.
 
+### The work loop — `/lets:commit`, `/lets:done`, `/lets:backlog`
+
+`execute` commits per item on its own. These three are the same loop run by hand: pick the
+next thing, commit what you wrote, then close it out honestly.
+
+**`/lets:commit`** stages what was reviewed and writes a message this repo would recognise.
+It **never** stages with `git add -A` or `git add .` — both sweep in unrelated edits,
+untracked cruft or secrets, and clobber a set you curated. An already-staged set wins as-is.
+The conventional format is matched against this repo's own last 20 subjects rather than
+imposed, and nothing is written until you confirm. The rules live in the `lets-commit` skill,
+not in the command file, so an explicit `/lets:commit` and a plain "commit this" in a lets
+repo produce the same commit.
+
+**`/lets:done`** finishes a *task*, and detects its mode rather than reading config:
+
+| remote | `gh` | mode | push | PR | task |
+|---|---|---|---|---|---|
+| yes | ok | **github** | yes | yes | **stays open** until the PR merges |
+| yes | no | **push-only** | yes | no | **stays open** — nothing merged it |
+| no | — | **local** | nothing to push | no | **closed**, after the local merge |
+
+A task closed while its PR sits unreviewed is a lie told to everyone reading the board, so
+the close only happens where something actually landed. It also refuses to close an **epic**
+— epics outlive their children — and never pushes, merges or closes without your answer.
+
+**`/lets:backlog`** shows what is ready, in dependency order, and hands the pick to
+`/lets:start`. It reads and asks: it creates nothing, claims nothing, closes nothing. The
+order is `bd ready`'s own — computed from the dependency graph, open issues with no unmet
+blockers first — and is deliberately not re-sorted, because re-sorting throws away the
+dependency information that made it a ready list. With no tracker it says so in one line
+rather than rendering an empty list, and it does not offer to run `bd init`. Triage that
+wants several opinions is pointed at `/council:*` rather than reimplementing fan-out here.
+
 ### `/lets:worktree` — what's still lying around
 
 Lists live lets worktrees with their branch, age, and the exact command to remove each.
@@ -224,20 +281,41 @@ with context that survives the window closing.
 | `/lets:end` | writes a recovery-grade `## RESUME` snapshot to `.lets/sessions/`. `--pre-compact` writes the same file without ending anything. |
 | `/lets:note` | appends a note to the active task, or to the session trail when nothing is tracked. |
 
-The shared logic lives in `skills/` — `lets-orient`, `lets-detect-task`,
-`lets-artifact-path`, `lets-session-snapshot` — so `/lets:status` and `/lets:start` cannot
+The shared logic lives in `skills/` (below), so `/lets:status` and `/lets:start` cannot
 drift into rendering the same snapshot two different ways.
 
 **The snapshot is file-primary.** It always lands in `.lets/sessions/`, task or no task; a
 tracked task gets a one-line pointer to it and nothing more. The file is the record, so
 losing the tracker never loses the session.
 
-**Task tracking is optional.** [beads](https://github.com/steveyegge/beads) is used when
-`bd` is on PATH *and* the repo has a `.beads/` directory — both, because the binary alone
-would make every repo on the machine "tracked" and the first write would create a database
-in a project that never asked for one. Without both, the tracker is `none`: `/lets:status`
-still tells you the branch, the task pointer and the dirty-file count, and simply omits the
-sections that have no data source.
+**Task tracking is optional.** [beads](https://github.com/steveyegge/beads) is used when `bd`
+is on PATH *and* the repo has a `.beads/` directory — both, for the reason under
+[Tracking](#tracking--optional-and-off-by-default) below. Without both, the tracker is
+`none`: `/lets:status` still tells you the branch, the task pointer and the dirty-file
+count, and simply omits the sections that have no data source.
+
+### Skills — the shared halves of the commands
+
+Five skills live in `skills/`, and the plugin registers the directory itself via
+`config.skills.paths` — there is nothing to install separately.
+
+| skill | for |
+|---|---|
+| `lets-orient` | renders the shared "where am I / what's in flight / what's next" snapshot, degrading section by section when there is no tracker |
+| `lets-detect-task` | resolves the active task id — explicit argument, then the per-branch pointer file, then the branch — or `None` |
+| `lets-artifact-path` | resolves a collision-safe path for a session artifact under `.lets/sessions/` |
+| `lets-session-snapshot` | writes the recovery-grade snapshot file, plus a one-line task pointer only when a task is unambiguously active |
+| `lets-commit` | the commit rules: staging, the repo's own convention, the task link, the confirmation gate |
+
+**The first four are invoked by the commands, not by conversation** — each says so in its own
+description, and a user turn should not trigger them. They exist because two commands doing
+the same thing in two places is two things to keep true: `/lets:status` and `/lets:start`
+share one snapshot renderer, `/lets:end` and `/lets:note --pre-compact` share one snapshot
+writer.
+
+`lets-commit` is the deliberate exception. It is written to be preferred over any generic
+commit skill in a lets repo, so a plain "commit this" and an explicit `/lets:commit` land
+the same commit rather than two different ones.
 
 ### Tracking — optional, and off by default
 
@@ -250,9 +328,20 @@ and records the answer in the `lets` block.
 | `none` | you declined. It won't ask again. |
 | `mcp` | mirrored through any MCP server configured in opencode.json — Jira, GitHub Issues, Plane, … |
 | `linear` | mirrored into a Linear agent session (native fast path) |
+| `beads` | mirrored as notes onto the bead the run belongs to, via the local `bd` cli |
 
 **`none` and absent are different on purpose.** Creating issues in someone's workspace
 uninvited is worse than asking one question, so lets never guesses.
+
+Each is offered only where it would actually work, so init can never record a tracker that
+silently mirrors nothing: `linear` needs `LINEAR_API_TOKEN`, `mcp` needs at least one local
+MCP server in opencode.json, and `beads` needs **`bd` on PATH *and* a `.beads/` directory in
+the repo**. Both, for beads, and the second is the one with teeth — the binary alone would
+make every repo on the machine "tracked", and the first write would create a database in a
+project that never asked for one. That is not the plugin's call, so a repo without `.beads/`
+gets `none`, which is a fully-rendered state rather than an error. (`availableTrackers` in
+`src/lets.ts` also treats an unknown repo root as "not available" rather than guessing at
+the cwd.)
 
 With `mcp`, the tracker is whatever you already run: name one of your opencode.json
 `mcpServers` entries and map the run's moments to that server's tools. Argument names are
@@ -277,6 +366,21 @@ agent session: a live plan checklist, one entry per item, and the PR link attach
 opens. Outbound only — no webhook, no public endpoint, no daemon. Needs `LINEAR_API_TOKEN`
 from an OAuth app installed with `actor=app` (workspace admin required). Without the token
 it isn't offered at all. It is an implementation of the same seam, not a privileged one.
+
+With `beads`, a run's progress lands as notes on the bead it belongs to. **Exactly one note
+at run start, one per work item, and one at finish — never on `step()`.** For a run of `N`
+items that is `N + 2` `bd` invocations, and no more. The sparseness is the point: a `bd` note
+is append-only into your real database, unlike Linear's progress activity which is ephemeral
+and replaces itself, so a per-step note would bury the bead's own history under a run's
+stdout. `step()` is a deliberate no-op for a second reason as well — it is the one sync,
+unprotected hook, so a shell-out there would be slow *and* invisible when it failed; the
+terminal line you see comes from the stdout tracker fanned out beside it.
+
+**It never closes the bead.** `/lets:done` owns that transition: a run finishing is not a
+task finishing, since the run can stop `item-stuck` with half the work undone, and even a
+clean run only means the branch is ready — not that the task was accepted. The bead it
+writes to is the one `/lets:start` recorded in the pointer file, not one scraped out of the
+directive.
 
 **A tracker can never break a run.** An outage, an expired token, or a preview-API change
 costs you a warning line. The work is real; the mirror is not.
@@ -596,9 +700,13 @@ it, the two asymmetries above are the things most likely to be "simplified" into
 | `src/catalog.ts` | the live catalogue, the measured capability cache, and the probe budget |
 | `src/schema.ts` | JSON Schemas enforced by the runtime as forced tool calls |
 | `src/report.ts` | report, patch, plan and task rendering |
-| `src/index.ts` | plugin entry: registers agents, commands, and the `council` tool |
-| `agent/*.md` | the 14 agent prompts — 13 roles plus the fixer, expertise and tier calibration only |
-| `src/*.test.ts` | 178 tests: `decide`, `roster`, `tally`, task states, catalog, patch classification |
+| `src/lets.ts` | the lets pipeline: config, worktrees, plan, run, the tracker seam |
+| `src/mcp.ts` | the generic MCP tracker, and the run summary both mirrors share |
+| `src/linear.ts` | the Linear agent-session tracker |
+| `src/beads.ts` | the `bd` transport, the active-task resolver, and the beads tracker |
+| `src/index.ts` | plugin entry: registers agents, commands, the `skills/` path, and the `council` and `lets` tools |
+| `agent/*.md` | 17 agent prompts — 14 council (13 roles plus the fixer) and 3 lets (`cpo`, `cto`, `dev`); expertise and tier calibration only |
+| `src/*.test.ts` | 205 tests: `decide`, `roster`, `tally`, task states, catalog, patch classification, the lets config and worktree paths, and the beads parsers |
 
 The rule the whole design rests on: **anything that decides an outcome lives in
 `decide.ts` and is tested.** `engine.ts` may move data and call models, but if you find

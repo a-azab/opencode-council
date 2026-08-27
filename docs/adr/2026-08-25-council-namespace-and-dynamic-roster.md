@@ -3,6 +3,16 @@
 **Date:** 2026-08-25 · **Status:** accepted · **Scope:** `src/roster.ts`, `src/engine.ts`,
 `src/catalog.ts`, `command/`, `README.md`
 
+> **Superseded names, 2026-08-26.** This record predates the `crew` → `lets` rename
+> ([2026-08-26-lets-workflow-port.md](2026-08-26-lets-workflow-port.md)). Where it says
+> `crew.ts`, read `src/lets.ts`; where it says `crew:init`, read `/lets:init`. The wording
+> below is left exactly as written — an ADR records a decision as it was made, and editing
+> it to match a later rename would make the record lie about itself.
+>
+> Nothing enforces this note: the rename guards scan `command/`, `src/` and `README.md`,
+> deliberately not `docs/`, because a guard over dated records would demand rewriting
+> history to stay green. Accuracy here is a convention, not a test.
+
 ## This file establishes the ADR convention
 
 ADRs live at `docs/adr/YYYY-MM-DD-slug.md`. One file per decision, **named by date and
