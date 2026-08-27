@@ -938,3 +938,40 @@ test("a label prefixes progress lines; without one the output is byte-identical"
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("a local run neither pushes nor opens a PR, and the result says which", async () => {
+  const dir = scratchRepo()
+  try {
+    const r = await bare(dir, { slug: "local-only", openPr: false })
+    assert.equal(r.pushed, false)
+    assert.equal(r.prUrl, undefined)
+    assert.equal(r.prError, undefined, "nothing was attempted, so nothing can have failed")
+    assert.equal(r.prSkipped, true, "the absence has to be legible as deliberate")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("push and PR are skipped, not merely undone, when the caller stays local", () => {
+  // openPr() runs `git push -u origin` and then `gh pr create`. N concurrent tasks would
+  // push N branches and open N pull requests before the integration step had run at all,
+  // so suppression has to skip the call rather than tidy up after it. Nothing here may run
+  // `gh`, so this reads the source - the technique index.test.ts already uses on this file.
+  const src = readFileSync(new URL("./lets.ts", import.meta.url), "utf8")
+  const block = src.slice(
+    src.indexOf("const landed = outcomes.filter"),
+    src.indexOf("const result: RunResult"),
+  )
+  assert.match(block, /openPr\(/, "fixture: the PR call must live in this window")
+  assert.match(block, /input\.openPr !== false/, "the call itself must be gated on the flag")
+})
+
+test("a suppressed PR renders as a choice, never as a failed push", () => {
+  const out = renderRun(run({ outcomes: [done("one")], prSkipped: true }), CFG3)
+  assert.doesNotMatch(out, /^PR: /m, "must not imply a pull request exists")
+  assert.doesNotMatch(out, /PR not opened/, "nothing was attempted; that is not a failure")
+  assert.doesNotMatch(out, /\*\*not\*\* pushed/, "the failed-push wording is for failures")
+  assert.doesNotMatch(out, /failed/, "a deliberate choice must not read as an error")
+  assert.match(out, /local/i, "it must still say the branch never left the machine")
+  assert.match(out, /worktree/, "and where the work actually is")
+})
