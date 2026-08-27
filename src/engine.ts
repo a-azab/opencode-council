@@ -238,6 +238,7 @@ async function askOnce<T>(
         // and a lane that hangs on a prompt is a dropped lane.
         permission: [
           { permission: "council", pattern: "*", action: "deny" },
+          { permission: "crew", pattern: "*", action: "deny" },
           { permission: "lets", pattern: "*", action: "deny" },
           { permission: "task", pattern: "*", action: "deny" },
           { permission: "external_directory", pattern: "*", action: "deny" },

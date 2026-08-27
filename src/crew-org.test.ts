@@ -1,10 +1,14 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, readdirSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { join, dirname } from "node:path"
+import { fileURLToPath } from "node:url"
 import { recruitFloor, integrate, renderCrewReport, type CrewResult, type CrewTask } from "./crew-org.ts"
+import plugin from "./index.ts"
+
+const PKG = join(dirname(fileURLToPath(import.meta.url)), "..")
 
 // ------------------------------------------------------------------ recruitFloor
 
@@ -271,5 +275,223 @@ test("renderCrewReport says so when no ADR was recorded", () => {
   // the user actually asked for.
   const out = renderCrewReport(base({ adr: undefined }))
   assert.match(out, /No ADR/)
+})
+
+// ------------------------------------------------------------------ registration
+
+async function load() {
+  const p = await plugin({ directory: process.cwd() })
+  const config: any = {}
+  await p.config(config)
+  return { tool: p.tool as Record<string, any>, config }
+}
+
+test("the crew tool registers all three modes in the zod enum AND the args union", async () => {
+  const { tool } = await load()
+  assert.ok(tool.crew, "the crew tool is not registered")
+  for (const mode of ["plan", "execute", "status"])
+    assert.ok(tool.crew.args.mode.safeParse(mode).success, `crew rejects mode '${mode}'`)
+  assert.ok(!tool.crew.args.mode.safeParse("run").success, "crew accepts a mode it does not implement")
+
+  // The inline `args` TS union is erased at runtime - type stripping is not typechecking -
+  // so it can only be asserted as source text. A mode in the enum and missing from the union
+  // (or the reverse) fails at exactly one layer, silently. Same idiom as the engine
+  // deny-rule test in index.test.ts.
+  const src = readFileSync(join(PKG, "src/index.ts"), "utf8")
+  assert.match(
+    src,
+    /mode\?: "plan" \| "execute" \| "status"/,
+    "the crew args TS union does not list exactly plan | execute | status",
+  )
+})
+
+test("every crew command registers", async () => {
+  const { config } = await load()
+  for (const c of ["crew:plan", "crew:execute", "crew:status"])
+    assert.ok(config.command[c]?.template?.length > 100, `${c} missing or empty`)
+})
+
+test("crew:plan states the interview bounds it is supposed to enforce", async () => {
+  // The bound lives in the prompt, so an unbounded interview is a prompt regression that
+  // nothing else in this suite would catch.
+  const { config } = await load()
+  const t = config.command["crew:plan"].template
+  assert.match(t, /two rounds/i)
+  assert.match(t, /four questions/i)
+  assert.match(t, /`question` tool/, "the interview must use the question tool, not prose")
+  assert.match(t, /websearch/i, "must warn that websearch does not exist here")
+})
+
+// ------------------------------------------------------------------ the tool's guards
+//
+// Same rationale as tool.test.ts: a tool whose entry point is never invoked is a tool with
+// no tests. Only paths that return BEFORE any model call are exercised - those are the
+// guards, and they are what has to hold when the arguments are wrong.
+
+const crewTool = async () => (await load()).tool.crew
+
+function toolRepo(withCfg = true): string {
+  const dir = mkdtempSync(join(tmpdir(), "crew-tool-"))
+  const g = (...a: string[]) => execFileSync("git", a, { cwd: dir, stdio: "ignore" })
+  g("init", "-q", "-b", "main")
+  g("config", "user.email", "t@t")
+  g("config", "user.name", "t")
+  writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "true" } }))
+  if (withCfg)
+    writeFileSync(join(dir, "AGENTS.md"), "# AGENTS\n\n```lets\nverify: npm test\nbase: main\nlanes: reviewer\n```\n")
+  g("add", "-A")
+  g("commit", "-qm", "init")
+  return dir
+}
+
+const TASKS = JSON.stringify([
+  { title: "First", items: [{ title: "a", detail: "", files: ["a.ts"], acceptance: "it works" }] },
+])
+
+test("every crew mode refuses outside a git repository", async () => {
+  const crew = await crewTool()
+  for (const mode of ["plan", "execute", "status"]) {
+    const out = await crew.execute({ mode, directive: "x" }, { directory: "/" })
+    assert.match(out, /not a git repository/i, `mode ${mode} did not refuse`)
+  }
+})
+
+test("crew:status answers in a repo that was never initialised", async () => {
+  const dir = toolRepo(false)
+  try {
+    const out = await (await crewTool()).execute({ mode: "status" }, { directory: dir })
+    assert.match(out, /No crew plan recorded/)
+    assert.ok(!existsSync(join(dir, "council-artifacts")), "status must write no artifacts")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("crew:plan and crew:execute refuse before the repo is initialised", async () => {
+  const dir = toolRepo(false)
+  try {
+    const crew = await crewTool()
+    for (const args of [{ mode: "plan", directive: "x", adr: "a.md", tasks: TASKS }, { mode: "execute" }])
+      assert.match(await crew.execute(args, { directory: dir }), /lets:init/, `${args.mode} did not refuse`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("crew:plan refuses without an ADR", async () => {
+  // With no approval gate the ADR is the only record of what was asked for, so a plan
+  // without one cannot be audited afterwards. This is a hard refusal, not a warning.
+  const dir = toolRepo()
+  try {
+    const out = await (await crewTool()).execute(
+      { mode: "plan", directive: "do a thing", tasks: TASKS },
+      { directory: dir },
+    )
+    assert.match(out, /needs `adr`/)
+    assert.ok(!existsSync(join(dir, "council-artifacts")), "nothing may be recorded for a rejected plan")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("crew:plan refuses a decomposition it cannot use", async () => {
+  const dir = toolRepo()
+  try {
+    const crew = await crewTool()
+    const bad = [
+      [{ tasks: "" }, /needs `tasks`/],
+      [{ tasks: "{oops" }, /not valid JSON/],
+      [{ tasks: JSON.stringify([{ title: "no items", items: [] }]) }, /no title or no items/],
+      [{ tasks: JSON.stringify(Array.from({ length: 13 }, () => ({ title: "t", items: [{}] }))) }, /MAX_TASKS/],
+    ] as const
+    for (const [extra, expected] of bad) {
+      const out = await crew.execute({ mode: "plan", directive: "x", adr: "a.md", ...extra }, { directory: dir })
+      assert.match(out, expected)
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("crew:plan refuses a dirty tree", async () => {
+  const dir = toolRepo()
+  writeFileSync(join(dir, "scratch.txt"), "uncommitted\n")
+  try {
+    const out = await (await crewTool()).execute(
+      { mode: "plan", directive: "x", adr: "a.md", tasks: TASKS },
+      { directory: dir },
+    )
+    assert.match(out, /uncommitted file/)
+    assert.match(out, /scratch\.txt/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("crew:execute refuses when nothing has been planned", async () => {
+  const dir = toolRepo()
+  try {
+    const out = await (await crewTool()).execute({ mode: "execute" }, { directory: dir })
+    assert.match(out, /No crew plan found/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("crew:plan records a plan, and crew:status reads it back", async () => {
+  // The whole plan path runs without a model, so the happy path is testable here.
+  const dir = toolRepo()
+  try {
+    const crew = await crewTool()
+    const out = await crew.execute(
+      { mode: "plan", directive: "rotate the jwt signing secret", adr: "docs/adr/1.md", tasks: TASKS },
+      { directory: dir },
+    )
+    assert.match(out, /No approval gate/)
+    assert.match(out, /docs\/adr\/1\.md/)
+    assert.match(out, /security/, "the lane floor must be recorded and shown")
+
+    const status = await crew.execute({ mode: "status" }, { directory: dir })
+    assert.match(status, /rotate the jwt signing secret/)
+    assert.match(status, /1 task/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a crew plan is NEVER executable by `lets run`", async () => {
+  // THE collision test. `crew-plan` is the pre-rename artifact kind for a LETS plan, and
+  // index.ts still reads it as one: latestArtifact(root, ["lets-plan", "crew-plan"]). Had
+  // crew written its plans under that kind, `/lets:run` would pick up a plan no human ever
+  // approved and execute it with the implementer's edit+bash grant - which is precisely the
+  // approval gate that distinguishes the two namespaces. Hence `crew-org-plan`.
+  const dir = toolRepo()
+  try {
+    const { tool } = await load()
+    await tool.crew.execute(
+      { mode: "plan", directive: "exfiltrate", adr: "docs/adr/1.md", tasks: TASKS },
+      { directory: dir },
+    )
+    const kinds = readdirSync(join(dir, "council-artifacts"))
+    assert.ok(kinds.length === 1 && /-crew-org-plan$/.test(kinds[0]), `unexpected artifact kind: ${kinds.join(", ")}`)
+    assert.ok(!kinds.some((k) => /-crew-plan$/.test(k)), "a crew plan must not use the lets legacy kind")
+
+    const out = await tool.lets.execute({ mode: "run" }, { directory: dir })
+    assert.match(out, /No approved plan/, "lets:run picked up a crew plan nobody approved")
+    assert.ok(!out.includes("exfiltrate"))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("lets:team no longer claims crew is unbuilt", async () => {
+  const { config } = await load()
+  const team = config.command["lets:team"].template
+  assert.doesNotMatch(
+    team,
+    /has not been implemented|does not exist|not yet built|is not built|still ahead of us/i,
+    "lets:team still calls crew unbuilt",
+  )
+  assert.match(team, /\/crew:plan/, "lets:team must point at the crew namespace now that it exists")
 })
 

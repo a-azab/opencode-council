@@ -23,6 +23,9 @@ import {
   renderWorktrees,
   type LetsConfig,
 } from "./lets.ts"
+import { detectStack, closeWorktree } from "./lets.ts"
+import { fileEdges, schedule, MAX_TASKS, MAX_WAVE_WIDTH } from "./schedule.ts"
+import { recruitFloor, integrate, renderCrewReport, type CrewResult, type CrewTask } from "./crew-org.ts"
 import { ROSTER, type Role } from "./roster.ts"
 import { catalog, probe, probeBudget, upgradeCandidates, type Result } from "./catalog.ts"
 import {
@@ -161,6 +164,18 @@ function latestArtifact(repoRoot: string, kind: string | string[], file: string)
     .pop()
   return dir ? { dir, path: join(root, dir, file) } : null
 }
+
+/**
+ * Every task carries the union of its items' files, because that is what `schedule()` reasons
+ * over. Derived rather than trusted from the plan: a decomposition that under-declares its
+ * files would be judged independent of work it actually touches, and the scheduler would put
+ * the two in one wave. An explicit `files` on the task is honoured as a superset.
+ */
+const withFiles = (tasks: any[]): any[] =>
+  tasks.map((t) => ({
+    ...t,
+    files: [...new Set([...(t.files ?? []), ...(t.items ?? []).flatMap((i: any) => i.files ?? [])])],
+  }))
 
 export const CouncilPlugin = async (input: any) => ({
   tool: {
@@ -374,6 +389,282 @@ export const CouncilPlugin = async (input: any) => ({
       },
     },
 
+    crew: {
+      description:
+        "crew: one directive, interviewed rather than stated, taken to a merged branch with NO approval gate. " +
+        "mode:'plan' records the interview, the ADR and the task decomposition; mode:'execute' runs the tasks " +
+        "concurrently in isolated worktrees, integrates them, verifies and reviews the result; mode:'status' is a " +
+        "read-only view of the last plan and any live worktrees. Where /lets asks you to approve a plan, crew " +
+        "hands you an audit trail afterwards instead.",
+      args: {
+        mode: z
+          .enum(["plan", "execute", "status"])
+          .default("plan")
+          .describe(
+            "plan = record the interviewed directive, its ADR and its decomposition, with no approval gate; execute = schedule the last crew plan into waves, run them concurrently, integrate, verify and review; status = read-only view of the last plan's waves and this repo's live worktrees",
+          ),
+        directive: z.string().default("").describe("what the crew is being asked to deliver (plan only)"),
+        tasks: z
+          .string()
+          .default("")
+          .describe(
+            "JSON array of {title, items:[{title,detail,files,acceptance}]} — the decomposition the interview produced (plan only)",
+          ),
+        adr: z
+          .string()
+          .default("")
+          .describe("path to the ADR holding the interview Q&A, the research and the design (plan only)"),
+      },
+      async execute(
+        args: { mode?: "plan" | "execute" | "status"; directive?: string; tasks?: string; adr?: string },
+        context: any,
+      ) {
+        const cwd = context?.directory ?? input?.directory ?? process.cwd()
+        const scope = resolveScope(cwd)
+        if (scope.kind === "notrepo")
+          return `${cwd} is not a git repository. The crew scope is the repo you are standing in, so there is nothing to run here.`
+
+        // Read-only, and before the config lookup: a repo whose config was never written is
+        // exactly where a worktree gets stranded, and a query has no business demanding config.
+        if (args?.mode === "status") {
+          const last = latestArtifact(scope.root, "crew-org-plan", "plan.json")
+          const out: string[] = []
+          if (!last) out.push("No crew plan recorded. Run `/crew:plan <directive>` first.")
+          else {
+            const saved = JSON.parse(readFileSync(last.path, "utf8"))
+            const tasks = saved.tasks ?? []
+            const edges = fileEdges(join(scope.root, "graphify-out", "graph.json"))
+            const sched = tasks.length <= MAX_TASKS ? schedule(withFiles(tasks), edges) : null
+            out.push(`Plan ${last.dir}: ${String(saved.directive ?? "(none)").slice(0, 120)}`)
+            out.push(`${tasks.length} task(s), ADR ${saved.adr ?? "(none recorded)"}`)
+            if (!sched) out.push(`Too many tasks to schedule (max ${MAX_TASKS}).`)
+            else {
+              out.push(`Schedule: ${sched.mode}, ${sched.waves.length} wave(s), max width ${MAX_WAVE_WIDTH}`)
+              sched.waves.forEach((w, i) => out.push(`  wave ${i + 1}: ${w.map((t: any) => t.title).join(", ")}`))
+              if (sched.ungraphed.length)
+                out.push(
+                  `  ${sched.ungraphed.length} file(s) absent from the graph, so their tasks run alone: ${sched.ungraphed.slice(0, 8).join(", ")}`,
+                )
+            }
+          }
+          out.push("", renderWorktrees(listWorktrees(scope.root)))
+          return out.join("\n")
+        }
+
+        const cfg = readLetsConfig(scope.root)
+        if (!cfg)
+          return "This repo has no config yet. Run `/lets:init` first — crew reuses the same block (verify, base, lanes)."
+
+        // A worktree branches from the configured base, so uncommitted work is invisible to
+        // crew and its integration branch would collide with your edits. Same gate as lets.
+        if (scope.dirty.length)
+          return [
+            `${scope.dirty.length} uncommitted file(s):`,
+            ...scope.dirty.slice(0, 10).map((f) => `  • ${f}`),
+            "",
+            "crew runs unattended across several worktrees. Commit or stash first.",
+          ].join("\n")
+
+        if (args?.mode === "plan") {
+          const directive = (args.directive ?? "").trim()
+          if (!directive) return "No directive given. `plan` needs one — say what the crew should deliver."
+          // The ADR is not paperwork here. With no approval gate it is the ONLY record of what
+          // was asked for and why, so a plan without one cannot be audited afterwards.
+          const adr = (args.adr ?? "").trim()
+          if (!adr)
+            return "crew:plan needs `adr` — the path to the ADR holding the interview, the research and the design. With no approval gate that record is the only trace of what you asked for; write it before planning."
+          let tasks: any
+          try {
+            tasks = JSON.parse(args.tasks || "[]")
+          } catch {
+            return `tasks is not valid JSON: ${(args.tasks ?? "").slice(0, 80)}`
+          }
+          if (!Array.isArray(tasks) || !tasks.length)
+            return "crew:plan needs `tasks` — the decomposition, as a JSON array of {title, items:[...]}. The interview and decomposition happen in the command; this mode records them."
+          if (tasks.length > MAX_TASKS)
+            return `${tasks.length} tasks exceeds MAX_TASKS=${MAX_TASKS}. Decompose the directive further, or split it into two crews.`
+          const bad = tasks.findIndex((t: any) => !t?.title || !Array.isArray(t?.items) || !t.items.length)
+          if (bad !== -1) return `task ${bad + 1} has no title or no items — every task needs both.`
+
+          const roles = recruitFloor(directive, detectStack(scope.root))
+          const dir = artifactDir(scope.root, "crew-org-plan")
+          writeFileSync(
+            join(dir, "plan.json"),
+            JSON.stringify({ directive, adr, roles, tasks: withFiles(tasks) }, null, 2),
+          )
+          const edges = fileEdges(join(scope.root, "graphify-out", "graph.json"))
+          const sched = schedule(withFiles(tasks), edges)
+          return [
+            `Recorded ${tasks.length} task(s) in ${dir}. No approval gate — \`/crew:execute\` will run this as-is.`,
+            `ADR: ${adr}`,
+            `Lanes (floor): ${roles.join(", ")}`,
+            `Schedule: ${sched.mode}, ${sched.waves.length} wave(s)`,
+            ...sched.waves.map((w, i) => `  wave ${i + 1}: ${w.map((t: any) => t.title).join(", ")}`),
+            sched.mode !== "graph"
+              ? `Note: ${sched.mode === "sequential" ? "no readable dependency graph" : `${sched.ungraphed.length} file(s) absent from the graph`}, so tasks that cannot be PROVEN independent will run alone. Rebuild the graph and this parallelises.`
+              : "",
+          ]
+            .filter(Boolean)
+            .join("\n")
+        }
+
+        // ---- execute
+        const found = latestArtifact(scope.root, "crew-org-plan", "plan.json")
+        if (!found) return "No crew plan found. Run `/crew:plan <directive>` first."
+        const saved = JSON.parse(readFileSync(found.path, "utf8"))
+        const planned = withFiles(saved.tasks ?? [])
+        if (!planned.length) return `The last crew plan (${found.dir}) had no tasks — nothing to run.`
+
+        const dir = artifactDir(scope.root, "crew-org-run")
+        const logPath = join(dir, "run.log")
+        const say = (m: string) => {
+          try {
+            appendFileSync(logPath, `${m}\n`)
+          } catch {
+            /* a progress line is never worth failing the run over */
+          }
+        }
+        say(`plan ${found.dir}: ${String(saved.directive ?? "(no directive recorded)").slice(0, 120)}`)
+
+        const edges = fileEdges(join(scope.root, "graphify-out", "graph.json"))
+        let sched
+        try {
+          sched = schedule(planned, edges)
+        } catch (e: any) {
+          return String(e?.message ?? e)
+        }
+        say(`schedule: ${sched.mode}, ${sched.waves.length} wave(s)`)
+
+        const roles = [
+          ...new Set<Role>([...(saved.roles ?? []), ...recruitFloor(saved.directive ?? "", detectStack(scope.root))]),
+        ]
+        const runId = Date.now().toString(36)
+        const tasks: CrewTask[] = []
+        let abandon = ""
+
+        for (const [wi, wave] of sched.waves.entries()) {
+          if (abandon) {
+            for (const t of wave) tasks.push({ title: t.title, slug: "", wave: wi + 1, skipped: abandon })
+            continue
+          }
+          say(`wave ${wi + 1}/${sched.waves.length}: ${wave.map((t: any) => t.title).join(", ")}`)
+          const settled = await Promise.all(
+            wave.map(async (t: any, ti: number): Promise<CrewTask> => {
+              // Distinct per task AND per run: runExecute's slug derivation is a race for N
+              // callers, so the caller that knows all N owns distinctness. The run id keeps a
+              // rerun from colliding with a branch a previous run already created.
+              const slug = `crew-${runId}-${wi + 1}${ti + 1}-${String(t.title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24)}`
+              try {
+                const run = await runExecute(ctxFor(input), {
+                  root: scope.root,
+                  items: t.items,
+                  cfg,
+                  instructions: readInstructions(scope.root).text,
+                  directive: t.title,
+                  slug,
+                  // N tasks must not open N competing PRs before anything is integrated.
+                  openPr: false,
+                  label: t.title,
+                  onStep: say,
+                  // One Tracker per run, never shared: guarded() refuses a second start, and a
+                  // shared instance would close the issue at the first finish, reporting done
+                  // over live work.
+                  tracker: trackerFor(cfg.tracker, say, {
+                    issueRef: cfg.tracker === "beads" ? activeTaskId(scope.root) : undefined,
+                    repoRoot: scope.root,
+                    mcp: cfg.mcp,
+                  }),
+                })
+                return { title: t.title, slug, wave: wi + 1, run }
+              } catch (e: any) {
+                // One task crashing must not lose the record of the others in its wave.
+                return {
+                  title: t.title,
+                  slug,
+                  wave: wi + 1,
+                  skipped: `crashed: ${String(e?.message ?? e).slice(0, 200)}`,
+                }
+              }
+            }),
+          )
+          tasks.push(...settled)
+          // A wave where nothing landed means the next wave builds on nothing. Stop and say so
+          // rather than run work whose premise is already false.
+          if (settled.every((t) => !t.run)) abandon = `wave ${wi + 1} produced no branch, so later waves were abandoned`
+        }
+
+        const result: CrewResult = {
+          directive: saved.directive ?? "",
+          roles,
+          scheduling: { mode: sched.mode, ungraphed: sched.ungraphed, waves: sched.waves.length },
+          tasks,
+          adr: saved.adr,
+        }
+
+        const branches = tasks.filter((t) => t.run).map((t) => t.run!.branch)
+        if (branches.length) {
+          try {
+            result.integration = integrate(scope.root, cfg.base || "HEAD", branches, `crew/int-${runId}`)
+            say(`integrate: ${result.integration.ok ? "clean" : `stopped at ${result.integration.conflicted}`}`)
+          } catch (e: any) {
+            result.error = `integration could not start: ${String(e?.message ?? e).slice(0, 200)}`
+          }
+        }
+
+        // Verify the branches COMBINED. Each task already verified alone; this is the only
+        // check that sees them together, which is the whole reason integration exists.
+        if (result.integration?.ok && cfg.verify.length) {
+          const vpath = join(scope.root, ".worktrees", `verify-${runId}`)
+          try {
+            execFileSync("git", ["worktree", "add", vpath, result.integration.branch], {
+              cwd: scope.root,
+              stdio: "ignore",
+            })
+            const deps = join(scope.root, "node_modules")
+            if (existsSync(deps) && !existsSync(join(vpath, "node_modules"))) {
+              try {
+                execFileSync("ln", ["-s", deps, join(vpath, "node_modules")], { stdio: "ignore" })
+              } catch {
+                /* best effort, same ceiling as openWorktree's symlink */
+              }
+            }
+            let output = ""
+            let ok = true
+            for (const cmd of cfg.verify) {
+              try {
+                output += execFileSync(cmd, { cwd: vpath, shell: true, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
+              } catch (e: any) {
+                ok = false
+                output += String(e?.stdout ?? "") + String(e?.stderr ?? e?.message ?? e)
+                break
+              }
+            }
+            result.verify = { ok, output }
+            say(`verify: ${ok ? "passed" : "FAILED"}`)
+            const { diff, files, changedLines } = gitDiff(vpath, cfg.base)
+            if (diff.trim()) {
+              const review = await runReview(ctxFor(input), { diff, files, changedLines, roles })
+              result.review = {
+                blockers: review.verdictCounts.blockers,
+                suggestions: review.verdictCounts.suggestions,
+                nits: review.verdictCounts.nits,
+                convergence: review.convergence,
+                dropped: review.dropped.length,
+              }
+              writeFileSync(join(dir, "review.json"), JSON.stringify(review, null, 2))
+            }
+          } catch (e: any) {
+            result.error = `verify/review could not run: ${String(e?.message ?? e).slice(0, 200)}`
+          } finally {
+            closeWorktree(scope.root, vpath)
+          }
+        }
+
+        writeFileSync(join(dir, "run.json"), JSON.stringify(result, null, 2))
+        return `${renderCrewReport(result)}\n\nStep log: ${logPath}`
+      },
+    },
+
     council: {
       description:
         "Multi-model code REVIEW and planning: fans out across role x model, debates disputed findings to a " +
@@ -576,7 +867,7 @@ export const CouncilPlugin = async (input: any) => ({
     // their own deny list (engine.ts) because self-created children inherit nothing.
     config.experimental ??= {}
     config.experimental.primary_tools = [
-      ...new Set([...(config.experimental.primary_tools ?? []), "council", "lets"]),
+      ...new Set([...(config.experimental.primary_tools ?? []), "council", "crew", "lets"]),
     ]
 
     config.command ??= {}
