@@ -807,6 +807,11 @@ export async function runIntake(
  * Four calls, all optional to implement meaningfully. Lets works with none of them
  * doing anything, which is the point: tracking is a mirror, not a component. A tracker that
  * breaks must never be able to stop the work.
+ *
+ * ONE INSTANCE PER RUN. An implementation holds that run's session and plan in its closure,
+ * so an instance shared between concurrent runs mirrors both into the first one's session
+ * and reports "done" at the first finish, over work still in progress. `guarded` refuses
+ * the reuse rather than trusting callers to remember.
  */
 export type Tracker = {
   name: TrackerName
@@ -855,18 +860,44 @@ export function guarded(inner: Tracker, onStep: (m: string) => void): Tracker {
       onStep(`  tracker(${inner.name}) ${what} failed: ${String(e?.message ?? e).slice(0, 160)}`)
     }
   }
+
+  // A Tracker mirrors ONE run. linear, beads and mcp each hold that run's session id and
+  // plan in a closure, so a second run reaching for the same instance would repoint every
+  // mirror at the first run's session, and whichever run finished first would report "done"
+  // over work still in progress - a failure that looks green. The contract is enforced here
+  // because this is the wrapper every stateful tracker already passes through. Refused with
+  // a warning rather than a throw: this wrapper exists so a mirror cannot break the work.
+  let started = false
+  let finished = false
+  const misuse = (what: string) =>
+    onStep(
+      `  tracker(${inner.name}) ${what} refused: one Tracker per run, and this one is already ${finished ? "finished" : "started"}`,
+    )
+
   return {
     name: inner.name,
-    start: (i) => attempt("start", () => inner.start(i)),
+    start: async (i) => {
+      if (started || finished) return misuse("start")
+      started = true
+      return attempt("start", () => inner.start(i))
+    },
     step: (m) => {
+      if (finished) return misuse("step")
       try {
         inner.step(m)
       } catch {
         /* a progress line is never worth failing over */
       }
     },
-    itemDone: (o) => attempt("itemDone", () => inner.itemDone(o)),
-    finish: (r) => attempt("finish", () => inner.finish(r)),
+    itemDone: async (o) => {
+      if (finished) return misuse("itemDone")
+      return attempt("itemDone", () => inner.itemDone(o))
+    },
+    finish: async (r) => {
+      if (finished) return misuse("finish")
+      finished = true
+      return attempt("finish", () => inner.finish(r))
+    },
   }
 }
 
@@ -1667,7 +1698,13 @@ export async function runExecute(
     instructions: string
     directive: string
     onStep?: (msg: string) => void
-    /** defaults to stdout only; a configured tracker is fanned out alongside it */
+    /**
+     * Defaults to stdout only; a configured tracker is fanned out alongside it.
+     *
+     * Per-run, never shared: build one Tracker per `runExecute` call. N concurrent runs
+     * handed one instance would open N sessions on one issue and close it at the first
+     * finish, reporting done over live work. See the `Tracker` contract.
+     */
     tracker?: Tracker
     maxSeconds?: number
     /**

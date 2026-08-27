@@ -283,6 +283,38 @@ test("a broken tracker cannot break the run", async () => {
   for (const l of lines) assert.match(l, /tracker\(linear\).*failed/)
 })
 
+test("a Tracker is single-run: a second start, and any use after finish, is refused", async () => {
+  // linear, beads and mcp each hold one run's session id and plan in a closure. Shared
+  // across concurrent runs, a second start() would point every mirror at one session, and
+  // the first finish() would report "done" over work that is still going - the one failure
+  // that looks green. Refused in the wrapper every stateful tracker already passes through,
+  // and refused with a warning rather than a throw, because a mirror must never break work.
+  const calls: string[] = []
+  const lines: string[] = []
+  const inner: Tracker = {
+    name: "linear",
+    async start() { calls.push("start") },
+    step() { calls.push("step") },
+    async itemDone() { calls.push("itemDone") },
+    async finish() { calls.push("finish") },
+  }
+  const g = guarded(inner, (m) => lines.push(m))
+  const begin = { directive: "d", items: [], branch: "b" }
+
+  await g.start(begin)
+  await g.start(begin) // a second run reaching for the same tracker
+  assert.deepEqual(calls, ["start"], "the second run must not reach the tracker")
+
+  await g.finish({} as any)
+  await g.itemDone({ item: item(), state: "done", attempts: 1 })
+  g.step("still working over here")
+  await g.finish({} as any)
+  assert.deepEqual(calls, ["start", "finish"], "nothing may reach a finished tracker")
+
+  assert.equal(lines.length, 4, "every refusal is visible, never silent")
+  for (const l of lines) assert.match(l, /per run/, "the line must name the contract it enforces")
+})
+
 // ---------------------------------------------------------------- phase 2
 
 const item = (over: Partial<WorkItem> = {}): WorkItem => ({
