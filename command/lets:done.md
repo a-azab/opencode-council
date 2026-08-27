@@ -39,11 +39,16 @@ is a valid finish; a *close* with no id is not.
 **Epic guard.** With a beads tracker, read the type before going any further:
 
 ```bash
-bd show <task-id> --json      # read [0].type
+bd show <task-id> --json      # read [0].issue_type
 ```
 
 `epic` → **do not close it.** Epics outlive their children. Say so and offer to close a
 specific child instead.
+
+> The field is **`issue_type`**, not `type`. LETS's `done.md` says "beads exposes `type`";
+> the `bd` here returns `issue_type` (verified against `bd list --json`). Reading `.type`
+> yields `undefined`, so the guard never fires and an epic closes silently — do not "correct"
+> this back to match the LETS text.
 
 ## Step 3: What is being finished
 
@@ -215,8 +220,13 @@ merge did not complete.**
 Only after the merge actually succeeded:
 
 ```bash
-bd close <task-id>
+bd close <task-id>          # the id is NOT optional here — see below
 ```
+
+**Never run `bd close` bare.** With no id it closes *the last touched issue* — whatever the
+most recent `create`, `update`, `show` or `close` happened to touch, which in this command is
+usually the right task and occasionally someone else's. An id that failed the shape check is
+**not** a reason to fall back to the bare form; it is a reason to stop.
 
 Read what it returned. Closed → report closed. A different status → the board advanced the
 task instead of closing it; report that and **do not describe the task as done**. The command
@@ -270,7 +280,9 @@ it reads as *shipped*, and the work is one `rm -rf` away from gone. `renderRun` 
 - Record on the task *before* pushing, so a failed push still leaves a record.
 - Blank a `start:` that is non-hex or not an ancestor of HEAD before it reaches a git range.
 - Any id crossing a `bd` verb must match `^[A-Za-z0-9._-]+$` and must not start with `-`, or
-  `bd` reads it as an option.
+  `bd` reads it as an option. An **absent** id is the worse half of the same rule: `close`,
+  `show` and `comment` all fall back to the last-touched issue rather than erroring, so a
+  missing id retargets the command instead of failing it. No id → stop, never a bare verb.
 - Respond in the user's language.
 
 ## Not ported
