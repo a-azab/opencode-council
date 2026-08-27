@@ -15,6 +15,7 @@ import {
   graphState,
   missingIgnores,
   proposeInit,
+  renderInitProposal,
   applyInit,
   commitMessage,
   runVerify,
@@ -40,6 +41,7 @@ import {
   type LetsConfig,
   type WorkItem,
 } from "./lets.ts"
+import { beadsAvailable, bdInstalled } from "./beads.ts"
 
 const gitOut = (cwd: string, args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8" })
@@ -807,4 +809,41 @@ test("a done item carries no stale failure detail", () => {
   )
   assert.match(out, /accepted by fable/)
   assert.ok(!/unmet|not met/.test(out), "a landed item must not echo its earlier failure")
+})
+
+test("init recommends beads where it is available, and says why when it is not", () => {
+  // Keyed off the real `beadsAvailable` rather than assuming `bd` is on PATH: the rule is
+  // `bd` AND `.beads/`, and a test that hardcodes either half passes for the wrong reason
+  // on a machine configured the other way. No `bd init` is ever run - `mkdir .beads` is
+  // enough, which is exactly what makes the check safe to test.
+  const dir = scratchRepo()
+  try {
+    const env = {} as NodeJS.ProcessEnv // no LINEAR_API_TOKEN: keep the choice about beads
+
+    const before = renderInitProposal(proposeInit(dir, "main", env))
+    assert.equal(beadsAvailable(dir), false, "fixture: a fresh repo has no .beads/")
+    assert.doesNotMatch(before, /`beads` \(recommended\)/, "beads cannot be recommended here")
+    assert.match(before, /`none` \(recommended\)/, "something must still carry the default")
+    assert.match(before, /beads.*not on offer/, "an unavailable option is explained, not dropped")
+    assert.match(
+      before,
+      bdInstalled() ? /bd init/ : /`bd`.*not on PATH/,
+      "it must name the half that is actually missing",
+    )
+    if (bdInstalled())
+      assert.doesNotMatch(before, /I (will )?(run|create)/, "bd init is the human's to run")
+
+    mkdirSync(join(dir, ".beads"))
+    const after = renderInitProposal(proposeInit(dir, "main", env))
+    if (!beadsAvailable(dir)) {
+      assert.match(after, /`bd`.*not on PATH/, "still honest about which half is missing")
+      return
+    }
+    assert.match(after, /`beads` \(recommended\)/, "available beads is the recommendation")
+    assert.doesNotMatch(after, /not on offer/, "it is on offer now")
+    // A default is not a decision made for the user.
+    assert.match(after, /`none`/, "the other options must still be offered")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

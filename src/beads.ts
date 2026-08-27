@@ -60,6 +60,15 @@ export function beadsAvailable(root: string): boolean {
   return existsSync(join(root, ".beads")) && Boolean(which("bd"))
 }
 
+/**
+ * Half of the rule above, on its own, so init can tell the two failures apart.
+ *
+ * "`bd` is not installed" and "`bd` is installed, this repo never opted in" want different
+ * things from the human - one is a download, the other is one `bd init` they may not want
+ * at all. Collapsing both into "beads unavailable" would hide the actionable one.
+ */
+export const bdInstalled = () => Boolean(which("bd"))
+
 // Ids reach a second argv here, and `--claim` is a perfectly good match for [A-Za-z0-9._-]+.
 // This is not about shell quoting (execFileSync spawns no shell) - it is that bd would parse
 // a leading dash as OPTIONS. detect-task states the rule: any id must clear the character

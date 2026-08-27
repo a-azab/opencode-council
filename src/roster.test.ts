@@ -6,8 +6,11 @@ import { fileURLToPath } from "node:url"
 import {
   selectRoles,
   selectNodes,
+  essentialFirst,
   skepticPool,
   ROSTER,
+  type Member,
+  type Role,
   ALL_ROLES,
   KNOWN_ROLES,
   canSchema,
@@ -182,4 +185,64 @@ test("every schema-capable member gets at least one node in a full panel", () =>
   const covered = new Set(selectNodes(ALL_ROLES).map((n) => n.slug))
   for (const m of ROSTER.filter(canSchema))
     assert.ok(covered.has(m.slug), `${m.slug} is in the roster but answers nothing`)
+})
+
+test("an essential member holds its lane even when the cap would drop it", () => {
+  // fable is the SLOWEST security carrier (6704ms vs 4263/3696), so it sorts last and is
+  // first to be dropped the moment a fourth carrier exists. It is in the lane today only
+  // because carriers happen to equal the cap.
+  const nodes = selectNodes(["security"])
+  assert.ok(nodes.some((n) => n.slug === "fable"), "fable must always cover security")
+})
+
+test("the pin survives a fourth security carrier", () => {
+  // The regression this exists to prevent. selectNodes reads the module-level ROSTER, so
+  // rather than refactor it for injectability this asserts on BOTH halves of the wiring:
+  //
+  // 1. the arithmetic, against a roster with a fourth, faster carrier - the exact shape
+  //    that drops fable today;
+  // 2. that the live selection puts fable FIRST in the security lane. Under the ms sort
+  //    fable is last (slowest of three); a cap only ever truncates the tail, so "first"
+  //    means "survives every cap above zero" - which is the property the pin buys.
+  const carrier = (slug: string, ms: number, essential?: Role[]): Member => ({
+    slug, model: `test/${slug}`, roles: ["security"], ms, ...(essential ? { essential } : {}),
+  })
+  const withFourth = [
+    carrier("fast1", 1000), carrier("fast2", 2000), carrier("fast3", 3000),
+    carrier("fable", 6704, ["security"]),
+  ].sort((a, b) => a.ms - b.ms)
+  const picked = essentialFirst(withFourth, "security", 3)
+  assert.ok(picked.some((m) => m.slug === "fable"), "a fourth carrier must not evict the pin")
+  assert.equal(picked.length, 3, "the pin fills a cap slot, it does not widen the panel")
+  assert.equal(picked[0].slug, "fable", "the pin is taken before the cap is spent")
+
+  const security = selectNodes(["security"]).filter((n) => n.role === "security")
+  assert.equal(security[0].slug, "fable", "fable must sort ahead of the cap-limited rest")
+})
+
+test("an essential member that cannot answer is not forced in", () => {
+  // "always covers" is conditional on being able to. The pin picks from the pool it is
+  // handed and never conjures a member into it, so anything filtered out upstream - not
+  // canSchema, or benched by failover - stays out. Its absence is reported, not silent
+  // (see report.ts).
+  const pool: Member[] = [
+    { slug: "a", model: "test/a", roles: ["security"], ms: 100 },
+    { slug: "b", model: "test/b", roles: ["security"], ms: 200 },
+  ]
+  const picked = essentialFirst(pool, "security", 3)
+  assert.ok(!picked.some((m) => m.slug === "fable"), "an absent pin must not be materialised")
+  assert.ok(picked.every((m) => pool.includes(m)), "every pick comes from the pool it was given")
+
+  // and the real roster's only non-schema members never reach a lane through the pin either
+  const banned = new Set(ROSTER.filter((m) => !canSchema(m)).map((m) => m.slug))
+  for (const n of selectNodes(ALL_ROLES)) assert.ok(!banned.has(n.slug), `${n.slug} pinned into a lane`)
+})
+
+test("essentials beyond the cap all run, and the cap loses", () => {
+  // The deliberate inversion: a cap is a cost control, an essential reviewer is a
+  // correctness requirement. Asserted because nothing in today's roster exercises it.
+  const pins: Member[] = ["x", "y", "z"].map((slug) => ({
+    slug, model: `test/${slug}`, roles: ["security"], ms: 100, essential: ["security"],
+  }))
+  assert.equal(essentialFirst([...pins, { slug: "q", model: "t/q", roles: ["security"], ms: 1 }], "security", 2).length, 3)
 })
