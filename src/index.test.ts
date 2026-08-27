@@ -21,9 +21,9 @@ async function load() {
   return { tool: p.tool as Record<string, any>, config }
 }
 
-test("both tools are registered", async () => {
+test("all three tools are registered", async () => {
   const { tool } = await load()
-  assert.deepEqual(Object.keys(tool).sort(), ["council", "lets"])
+  assert.deepEqual(Object.keys(tool).sort(), ["council", "crew", "lets"])
 })
 
 test("every tool has a description and an executable entry point", async () => {
@@ -35,9 +35,9 @@ test("every tool has a description and an executable entry point", async () => {
   }
 })
 
-test("both tools are primary, so subagents cannot recurse into them", async () => {
+test("all three tools are primary, so subagents cannot recurse into them", async () => {
   const { config } = await load()
-  for (const name of ["council", "lets"])
+  for (const name of ["council", "crew", "lets"])
     assert.ok(config.experimental.primary_tools.includes(name), `${name} is not a primary tool`)
 })
 
@@ -48,10 +48,13 @@ test("the spawned-worker deny rule names the tools that actually exist", () => {
   // nothing fails. Source-text assertion, following the precedent below that reads
   // engine.ts the same way; a live check would need a server this suite refuses to call.
   const engine = readFileSync(join(PKG, "src/engine.ts"), "utf8")
-  for (const name of ["council", "lets"])
+  // `crew` is back on this list, and the inverse assertion that used to sit here is gone.
+  // It read "a deny rule for a tool that no longer exists guards nothing" - true while crew
+  // was the pre-rename pipeline's dead name, and false the moment crew became a real tool
+  // that spawns workers. Leaving it would have FORBIDDEN the confinement rule that stops a
+  // crew-spawned worker re-entering crew and recursing.
+  for (const name of ["council", "crew", "lets"])
     assert.match(engine, new RegExp(`permission: "${name}"`), `${name} is not denied to workers`)
-  assert.doesNotMatch(engine, /permission: "crew"/,
-    "a deny rule for a tool that no longer exists guards nothing")
 })
 
 test("every agent file is registered and read-only unless it opts in", async () => {
@@ -297,25 +300,36 @@ test("no module still imports the pre-rename pipeline", () => {
   assert.deepEqual(offenders, [], `stale ./crew.ts imports: ${offenders.join(", ")}`)
 })
 
-test("no command still tells the model to call a tool named crew", () => {
-  // Every command file invokes the tool by BARE name - "Call the `crew` tool with ..." -
-  // with no colon. A guard matching `crew:` command names sails past all four, and the
-  // result is every command instructing the model to call a tool that does not exist:
-  // a silent no-op, never an error.
+test("only crew's own commands invoke the crew tool, and they all do", () => {
+  // This guard used to say NO command may invoke `crew`, because crew was the pre-rename
+  // pipeline's dead name. crew is a real tool again, so the rule inverts rather than
+  // relaxes: a lets/council command reaching into crew would cross the namespaces, and a
+  // crew command that never calls the tool is prose that silently does nothing.
   const offenders = readdirSync(join(PKG, "command"))
+    .filter((f) => !f.startsWith("crew:"))
     .filter((f) => /`crew` tool/.test(readFileSync(join(PKG, "command", f), "utf8")))
-  assert.deepEqual(offenders, [], `commands invoking a dead tool: ${offenders.join(", ")}`)
+  assert.deepEqual(offenders, [], `non-crew commands invoking crew: ${offenders.join(", ")}`)
+
+  for (const f of ["crew:plan.md", "crew:execute.md", "crew:status.md"])
+    assert.match(readFileSync(join(PKG, "command", f), "utf8"), /`crew` tool/, `${f} never calls the crew tool`)
 })
 
-test("no pre-rename crew: command name survives", () => {
-  // Test TITLES trip this too - three exist today. That is correct: a title naming a
-  // command that no longer exists is a lie about its own coverage.
+test("every /crew: reference names a command that exists", () => {
+  // Stronger than the flat ban it replaces, and self-maintaining: while crew was dead the
+  // rule was "no crew: refs at all"; now that three of them are real the useful rule is
+  // that a reference must RESOLVE. /crew:init is caught by this for free - crew has no
+  // init mode, it reuses the lets block.
+  const names = new Set(
+    readdirSync(join(PKG, "command")).filter((f) => f.endsWith(".md")).map((f) => f.replace(/\.md$/, "")),
+  )
   const files = [
     ...readdirSync(join(PKG, "command")).map((f) => `command/${f}`),
     ...readdirSync(join(PKG, "src")).map((f) => `src/${f}`),
     "README.md",
   ].filter((f) => /\.(md|ts)$/.test(f) && !f.endsWith("index.test.ts"))
-  const offenders = files.filter((rel) =>
-    /\/crew:(init|plan|execute|status)(?![\w-])/.test(readFileSync(join(PKG, rel), "utf8")))
-  assert.deepEqual(offenders, [], `stale crew: command refs: ${offenders.join(", ")}`)
+  const bad: string[] = []
+  for (const rel of files)
+    for (const m of readFileSync(join(PKG, rel), "utf8").matchAll(/\/crew:([\w-]+)/g))
+      if (!names.has(`crew:${m[1]}`)) bad.push(`${rel} -> /crew:${m[1]}`)
+  assert.deepEqual(bad, [], `references to crew commands that do not exist: ${bad.join(", ")}`)
 })
