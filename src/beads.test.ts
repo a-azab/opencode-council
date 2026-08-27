@@ -299,3 +299,16 @@ test("step never shells out", async () => {
   for (let i = 0; i < 50; i++) t.step(`step ${i}`)
   assert.equal(calls.length, 0, "50 steps, zero bd invocations")
 })
+
+test("a linear repo keeps scraping the directive, even when .beads/ exists", () => {
+  // Resolving beads-first for every tracker would hand Linear a beads id in a repo that has
+  // both: findIssue misses, linearTracker prints "not found - continuing without it", and a
+  // mirror that used to work quietly stops. The ref is chosen per tracker, so this is a
+  // source-level guard on that branch surviving.
+  const src = readFileSync(new URL("./index.ts", import.meta.url), "utf8")
+  const at = src.indexOf("issueRef:")
+  assert.ok(at > -1, "the issueRef resolution must still exist")
+  const block = src.slice(at, at + 220)
+  assert.match(block, /tracker === "beads"/, "beads must be the condition, not the default")
+  assert.match(block, /issueIdentifierIn/, "every other tracker must keep the directive scrape")
+})

@@ -258,7 +258,19 @@ export const CouncilPlugin = async (input: any) => ({
                 // The run's own task first — /lets:start recorded it, and it is the only
                 // source that can name a beads id. Falling back to the directive scrape
                 // keeps linear and mcp resolving exactly as they did.
-                issueRef: activeTaskId(scope.root) ?? issueIdentifierIn(saved.directive ?? ""),
+                // Which ref a tracker wants depends on which tracker it is, so ask per
+                // tracker rather than picking one winner. beads learns the task from the
+                // pointer file `/lets:start` wrote - its ids are lowercase and dash-heavy
+                // (`oci-infrastructure-ovb`), so `issueIdentifierIn`'s Linear-shaped regex
+                // rejects every one of them. Linear and MCP keep scraping the directive.
+                //
+                // Resolving beads-first for ALL trackers would hand Linear a beads id in a
+                // repo that has both: findIssue misses, the tracker prints "not found" and
+                // no-ops, and a mirror that used to work quietly stops.
+                issueRef:
+                  cfg.tracker === "beads"
+                    ? activeTaskId(scope.root)
+                    : issueIdentifierIn(saved.directive ?? ""),
                 repoRoot: scope.root,
                 mcp: cfg.mcp,
               }),
