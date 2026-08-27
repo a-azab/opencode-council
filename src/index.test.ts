@@ -255,6 +255,38 @@ test("council reviews the whole panel with debate; lets keeps routing and 0 roun
     "the lets review must inherit both defaults, or every lets run costs a council run")
 })
 
+test("a planning panel can be aimed at the lanes PLANNING_ROLES leaves out", async () => {
+  // A recruiting planner exists to ask the architect and infrastructure lanes, and the
+  // default panel is precisely the five that exclude them. No model is called here: the
+  // panel is picked from the roster before the first ask, so the pick is a pure seam.
+  const { planPanel, PLANNING_ROLES } = await import("./engine.ts")
+
+  assert.ok(
+    !(PLANNING_ROLES as readonly string[]).includes("architect"),
+    "fixture: the default panel is the one that excludes the lane we are aiming at",
+  )
+
+  const aimed = planPanel(["architect", "infrastructure"])
+  assert.deepEqual(aimed.map((p) => p.role), ["architect", "infrastructure"])
+  for (const p of aimed)
+    assert.ok(p.member.roles.includes(p.role as any), `${p.member.slug} does not carry ${p.role}`)
+
+  // Unset behaves exactly as today: the default panel, one model per lane, never twice.
+  const fallback = planPanel(PLANNING_ROLES)
+  assert.ok(fallback.length, "the default panel must not be empty")
+  for (const p of fallback)
+    assert.ok((PLANNING_ROLES as readonly string[]).includes(p.role), `${p.role} is not a planning lane`)
+  assert.equal(
+    new Set(fallback.map((p) => p.member.slug)).size,
+    fallback.length,
+    "one model must never sit on two lanes",
+  )
+
+  const engineSrc = readFileSync(join(PKG, "src/engine.ts"), "utf8")
+  assert.match(engineSrc, /planPanel\(input\.roles \?\? PLANNING_ROLES\)/,
+    "runPlan must fall back to PLANNING_ROLES, or today's callers change behaviour")
+})
+
 test("no module still imports the pre-rename pipeline", () => {
   // No build step: a stale `from "./lets.ts"` is a runtime module-not-found, not a compile
   // error. tool.test.ts uses a DYNAMIC import, which a static-import grep misses - so match

@@ -1041,23 +1041,46 @@ export function scorersFor(live: { slug: string }[]): Map<string, string[]> {
 }
 
 /**
- * Planning has no diff to compute against, so the equivalent of `decide()` is a vote:
- * everyone proposes, everyone scores everyone else, and the tally is arithmetic. Ties go
- * to the human rather than to a tiebreaker model (D3).
+ * One member per lane, and never the same model on two of them.
+ *
+ * A lane with no schema-capable member left is dropped rather than doubled up: a panel
+ * where one model answers as two lanes agrees with itself and the vote reads as consensus.
  */
-export async function runPlan(
-  ctx: Ctx,
-  input: { goal: string; context?: string },
-): Promise<Plan> {
-  const picks: { role: string; member: ReturnType<typeof bySlug> }[] = []
+export function planPanel(roles: readonly string[]): { role: string; member: Member }[] {
+  const picks: { role: string; member: Member }[] = []
   const used = new Set<string>()
-  for (const role of PLANNING_ROLES) {
+  for (const role of roles) {
     const m = ROSTER.find((x) => x.roles.includes(role as any) && canSchema(x) && !used.has(x.slug))
     if (m) {
       used.add(m.slug)
       picks.push({ role, member: m })
     }
   }
+  return picks
+}
+
+/**
+ * Planning has no diff to compute against, so the equivalent of `decide()` is a vote:
+ * everyone proposes, everyone scores everyone else, and the tally is arithmetic. Ties go
+ * to the human rather than to a tiebreaker model (D3).
+ */
+export async function runPlan(
+  ctx: Ctx,
+  input: {
+    goal: string
+    context?: string
+    /**
+     * Propose from this exact set of lanes instead of the default planning panel.
+     *
+     * `PLANNING_ROLES` is the set of lenses worth having on a plan in general, and it
+     * leaves out `architect` and `infrastructure` - the two lanes a planner that recruits
+     * for the work exists to ask. Which lenses a particular goal needs is a judgement only
+     * the caller can make.
+     */
+    roles?: Role[]
+  },
+): Promise<Plan> {
+  const picks = planPanel(input.roles ?? PLANNING_ROLES)
 
   const settled = await Promise.allSettled(
     picks.map(async ({ role, member }): Promise<Proposal> => {
