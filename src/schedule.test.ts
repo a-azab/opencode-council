@@ -1,6 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileEdges, conflicts, schedule, MAX_WAVE_WIDTH, MAX_TASKS } from "./schedule.ts"
@@ -196,4 +197,41 @@ test("more than MAX_TASKS is refused, not silently truncated", () => {
   const many = Array.from({ length: MAX_TASKS + 1 }, (_, i) => task(`t${i}`, `src/f${i}.ts`))
   assert.throws(() => schedule(many, edges), /MAX_TASKS|13/, "dropping work silently is worse")
   assert.equal(schedule(many.slice(0, MAX_TASKS), edges).waves.flat().length, MAX_TASKS, "the limit itself is fine")
+})
+
+test("the real graphify-out/graph.json yields a useful, non-degenerate file map", () => {
+  // Resolved from this file, not cwd, so the test does not care how it was invoked.
+  const real = fileURLToPath(new URL("../graphify-out/graph.json", import.meta.url))
+  const edges = fileEdges(real)
+  assert.ok(edges, "the checked-in graph must parse")
+
+  // Deliberately loose: this graph is STALE (it still names src/crew.ts, renamed since)
+  // and will be regenerated. Pin the shape of the result, not today's file list.
+  assert.ok(edges.size >= 10, `only ${edges.size} files - too few to schedule against`)
+  const degrees = [...edges.values()].map((s) => s.size)
+  const avg = degrees.reduce((a, b) => a + b, 0) / degrees.length
+  assert.ok(avg > 0.5, `avg ${avg.toFixed(2)} neighbours - the projection found no structure`)
+  assert.ok(avg < edges.size - 1, `avg ${avg.toFixed(2)} of ${edges.size} - every file touches every other`)
+  assert.ok(
+    degrees.some((d) => d < edges.size - 1),
+    "at least one file must be non-adjacent to something, or nothing can ever run concurrently",
+  )
+
+  // Two files the real graph says do not touch must schedule concurrently. Chosen from
+  // the graph rather than hardcoded, precisely because the names in it are out of date.
+  const files = [...edges.keys()]
+  const pair = files.flatMap((x) => files.map((y) => [x, y] as const)).find(([x, y]) => x !== y && !edges.get(x)!.has(y))
+  assert.ok(pair, "no non-adjacent pair exists in the real graph")
+  const { waves, mode } = schedule([{ files: [pair[0]] }, { files: [pair[1]] }], edges)
+  assert.equal(mode, "graph")
+  assert.equal(waves.length, 1, `${pair[0]} and ${pair[1]} are unrelated but were serialised`)
+})
+
+test("the real graph is stale, and fileEdges reports it as-is without touching the disk", () => {
+  // Documents this repo's CURRENT state: the graph names files that no longer exist.
+  // fileEdges must not stat anything - a stale name is the caller's problem to notice.
+  const real = fileURLToPath(new URL("../graphify-out/graph.json", import.meta.url))
+  const edges = fileEdges(real)!
+  const stale = [...edges.keys()].filter((f) => !existsSync(fileURLToPath(new URL("../" + f, import.meta.url))))
+  assert.ok(stale.length > 0, "if this fails the graph was regenerated - update the report, not the test")
 })
