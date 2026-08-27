@@ -53,3 +53,34 @@ export function conflicts(a: string[], b: string[], edges: Map<string, Set<strin
   // independent. For a safety gate that is the correct direction to err.
   return false
 }
+
+/** Concurrent worktrees per wave. Each one costs a checkout, a model run, and review. */
+export const MAX_WAVE_WIDTH = 4
+
+/** Past this, the directive wants decomposing by a human before it wants scheduling. */
+export const MAX_TASKS = 12
+
+/** Greedy waves. Everything in a wave may run concurrently; waves run in order. */
+export function schedule<T extends { files: string[] }>(
+  tasks: T[],
+  edges: Map<string, Set<string>> | null,
+): { waves: T[][]; mode: "graph" | "sequential" } {
+  // Refuse rather than truncate. A bad GRAPH is bad data and degrades to sequential; too
+  // many tasks is a bad CALL, and quietly dropping the tail would let the caller report
+  // success over work that never ran.
+  if (tasks.length > MAX_TASKS) {
+    throw new RangeError(`schedule: ${tasks.length} tasks exceeds MAX_TASKS=${MAX_TASKS}; decompose the directive first`)
+  }
+  const mode = edges === null ? "sequential" : "graph"
+  const waves: T[][] = []
+  // Plan order carries intent the scheduler cannot see, so walk it as given and take the
+  // earliest wave that fits instead of sorting or bin-packing for width.
+  for (const task of tasks) {
+    const wave = waves.find(
+      (w) => w.length < MAX_WAVE_WIDTH && !w.some((other) => conflicts(task.files, other.files, edges)),
+    )
+    if (wave) wave.push(task)
+    else waves.push([task]) // nothing fits: a full wave splits into the next consecutive one
+  }
+  return { waves, mode }
+}

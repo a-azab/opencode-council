@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileEdges, conflicts } from "./schedule.ts"
+import { fileEdges, conflicts, schedule, MAX_WAVE_WIDTH, MAX_TASKS } from "./schedule.ts"
 
 // A hand-built stand-in for graphify output. The repo's real graph is stale and will
 // change; these tests pin behaviour, not this month's dependency structure.
@@ -114,4 +114,86 @@ test("a file absent from the graph is compared by literal path only", () => {
 test("with no graph, everything conflicts - that is what forces the sequential fallback", () => {
   assert.equal(conflicts(["src/a.ts"], ["src/d.ts"], null), true)
   assert.equal(conflicts([], [], null), true)
+})
+
+const task = (name: string, ...files: string[]) => ({ name, files })
+const names = (waves: { name: string }[][]) => waves.map((w) => w.map((t) => t.name))
+
+test("two tasks touching the same file land in different waves", () => {
+  const edges = withGraph(fileEdges)!
+  const { waves, mode } = schedule([task("t1", "src/a.ts"), task("t2", "src/a.ts")], edges)
+  assert.equal(mode, "graph")
+  assert.deepEqual(names(waves), [["t1"], ["t2"]])
+})
+
+test("two tasks touching unrelated files share a wave", () => {
+  const edges = withGraph(fileEdges)!
+  // Without this the module is a sequential schedule with extra steps.
+  const { waves } = schedule([task("t1", "src/a.ts"), task("t2", "src/d.ts")], edges)
+  assert.deepEqual(names(waves), [["t1", "t2"]])
+})
+
+test("tasks whose files are graph neighbours land in different waves", () => {
+  const edges = withGraph(fileEdges)!
+  const { waves } = schedule([task("t1", "src/a.ts"), task("t2", "src/b.ts")], edges)
+  assert.deepEqual(names(waves), [["t1"], ["t2"]])
+})
+
+test("one hop only: a--b--c lets the ends of the chain share a wave", () => {
+  const edges = withGraph(fileEdges)!
+  const { waves } = schedule([task("t1", "src/a.ts"), task("t2", "src/c.ts")], edges)
+  assert.deepEqual(names(waves), [["t1", "t2"]], "two hops must not conflict")
+})
+
+test("a task creating a new file is placed on literal path comparison alone", () => {
+  const edges = withGraph(fileEdges)!
+  const { waves } = schedule(
+    [task("new", "src/new.ts"), task("touches-a", "src/a.ts"), task("new-again", "src/new.ts")],
+    edges,
+  )
+  // src/new.ts has no node, so nothing can be inferred about it; only the repeated
+  // literal path forces separation.
+  assert.deepEqual(names(waves), [["new", "touches-a"], ["new-again"]])
+})
+
+test("a missing graph gives mode sequential and one task per wave", () => {
+  const { waves, mode } = schedule(
+    [task("t1", "src/a.ts"), task("t2", "src/d.ts"), task("t3", "src/z.ts")],
+    fileEdges(join(tmpdir(), "definitely-not-here-9f3a", "graph.json")),
+  )
+  assert.equal(mode, "sequential", "the caller must be able to report the degradation")
+  assert.deepEqual(names(waves), [["t1"], ["t2"], ["t3"]])
+})
+
+test("an unparseable graph degrades the same way and does not throw", () => {
+  const edges = withGraph(fileEdges, "{ not json")
+  const { waves, mode } = schedule([task("t1", "src/a.ts"), task("t2", "src/d.ts")], edges)
+  assert.equal(mode, "sequential")
+  assert.deepEqual(names(waves), [["t1"], ["t2"]])
+})
+
+test("plan order is preserved as far as conflicts allow", () => {
+  const edges = withGraph(fileEdges)!
+  const plan = [task("p1", "src/n1.ts"), task("p2", "src/n2.ts"), task("p3", "src/n3.ts")]
+  assert.deepEqual(names(schedule(plan, edges).waves), [["p1", "p2", "p3"]], "no conflicts, no reordering")
+
+  // Earliest-fit: p3 does not conflict with p1, so it joins wave 0 rather than waiting.
+  const mixed = [task("q1", "src/a.ts"), task("q2", "src/a.ts"), task("q3", "src/d.ts")]
+  assert.deepEqual(names(schedule(mixed, edges).waves), [["q1", "q3"], ["q2"]])
+})
+
+test("no wave exceeds MAX_WAVE_WIDTH - the cost bound", () => {
+  const edges = withGraph(fileEdges)!
+  const plan = ["w1", "w2", "w3", "w4", "w5", "w6"].map((n) => task(n, `src/${n}.ts`))
+  const { waves } = schedule(plan, edges) // all mutually compatible
+  assert.deepEqual(names(waves), [["w1", "w2", "w3", "w4"], ["w5", "w6"]])
+  for (const w of waves) assert.ok(w.length <= MAX_WAVE_WIDTH, `wave of ${w.length}`)
+  assert.equal(waves.flat().length, 6, "splitting must not drop work")
+})
+
+test("more than MAX_TASKS is refused, not silently truncated", () => {
+  const edges = withGraph(fileEdges)!
+  const many = Array.from({ length: MAX_TASKS + 1 }, (_, i) => task(`t${i}`, `src/f${i}.ts`))
+  assert.throws(() => schedule(many, edges), /MAX_TASKS|13/, "dropping work silently is worse")
+  assert.equal(schedule(many.slice(0, MAX_TASKS), edges).waves.flat().length, MAX_TASKS, "the limit itself is fine")
 })
