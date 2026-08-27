@@ -807,6 +807,11 @@ export async function runIntake(
  * Four calls, all optional to implement meaningfully. Lets works with none of them
  * doing anything, which is the point: tracking is a mirror, not a component. A tracker that
  * breaks must never be able to stop the work.
+ *
+ * ONE INSTANCE PER RUN. An implementation holds that run's session and plan in its closure,
+ * so an instance shared between concurrent runs mirrors both into the first one's session
+ * and reports "done" at the first finish, over work still in progress. `guarded` refuses
+ * the reuse rather than trusting callers to remember.
  */
 export type Tracker = {
   name: TrackerName
@@ -855,18 +860,44 @@ export function guarded(inner: Tracker, onStep: (m: string) => void): Tracker {
       onStep(`  tracker(${inner.name}) ${what} failed: ${String(e?.message ?? e).slice(0, 160)}`)
     }
   }
+
+  // A Tracker mirrors ONE run. linear, beads and mcp each hold that run's session id and
+  // plan in a closure, so a second run reaching for the same instance would repoint every
+  // mirror at the first run's session, and whichever run finished first would report "done"
+  // over work still in progress - a failure that looks green. The contract is enforced here
+  // because this is the wrapper every stateful tracker already passes through. Refused with
+  // a warning rather than a throw: this wrapper exists so a mirror cannot break the work.
+  let started = false
+  let finished = false
+  const misuse = (what: string) =>
+    onStep(
+      `  tracker(${inner.name}) ${what} refused: one Tracker per run, and this one is already ${finished ? "finished" : "started"}`,
+    )
+
   return {
     name: inner.name,
-    start: (i) => attempt("start", () => inner.start(i)),
+    start: async (i) => {
+      if (started || finished) return misuse("start")
+      started = true
+      return attempt("start", () => inner.start(i))
+    },
     step: (m) => {
+      if (finished) return misuse("step")
       try {
         inner.step(m)
       } catch {
         /* a progress line is never worth failing over */
       }
     },
-    itemDone: (o) => attempt("itemDone", () => inner.itemDone(o)),
-    finish: (r) => attempt("finish", () => inner.finish(r)),
+    itemDone: async (o) => {
+      if (finished) return misuse("itemDone")
+      return attempt("itemDone", () => inner.itemDone(o))
+    },
+    finish: async (r) => {
+      if (finished) return misuse("finish")
+      finished = true
+      return attempt("finish", () => inner.finish(r))
+    },
   }
 }
 
@@ -1605,6 +1636,13 @@ export type RunResult = {
   cycles: { cycle: number; blockers: number; note: string }[]
   prUrl?: string
   prError?: string
+  /**
+   * No PR was attempted, because the caller asked for a local-only run.
+   *
+   * Distinct from `prError`, which means one was attempted and failed. A reader who cannot
+   * tell those apart goes looking for a broken push that never happened.
+   */
+  prSkipped?: boolean
   /** whether the branch reached the remote, independent of whether a PR opened */
   pushed: boolean
   seconds: number
@@ -1660,13 +1698,47 @@ export async function runExecute(
     instructions: string
     directive: string
     onStep?: (msg: string) => void
-    /** defaults to stdout only; a configured tracker is fanned out alongside it */
+    /**
+     * Defaults to stdout only; a configured tracker is fanned out alongside it.
+     *
+     * Per-run, never shared: build one Tracker per `runExecute` call. N concurrent runs
+     * handed one instance would open N sessions on one issue and close it at the first
+     * finish, reporting done over live work. See the `Tracker` contract.
+     */
     tracker?: Tracker
     maxSeconds?: number
+    /**
+     * Use this slug verbatim; skip the derivation below.
+     *
+     * The derivation checks whether a slug is taken and then acts on it, with nothing held
+     * between the check and the act. That is safe for one run and a race for N, and no
+     * amount of checking inside this function can close it - only the party that knows all
+     * N tasks can. A caller running this concurrently supplies the slug and owns
+     * distinctness; that is the only place the guarantee can actually live.
+     */
+    slug?: string
+    /**
+     * Open a pull request once something lands. Defaults to true.
+     *
+     * `openPr` pushes the branch and then runs `gh pr create`. N concurrent tasks would
+     * push N branches and open N pull requests before any integration step had run - so a
+     * caller that merges the results itself sets this false and keeps the branch local.
+     * The result stays honest either way: `pushed` is false, `prUrl` and `prError` are
+     * unset because nothing was attempted, and `prSkipped` says the absence was asked for.
+     */
+    openPr?: boolean
+    /**
+     * Prefix every progress line with this.
+     *
+     * N concurrent runs interleave into one stdout. Unlabelled, the record cannot say which
+     * task said what - and for a design whose safety story is the record, that is a defect
+     * rather than cosmetics. Unset, output is byte-identical to a single run's.
+     */
+    label?: string
   },
 ): Promise<RunResult> {
   const tracker = input.tracker ?? stdoutTracker(input.onStep)
-  const say = (m: string) => tracker.step(m)
+  const say = input.label ? (m: string) => tracker.step(`[${input.label}] ${m}`) : (m: string) => tracker.step(m)
   const t0 = Date.now()
   const maxSeconds = input.maxSeconds ?? MAX_RUN_SECONDS
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 23)
@@ -1680,9 +1752,13 @@ export async function runExecute(
     existsSync(join(input.root, ".worktrees", s)) ||
     branchExists(input.root, `lets/${s}`) ||
     branchExists(input.root, `crew/${s}`)
-  let slug = stamp
-  for (let n = 2; taken(slug); n++)
-    slug = `${stamp}-${n}`
+  // A supplied slug is used exactly as given. The loop below cannot help a concurrent
+  // caller anyway - it is a check-then-act with nothing held across it - so a caller that
+  // can guarantee distinctness is taken at its word rather than second-guessed.
+  let slug = input.slug ?? stamp
+  if (input.slug === undefined)
+    for (let n = 2; taken(slug); n++)
+      slug = `${stamp}-${n}`
   const { path: worktree, branch } = openWorktree(input.root, slug, input.cfg.base)
   const outcomes: ItemOutcome[] = []
   await tracker.start({ directive: input.directive, items: input.items, branch })
@@ -1772,7 +1848,7 @@ export async function runExecute(
     let prUrl: string | undefined
     let prError: string | undefined
     let pushed = false
-    if (landed.length) {
+    if (landed.length && input.openPr !== false) {
       const pr = openPr(input.root, worktree, branch, input.cfg.base, input.directive, outcomes)
       if (pr.ok) {
         prUrl = pr.url
@@ -1785,6 +1861,7 @@ export async function runExecute(
 
     const result: RunResult = {
       branch, worktree, outcomes, cycles, prUrl, prError, pushed, stoppedBy,
+      ...(input.openPr === false && { prSkipped: true }),
       seconds: (Date.now() - t0) / 1000,
     }
     await tracker.finish(result)
@@ -1913,6 +1990,10 @@ export function renderRun(r: RunResult, cfg: LetsConfig): string {
 
   out.push("", `Branch \`${r.branch}\` → \`${cfg.base}\``)
   if (r.prUrl) out.push(`PR: ${r.prUrl}`)
+  else if (r.prSkipped)
+    // Silence here would be ambiguous with a push that failed quietly. Naming the choice
+    // costs one line and stops a reader hunting for a remote that was never written to.
+    out.push("No PR was opened — this run was asked to stay local, so the branch was not pushed.")
   else if (r.prError)
     out.push(
       `PR not opened — ${r.prError}`,

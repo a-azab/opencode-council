@@ -30,6 +30,7 @@ import {
   listWorktrees,
   renderWorktrees,
   renderRun,
+  runExecute,
   type ItemOutcome,
   type RunResult,
   LETS_IGNORES,
@@ -280,6 +281,38 @@ test("a broken tracker cannot break the run", async () => {
 
   assert.equal(lines.length, 3, "each async failure warns; a failed progress line stays silent")
   for (const l of lines) assert.match(l, /tracker\(linear\).*failed/)
+})
+
+test("a Tracker is single-run: a second start, and any use after finish, is refused", async () => {
+  // linear, beads and mcp each hold one run's session id and plan in a closure. Shared
+  // across concurrent runs, a second start() would point every mirror at one session, and
+  // the first finish() would report "done" over work that is still going - the one failure
+  // that looks green. Refused in the wrapper every stateful tracker already passes through,
+  // and refused with a warning rather than a throw, because a mirror must never break work.
+  const calls: string[] = []
+  const lines: string[] = []
+  const inner: Tracker = {
+    name: "linear",
+    async start() { calls.push("start") },
+    step() { calls.push("step") },
+    async itemDone() { calls.push("itemDone") },
+    async finish() { calls.push("finish") },
+  }
+  const g = guarded(inner, (m) => lines.push(m))
+  const begin = { directive: "d", items: [], branch: "b" }
+
+  await g.start(begin)
+  await g.start(begin) // a second run reaching for the same tracker
+  assert.deepEqual(calls, ["start"], "the second run must not reach the tracker")
+
+  await g.finish({} as any)
+  await g.itemDone({ item: item(), state: "done", attempts: 1 })
+  g.step("still working over here")
+  await g.finish({} as any)
+  assert.deepEqual(calls, ["start", "finish"], "nothing may reach a finished tracker")
+
+  assert.equal(lines.length, 4, "every refusal is visible, never silent")
+  for (const l of lines) assert.match(l, /per run/, "the line must name the contract it enforces")
 })
 
 // ---------------------------------------------------------------- phase 2
@@ -846,4 +879,131 @@ test("init recommends beads where it is available, and says why when it is not",
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// ------------------------------------------------- concurrent callers (crew enablers)
+
+const CFG4: LetsConfig = { verify: ["true"], base: "main", lanes: ["reviewer"] }
+
+/**
+ * A whole runExecute that never reaches a model.
+ *
+ * With no items the item loop is `queue.length`-gated and never turns over, nothing lands,
+ * and the push/PR block is gated on something having landed - so the run opens its worktree,
+ * reports and returns. That makes the naming, which is the entirety of the crew's isolation
+ * story, testable without a model, a network or a `gh`.
+ */
+const bare = (root: string, over: Partial<Parameters<typeof runExecute>[1]> = {}) =>
+  runExecute({} as any, {
+    root,
+    items: [],
+    cfg: CFG4,
+    instructions: "",
+    directive: "d",
+    onStep: () => {},
+    ...over,
+  })
+
+test("a caller-supplied slug is used verbatim, and the derivation is skipped", async () => {
+  const dir = scratchRepo()
+  try {
+    const r = await bare(dir, { slug: "task-auth" })
+    assert.equal(r.branch, "lets/task-auth")
+    assert.equal(r.worktree, join(dir, ".worktrees", "task-auth"))
+    // The derived slug is an ISO stamp; a collision would suffix it. Verbatim means the
+    // caller's string reached git untouched by either.
+    assert.doesNotMatch(r.branch, /\d{4}-\d\d-\d\dT/, "the derivation ran anyway")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("two runs with distinct slugs share neither a worktree nor a branch", async () => {
+  // The crew's whole isolation story. Nothing is held between the derivation's check and
+  // its act, so distinctness is the caller's to guarantee - this proves the guarantee is
+  // honoured once made, which is the half runExecute owns.
+  const dir = scratchRepo()
+  try {
+    const a = await bare(dir, { slug: "alpha" })
+    const b = await bare(dir, { slug: "beta" })
+    assert.deepEqual([a.branch, b.branch], ["lets/alpha", "lets/beta"])
+    assert.notEqual(a.worktree, b.worktree)
+    assert.ok(existsSync(a.worktree) && existsSync(b.worktree), "both trees must exist at once")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/** Records what runExecute said, with none of stdoutTracker's elapsed-time prefix. */
+const recorder = (seen: string[]): Tracker => ({
+  name: "none",
+  async start() {},
+  step: (m) => seen.push(m),
+  async itemDone() {},
+  async finish() {},
+})
+
+/**
+ * `maxSeconds: 0` trips the wall-clock guard on the first item: the run reports, records
+ * the item as not-attempted and returns - the one path that emits progress and still stops
+ * before any model call.
+ */
+const oneLine = async (dir: string, over: Partial<Parameters<typeof runExecute>[1]>) => {
+  const seen: string[] = []
+  await bare(dir, { items: [item()], maxSeconds: 0, tracker: recorder(seen), ...over })
+  return seen
+}
+
+test("a label prefixes progress lines; without one the output is byte-identical", async () => {
+  // N runs interleave into one stdout. For a design whose safety story is the record,
+  // unlabelled interleaved output is a defect, not cosmetics.
+  const dir = scratchRepo()
+  try {
+    const plain = await oneLine(dir, { slug: "unlabelled" })
+    const labelled = await oneLine(dir, { slug: "labelled", label: "auth" })
+
+    assert.ok(plain.length, "fixture: the wall-clock path must actually say something")
+    assert.deepEqual(labelled, plain.map((l) => `[auth] ${l}`))
+    // Byte-identical, not merely similar: the existing single-run caller passes no label.
+    assert.equal(plain[0], "wall clock 0s exceeded 0s — stopping")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a local run neither pushes nor opens a PR, and the result says which", async () => {
+  const dir = scratchRepo()
+  try {
+    const r = await bare(dir, { slug: "local-only", openPr: false })
+    assert.equal(r.pushed, false)
+    assert.equal(r.prUrl, undefined)
+    assert.equal(r.prError, undefined, "nothing was attempted, so nothing can have failed")
+    assert.equal(r.prSkipped, true, "the absence has to be legible as deliberate")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("push and PR are skipped, not merely undone, when the caller stays local", () => {
+  // openPr() runs `git push -u origin` and then `gh pr create`. N concurrent tasks would
+  // push N branches and open N pull requests before the integration step had run at all,
+  // so suppression has to skip the call rather than tidy up after it. Nothing here may run
+  // `gh`, so this reads the source - the technique index.test.ts already uses on this file.
+  const src = readFileSync(new URL("./lets.ts", import.meta.url), "utf8")
+  const block = src.slice(
+    src.indexOf("const landed = outcomes.filter"),
+    src.indexOf("const result: RunResult"),
+  )
+  assert.match(block, /openPr\(/, "fixture: the PR call must live in this window")
+  assert.match(block, /input\.openPr !== false/, "the call itself must be gated on the flag")
+})
+
+test("a suppressed PR renders as a choice, never as a failed push", () => {
+  const out = renderRun(run({ outcomes: [done("one")], prSkipped: true }), CFG3)
+  assert.doesNotMatch(out, /^PR: /m, "must not imply a pull request exists")
+  assert.doesNotMatch(out, /PR not opened/, "nothing was attempted; that is not a failure")
+  assert.doesNotMatch(out, /\*\*not\*\* pushed/, "the failed-push wording is for failures")
+  assert.doesNotMatch(out, /failed/, "a deliberate choice must not read as an error")
+  assert.match(out, /local/i, "it must still say the branch never left the machine")
+  assert.match(out, /worktree/, "and where the work actually is")
 })

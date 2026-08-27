@@ -163,6 +163,15 @@ Every row is a pure-function test. No models, no network, no repo.
 
 Five additive changes to `lets`/`engine`, none of them optional:
 
+0. **Concurrent worktree creation is safe — measured, not assumed.** `openWorktree` runs
+   `git worktree prune` then `git worktree add` against the shared parent repo, and a prune
+   racing a half-created worktree is the plausible hazard. Tested on git 2.51.2 with
+   `packed-refs` forced: **16 concurrent prune-then-add pairs, 16 worktrees, 16 branches,
+   zero failures.** Distinct branch names take distinct loose-ref locks, each worktree gets
+   its own index, and git writes a `locked` file during `add` precisely so a concurrent
+   prune cannot reap an in-flight worktree. The only real requirement is distinct slugs,
+   which is change 1.
+
 1. **`runExecute` must accept a caller-supplied slug.** Its stamp is millisecond-resolution
    (`lets.ts:1672`), so rev 1's "same second" framing was wrong — the real defect is
    **TOCTOU**: `taken()` checks at `:1679-1682`, `openWorktree` acts at `:1686`, and nothing
