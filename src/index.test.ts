@@ -120,6 +120,18 @@ test("every lets work-loop command registers", async () => {
     assert.ok(config.command[c]?.template?.length > 100, `${c} missing or empty`)
 })
 
+test("no command file still claims a built command is unbuilt", () => {
+  // The spine's footers were written before the work loop existed: each told the user
+  // /lets:commit was "not built yet" and sent them to raw `git add -p` instead. It exists
+  // now, so that line is a live falsehood sitting in the one part of a command's output the
+  // user is guaranteed to read. Same failure shape as the stale-council-name test below - a
+  // dangling cross-reference rather than a missing file - so it is guarded the same way.
+  const offenders = readdirSync(join(PKG, "command"))
+    .filter((f) => f.endsWith(".md"))
+    .filter((f) => /not built yet/i.test(readFileSync(join(PKG, "command", f), "utf8")))
+  assert.deepEqual(offenders, [], `stale "not built yet" claims in: ${offenders.join(", ")}`)
+})
+
 test("the plugin registers its own skills directory", async () => {
   // Skills are the session spine's shared logic - orient, detect-task, artifact-path,
   // session-snapshot. A command that invokes a skill opencode never registered fails at

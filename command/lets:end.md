@@ -82,8 +82,7 @@ uncommitted work, the footer names it; settling it is the user's call, not this 
 
 ## Response Footer
 
-- **Uncommitted changes** → `/lets:commit` — **not built yet in this plugin.** Say so and
-  suggest `git add -p && git commit`. Never point at a command that does not exist.
+- **Uncommitted changes** → `/lets:commit`.
 - **Active task, clean tree** → `/lets:note`, or `/council:check` for a review pass.
 - **No active task** → `/lets:start`.
 

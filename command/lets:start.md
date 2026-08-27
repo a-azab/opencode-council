@@ -139,9 +139,7 @@ Then the footer.
 
 End by naming the next command, chosen by state:
 
-- **Uncommitted changes** → `/lets:commit` — **not built yet in this plugin.** Say that
-  outright and suggest `git add -p && git commit` instead. Never point at a command that
-  does not exist.
+- **Uncommitted changes** → `/lets:commit`.
 - **Active task, clean tree** → `/lets:note` to record something, or `/council:check` for a
   fast review pass.
 - **No active task** → `/lets:start`.
