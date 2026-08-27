@@ -30,6 +30,7 @@ import {
   listWorktrees,
   renderWorktrees,
   renderRun,
+  runExecute,
   type ItemOutcome,
   type RunResult,
   LETS_IGNORES,
@@ -843,6 +844,96 @@ test("init recommends beads where it is available, and says why when it is not",
     assert.doesNotMatch(after, /not on offer/, "it is on offer now")
     // A default is not a decision made for the user.
     assert.match(after, /`none`/, "the other options must still be offered")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ------------------------------------------------- concurrent callers (crew enablers)
+
+const CFG4: LetsConfig = { verify: ["true"], base: "main", lanes: ["reviewer"] }
+
+/**
+ * A whole runExecute that never reaches a model.
+ *
+ * With no items the item loop is `queue.length`-gated and never turns over, nothing lands,
+ * and the push/PR block is gated on something having landed - so the run opens its worktree,
+ * reports and returns. That makes the naming, which is the entirety of the crew's isolation
+ * story, testable without a model, a network or a `gh`.
+ */
+const bare = (root: string, over: Partial<Parameters<typeof runExecute>[1]> = {}) =>
+  runExecute({} as any, {
+    root,
+    items: [],
+    cfg: CFG4,
+    instructions: "",
+    directive: "d",
+    onStep: () => {},
+    ...over,
+  })
+
+test("a caller-supplied slug is used verbatim, and the derivation is skipped", async () => {
+  const dir = scratchRepo()
+  try {
+    const r = await bare(dir, { slug: "task-auth" })
+    assert.equal(r.branch, "lets/task-auth")
+    assert.equal(r.worktree, join(dir, ".worktrees", "task-auth"))
+    // The derived slug is an ISO stamp; a collision would suffix it. Verbatim means the
+    // caller's string reached git untouched by either.
+    assert.doesNotMatch(r.branch, /\d{4}-\d\d-\d\dT/, "the derivation ran anyway")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("two runs with distinct slugs share neither a worktree nor a branch", async () => {
+  // The crew's whole isolation story. Nothing is held between the derivation's check and
+  // its act, so distinctness is the caller's to guarantee - this proves the guarantee is
+  // honoured once made, which is the half runExecute owns.
+  const dir = scratchRepo()
+  try {
+    const a = await bare(dir, { slug: "alpha" })
+    const b = await bare(dir, { slug: "beta" })
+    assert.deepEqual([a.branch, b.branch], ["lets/alpha", "lets/beta"])
+    assert.notEqual(a.worktree, b.worktree)
+    assert.ok(existsSync(a.worktree) && existsSync(b.worktree), "both trees must exist at once")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+/** Records what runExecute said, with none of stdoutTracker's elapsed-time prefix. */
+const recorder = (seen: string[]): Tracker => ({
+  name: "none",
+  async start() {},
+  step: (m) => seen.push(m),
+  async itemDone() {},
+  async finish() {},
+})
+
+/**
+ * `maxSeconds: 0` trips the wall-clock guard on the first item: the run reports, records
+ * the item as not-attempted and returns - the one path that emits progress and still stops
+ * before any model call.
+ */
+const oneLine = async (dir: string, over: Partial<Parameters<typeof runExecute>[1]>) => {
+  const seen: string[] = []
+  await bare(dir, { items: [item()], maxSeconds: 0, tracker: recorder(seen), ...over })
+  return seen
+}
+
+test("a label prefixes progress lines; without one the output is byte-identical", async () => {
+  // N runs interleave into one stdout. For a design whose safety story is the record,
+  // unlabelled interleaved output is a defect, not cosmetics.
+  const dir = scratchRepo()
+  try {
+    const plain = await oneLine(dir, { slug: "unlabelled" })
+    const labelled = await oneLine(dir, { slug: "labelled", label: "auth" })
+
+    assert.ok(plain.length, "fixture: the wall-clock path must actually say something")
+    assert.deepEqual(labelled, plain.map((l) => `[auth] ${l}`))
+    // Byte-identical, not merely similar: the existing single-run caller passes no label.
+    assert.equal(plain[0], "wall clock 0s exceeded 0s — stopping")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

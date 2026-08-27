@@ -1663,10 +1663,28 @@ export async function runExecute(
     /** defaults to stdout only; a configured tracker is fanned out alongside it */
     tracker?: Tracker
     maxSeconds?: number
+    /**
+     * Use this slug verbatim; skip the derivation below.
+     *
+     * The derivation checks whether a slug is taken and then acts on it, with nothing held
+     * between the check and the act. That is safe for one run and a race for N, and no
+     * amount of checking inside this function can close it - only the party that knows all
+     * N tasks can. A caller running this concurrently supplies the slug and owns
+     * distinctness; that is the only place the guarantee can actually live.
+     */
+    slug?: string
+    /**
+     * Prefix every progress line with this.
+     *
+     * N concurrent runs interleave into one stdout. Unlabelled, the record cannot say which
+     * task said what - and for a design whose safety story is the record, that is a defect
+     * rather than cosmetics. Unset, output is byte-identical to a single run's.
+     */
+    label?: string
   },
 ): Promise<RunResult> {
   const tracker = input.tracker ?? stdoutTracker(input.onStep)
-  const say = (m: string) => tracker.step(m)
+  const say = input.label ? (m: string) => tracker.step(`[${input.label}] ${m}`) : (m: string) => tracker.step(m)
   const t0 = Date.now()
   const maxSeconds = input.maxSeconds ?? MAX_RUN_SECONDS
   const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 23)
@@ -1680,9 +1698,13 @@ export async function runExecute(
     existsSync(join(input.root, ".worktrees", s)) ||
     branchExists(input.root, `lets/${s}`) ||
     branchExists(input.root, `crew/${s}`)
-  let slug = stamp
-  for (let n = 2; taken(slug); n++)
-    slug = `${stamp}-${n}`
+  // A supplied slug is used exactly as given. The loop below cannot help a concurrent
+  // caller anyway - it is a check-then-act with nothing held across it - so a caller that
+  // can guarantee distinctness is taken at its word rather than second-guessed.
+  let slug = input.slug ?? stamp
+  if (input.slug === undefined)
+    for (let n = 2; taken(slug); n++)
+      slug = `${stamp}-${n}`
   const { path: worktree, branch } = openWorktree(input.root, slug, input.cfg.base)
   const outcomes: ItemOutcome[] = []
   await tracker.start({ directive: input.directive, items: input.items, branch })
