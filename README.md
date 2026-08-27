@@ -1,7 +1,7 @@
 # opencode-council
 
-Multi-model code review for [opencode](https://opencode.ai), and the single-task workflow
-that does the building — two tools, `council` and `lets`, shipped as one plugin.
+Multi-model code review for [opencode](https://opencode.ai), and the workflows that do the
+building — three tools, `council`, `lets` and `crew`, shipped as one plugin.
 
 Fifteen models review your diff in parallel, each in the role it is assigned. Every finding
 is then challenged by independent skeptics that did not raise it, and what survives is
@@ -9,6 +9,21 @@ decided by arithmetic — not by asking a model to summarise.
 
 **No single model decides anything.** Dedupe, dispute detection, convergence, and
 keep/downgrade/drop are all computed in code you can read and test.
+
+## Three namespaces, differing by where you sit
+
+|  | requirements | planning | execution |
+|---|---|---|---|
+| **`/council:*`** | — | advisory only: every model on one question, disputes debated, findings verified | — writes no code |
+| **`/lets:*`** | you state them | **you approve the plan** | unattended, one task |
+| **`/crew:*`** | **it interviews you** | it decides for itself | unattended, N tasks in waves |
+
+Largely the same machinery, with the human standing in a different place. `/lets` puts you
+at a planning gate. `/crew` removes that gate and puts an **audit trail** where it was: an
+ADR written *before* the run, recording what it asked you and what it decided, and a report
+afterwards that is the only account of what happened. That swap is what the rest of crew's
+design is in service of — with nobody approving the plan, the record is the whole safety
+story.
 
 ---
 
@@ -182,7 +197,7 @@ that already exists rather than to a second copy of it:
 | `/lets:opinion` | `/council:plan` | competing approaches, scored by cross-model vote instead of by a summariser |
 | `/lets:ask` | `/council:task` or `/council:independent` | one converged answer with its dissent attached, or the unmerged takes — the command's main content is choosing between them |
 | `/lets:research` | `webfetch` and the browser MCP servers | reading sources you name. **There is no search tool on this machine** — see below |
-| `/lets:team` | nothing yet | LETS's autonomous-agents command. `/crew` is unimplemented, and this says so rather than simulating it |
+| `/lets:team` | `/crew:plan`, then `/crew:execute` | LETS's autonomous-agents command. That orchestrator is `/crew` and it is now built, so this routes you to it — and explains which namespace you actually want — rather than simulating a team |
 
 **`/lets:research` cannot search.** `webfetch` works and the playwright, chrome-devtools and
 puppeteer MCP servers are reachable, including from spawned sessions. `websearch` is a valid
@@ -419,6 +434,157 @@ directive.
 
 **A tracker can never break a run.** An outage, an expired token, or a preview-API change
 costs you a warning line. The work is real; the mirror is not.
+
+## crew — a directive to a merged branch
+
+`lets` builds one task you approved. **crew** takes a goal, works out the tasks itself, and
+runs them concurrently. Three commands:
+
+```
+/crew:plan add structured logging across the API   # interview → research → design → ADR → decompose
+/crew:execute                                      # waves → integrate → verify → review → report
+/crew:status                                       # read-only: what would run, what's stranded
+```
+
+| command | does | writes |
+|---|---|---|
+| `/crew:plan <directive>` | interviews you, reads the repo, researches, designs, decomposes, writes the ADR | the ADR, and the plan artifact. **No approval gate** |
+| `/crew:execute` | schedules the recorded plan into waves, runs them in isolated worktrees, integrates, verifies and reviews | task branches and one integration branch, all **local and unpushed** |
+| `/crew:status` | the last plan, the waves it would produce against today's graph, and live worktrees | nothing — it starts, writes and removes nothing |
+
+crew has no init command of its own. It reuses the `lets` block in your `AGENTS.md` for
+`verify`, `base` and `lanes`, so `/lets:init` remains the one-time setup for both.
+
+### The interview is the gate
+
+`/lets` gates on the plan, after you have stated the requirements. crew moves that gate
+**earlier**: it interviews you for the requirements, and then decides the plan itself. What
+`/crew:plan` writes is what `/crew:execute` runs, unread.
+
+**It reads the repo before it asks anything** — the dependency graph, the detected stack,
+`AGENTS.md`, `README.md`, `git log --oneline -30`, and any spec or ADR already covering the
+ground. A question whose answer is in the repo wastes your turn and teaches you the
+interview is theatre. It says in one line what it learned, then asks only what the repo
+could not tell it.
+
+**The bounds are hard: at most two rounds, at most four questions per round.** Round 1 asks
+what changes the shape of the work — what "done" looks like in checkable terms, what is out
+of scope, constraints not visible in the code, and the ambiguities it actually hit while
+reading. Round 2 exists only to close gaps round 1 opened.
+
+**If it has not converged after two rounds it stops**, names the questions still open, and
+does not plan. It does not "proceed with reasonable assumptions" — an unattended run built
+on a guessed requirement is exactly the failure this namespace has no gate to catch.
+
+**Every question and answer goes into the ADR, verbatim.** That is the requirements record,
+and paraphrasing it away destroys the only evidence of what you asked for. The tool enforces
+this rather than trusting it: `crew:plan` **refuses without an `adr` path**, and the ADR is
+written *before* execution — a record written afterwards records outcomes, not requirements.
+
+### Waves, gated by the graph
+
+`src/schedule.ts`. Two tasks share a wave **only where the graph proves their file sets
+disjoint**. Everything else is one task per wave.
+
+Two file sets conflict if they share a path, **or if any file in one is a graph neighbour of
+a file in the other**. Three properties, all deliberate:
+
+- **One hop, never transitive.** At two hops a codebase of any density collapses into a
+  single connected blob where every task conflicts with every other — a sequential schedule
+  wearing a graph's costume. One hop is the honest middle.
+- **The graph is undirected**, so these are *neighbours*, not importers. That makes the test
+  a conservative **superset** of "really interferes": it will call some independent pairs
+  conflicting, and will never call a conflicting pair independent. For a safety gate that is
+  the correct direction to err.
+- **Bounded.** `MAX_WAVE_WIDTH` is **4** — each slot costs a checkout, a model run and a
+  review. `MAX_TASKS` is **12**, and past it the tool **refuses rather than truncates**:
+  quietly dropping the tail would let the run report success over work that never happened.
+
+Plan order is preserved. The scheduler walks the tasks as given and takes the earliest wave
+that fits, rather than bin-packing for width — plan order carries intent it cannot see.
+
+### The degradation is honest, and it is load-bearing
+
+**A file the graph has never seen is scheduled alone.** A file with no entry and a file with
+an empty entry both read as "no neighbours", but they mean opposite things: one is evidence
+of independence, the other is the *absence* of evidence. "This file is new, so nothing
+references it" and "the graph is stale and never saw this existing, heavily-referenced file"
+are indistinguishable from inside the scheduler, and only one of them is safe.
+
+So the result carries a `mode`, and the report names the files:
+
+| mode | means |
+|---|---|
+| `graph` | every task's files are known. Concurrency is proven |
+| `partial` | some files are absent from the graph. **Their tasks run alone, and the absent files are listed** |
+| `sequential` | no readable graph at all. Nothing can be proven, so everything runs alone |
+
+**Measured on this repo, today: 11 of 29 `src/*.ts` files are absent from
+`graphify-out/graph.json`, and the graph still names two files that no longer exist**
+(`src/crew.ts`, carrying 9 neighbours, and `src/crew.test.ts`). So crew **on this repo
+degrades toward sequential right now**, and will until the graph is rebuilt. That is the
+intended behaviour rather than a defect — but it means the parallelism is not currently
+there to be had, and `/crew:status` will tell you so before you pay for a run.
+
+### Integration stops at the first conflict
+
+Task branches are merged in order into a fresh integration branch, in a throwaway worktree —
+an unattended tool has no business moving the branch you are standing on. It refuses to
+reuse an existing branch name rather than clobber one you made.
+
+At the **first conflict** it stops: it reads the unmerged paths, aborts the merge, and
+returns the branch that conflicted and the files that did. Reading before aborting is the
+whole reason the files can be named — `merge --abort` clears the index that `--diff-filter=U`
+reads.
+
+**It never auto-resolves.** A conflict is evidence that the scheduler was wrong — it put two
+tasks in one wave after judging their file sets disjoint — and resolving it unattended would
+destroy exactly the evidence that the concurrency gate needs fixing. The partial integration
+branch survives with whatever merged cleanly, because partial progress is evidence too. The
+fix is to correct the `files` on those tasks, or rerun the conflicting task on top of the
+integration branch.
+
+`files` is therefore load-bearing in the plan. A task that under-declares its files gets
+scheduled beside work it actually touches, and the first evidence of that is a merge
+conflict.
+
+### The report is the review
+
+With nobody approving the plan, the report is the only thing between you and a bad decision,
+so it inherits every honesty rule from `renderRun` and adds the scheduling ones. An
+incomplete run says **INCOMPLETE** in the first line — never "done with caveats". A task
+that never ran is listed **with its reason**. An acceptance no independent model judged says
+`NOT independently judged` rather than passing quietly. A suppressed PR says it was
+suppressed, so the absence is not read as a failed push. And the schedule's `mode` and
+ungraphed files are printed, because "it ran sequentially" is otherwise an unexplained cost
+you cannot act on.
+
+Nothing is pushed. The integration branch is yours to read and push. The plan, the run
+record, the review and a tailable step log land in
+`council-artifacts/<timestamp>-crew-org-{plan,run}/` — a tool call returns once, at the end,
+so tail the log if you want to watch a long run rather than guess whether it has hung.
+
+### Cost, honestly
+
+crew runs up to `MAX_WAVE_WIDTH` concurrent `lets` executions, so the per-task cost is a
+`lets` run's, multiplied by N — and **review is structurally N+1 councils, not one.** Each
+task runs a council review of its own branch inside `runExecute` (up to
+`MAX_REVIEW_CYCLES` = 3 passes, routed, debate off), and then the integrated branch runs
+another with the recruited lanes.
+
+For **3 tasks × 2 items** that is roughly **115–130 model calls at minimum, and 250+ in the
+worst case** — where the per-task reviews are about 3 × 25 of it and the final review
+another ~18. Wave width caps how much of that runs at once; it does not reduce the total.
+
+> **The design intended to be cheaper than this.** `docs/superpowers/specs/2026-08-26-crew-design.md`
+> concludes that 3c "should drop the per-task council review" and keep `verify` plus
+> acceptance judging as the per-task signal, leaving one council on the integrated branch.
+> **That was never implemented.** `runExecute` calls `reviewBranch` unconditionally and
+> exposes no option to suppress it, so every crew task still pays for a full branch review.
+> The N+1 figures above are what the code does today, not what the spec recommends.
+
+The cheap way to sanity-check a run before paying for it is `/crew:status`, which computes
+the wave schedule fresh against the current graph and makes no model calls at all.
 
 ### `/council:independent` — the raw takes, unmerged
 
@@ -715,6 +881,15 @@ schema lane; a second parse path for two models is complexity for marginal diver
   This is deliberate: a node that failed must never be indistinguishable from one that
   found nothing.
 - Findings are grounded in the diff only. There is no repo-wide index.
+- **`/crew:execute`'s orchestration has never run end to end.** No test in this suite may
+  call a model, so everything past the guards — the wave loop, the concurrent `runExecute`
+  calls, and the hand-off into integration, verify and review — is exercised only by its
+  refusals. `schedule`, `integrate`, `recruitFloor` and `renderCrewReport` are each tested
+  directly and hard; the wiring between them is not tested at all.
+- **crew is N+1 councils, not one** (above). The per-task review the spec recommended
+  dropping is still there, so a 3-task run costs roughly four branch reviews.
+- **This repo's own dependency graph is stale**, so crew here schedules close to
+  sequentially. `/crew:status` reports it; rebuilding the graph is what fixes it.
 
 ---
 
@@ -739,9 +914,11 @@ it, the two asymmetries above are the things most likely to be "simplified" into
 | `src/mcp.ts` | the generic MCP tracker, and the run summary both mirrors share |
 | `src/linear.ts` | the Linear agent-session tracker |
 | `src/beads.ts` | the `bd` transport, the active-task resolver, and the beads tracker |
-| `src/index.ts` | plugin entry: registers agents, commands, the `skills/` path, and the `council` and `lets` tools |
+| `src/schedule.ts` | pure scheduling: file edges from the graph, one-hop conflicts, waves, and the `graph`/`partial`/`sequential` degradation. No model, no I/O beyond reading the graph |
+| `src/crew-org.ts` | crew's testable core: the deterministic lane floor, branch integration, and the CEO report |
+| `src/index.ts` | plugin entry: registers agents, commands, the `skills/` path, and the `council`, `lets` and `crew` tools |
 | `agent/*.md` | 17 agent prompts — 14 council (13 roles plus the fixer) and 3 lets (`cpo`, `cto`, `dev`); expertise and tier calibration only |
-| `src/*.test.ts` | 205 tests: `decide`, `roster`, `tally`, task states, catalog, patch classification, the lets config and worktree paths, and the beads parsers |
+| `src/*.test.ts` | 280 tests: `decide`, `roster`, `tally`, task states, catalog, patch classification, the lets config and worktree paths, the beads parsers, the wave scheduler, and crew's recruiting, integration and report |
 
 The rule the whole design rests on: **anything that decides an outcome lives in
 `decide.ts` and is tested.** `engine.ts` may move data and call models, but if you find
