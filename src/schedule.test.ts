@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileEdges } from "./schedule.ts"
+import { fileEdges, conflicts } from "./schedule.ts"
 
 // A hand-built stand-in for graphify output. The repo's real graph is stale and will
 // change; these tests pin behaviour, not this month's dependency structure.
@@ -77,4 +77,41 @@ test("a missing graph file returns null rather than throwing", () => {
 
 test("an unparseable graph returns null rather than throwing", () => {
   assert.equal(withGraph(fileEdges, "{ not json"), null)
+})
+
+test("two tasks touching the same file conflict", () => {
+  const edges = withGraph(fileEdges)!
+  assert.equal(conflicts(["src/a.ts"], ["src/a.ts"], edges), true)
+  assert.equal(conflicts(["src/a.ts", "src/d.ts"], ["src/x.ts", "src/d.ts"], edges), true)
+})
+
+test("two tasks touching unrelated files do not conflict", () => {
+  const edges = withGraph(fileEdges)!
+  assert.equal(conflicts(["src/a.ts"], ["src/d.ts"], edges), false)
+})
+
+test("files one graph hop apart conflict - the whole reason the graph is consulted", () => {
+  const edges = withGraph(fileEdges)!
+  assert.equal(conflicts(["src/a.ts"], ["src/b.ts"], edges), true, "a--b is a link")
+  assert.equal(conflicts(["src/b.ts"], ["src/a.ts"], edges), true, "and symmetrically")
+})
+
+test("conflict is ONE hop, never transitive: a--b--c leaves a and c compatible", () => {
+  const edges = withGraph(fileEdges)!
+  // At two hops any real codebase becomes one connected blob and every task conflicts
+  // with every other - a sequential schedule wearing a graph's costume.
+  assert.equal(conflicts(["src/a.ts"], ["src/c.ts"], edges), false)
+})
+
+test("a file absent from the graph is compared by literal path only", () => {
+  const edges = withGraph(fileEdges)!
+  // A newly-created file has no node, so the graph can say nothing about it. Path
+  // equality still holds; the guarantee is deliberately weaker here.
+  assert.equal(conflicts(["src/new.ts"], ["src/a.ts"], edges), false, "no node, no graph claim")
+  assert.equal(conflicts(["src/new.ts"], ["src/new.ts"], edges), true, "same path still conflicts")
+})
+
+test("with no graph, everything conflicts - that is what forces the sequential fallback", () => {
+  assert.equal(conflicts(["src/a.ts"], ["src/d.ts"], null), true)
+  assert.equal(conflicts([], [], null), true)
 })

@@ -34,3 +34,22 @@ export function fileEdges(graphPath: string): Map<string, Set<string>> | null {
   }
   return edges
 }
+
+/** Do these two file sets touch - sharing a path, or one graph hop apart? */
+export function conflicts(a: string[], b: string[], edges: Map<string, Set<string>> | null): boolean {
+  // No graph means no evidence of safety, so assume the worst and let the caller serialise.
+  if (edges === null) return true
+  const other = new Set(b)
+  for (const file of a) {
+    if (other.has(file)) return true // literal overlap: the only check a brand-new file gets
+    // ONE hop, deliberately - never a transitive closure. Two hops turns a codebase of any
+    // density into a single connected blob where every task conflicts with every other,
+    // which is a sequential schedule wearing a graph's costume. Do not "improve" this.
+    const neighbours = edges.get(file)
+    if (neighbours) for (const n of neighbours) if (other.has(n)) return true
+  }
+  // Undirected neighbours are a conservative SUPERSET of "really interferes": this will
+  // call some independent pairs conflicting, and will never call a conflicting pair
+  // independent. For a safety gate that is the correct direction to err.
+  return false
+}
