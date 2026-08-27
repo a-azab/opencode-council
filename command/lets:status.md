@@ -27,9 +27,7 @@ never advises on the work itself** — it tells you where you are and names the 
 
 ## Response Footer
 
-- **Uncommitted changes** → `/lets:commit` — **not built yet in this plugin.** Say so
-  outright and suggest `git add -p && git commit` instead. Never point at a command that
-  does not exist.
+- **Uncommitted changes** → `/lets:commit`.
 - **Active task, clean tree** → `/lets:note` to record something, or `/council:check` for a
   fast review pass.
 - **No active task** → `/lets:start`.
