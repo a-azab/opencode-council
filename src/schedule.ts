@@ -61,26 +61,55 @@ export const MAX_WAVE_WIDTH = 4
 export const MAX_TASKS = 12
 
 /** Greedy waves. Everything in a wave may run concurrently; waves run in order. */
+/**
+ * Task files the graph has never heard of.
+ *
+ * These are the dangerous ones. A file with no entry and a file with an empty entry look
+ * identical to `conflicts()` - both yield "no neighbours" - but they mean opposite things:
+ * one is evidence of independence, the other is the absence of evidence. Measured on this
+ * repo 2026-08-26, 9 of 27 `src/*.ts` files were absent from a stale graph, so this is the
+ * common case rather than a corner.
+ */
+export function ungraphed(files: string[], edges: Map<string, Set<string>> | null): string[] {
+  if (edges === null) return []
+  return files.filter((f) => !edges.has(f))
+}
+
 export function schedule<T extends { files: string[] }>(
   tasks: T[],
   edges: Map<string, Set<string>> | null,
-): { waves: T[][]; mode: "graph" | "sequential" } {
+): { waves: T[][]; mode: "graph" | "partial" | "sequential"; ungraphed: string[] } {
   // Refuse rather than truncate. A bad GRAPH is bad data and degrades to sequential; too
   // many tasks is a bad CALL, and quietly dropping the tail would let the caller report
   // success over work that never ran.
   if (tasks.length > MAX_TASKS) {
     throw new RangeError(`schedule: ${tasks.length} tasks exceeds MAX_TASKS=${MAX_TASKS}; decompose the directive first`)
   }
-  const mode = edges === null ? "sequential" : "graph"
+  const missing = new Set<string>()
+  for (const t of tasks) for (const f of ungraphed(t.files, edges)) missing.add(f)
+
   const waves: T[][] = []
   // Plan order carries intent the scheduler cannot see, so walk it as given and take the
   // earliest wave that fits instead of sorting or bin-packing for width.
   for (const task of tasks) {
-    const wave = waves.find(
-      (w) => w.length < MAX_WAVE_WIDTH && !w.some((other) => conflicts(task.files, other.files, edges)),
-    )
+    // A task touching a file the graph does not know has not been shown disjoint from
+    // ANYTHING - it has only failed to be shown conflicting, which is not the same claim.
+    // The whole gate is "concurrency only where disjointness is proven", so an unprovable
+    // task runs alone. On a stale graph this collapses toward sequential, which is the
+    // honest outcome: rebuild the graph and the parallelism comes back.
+    const provable = ungraphed(task.files, edges).length === 0
+    const wave = provable
+      ? waves.find(
+          (w) =>
+            w.length < MAX_WAVE_WIDTH &&
+            w.every((o) => ungraphed(o.files, edges).length === 0) &&
+            !w.some((other) => conflicts(task.files, other.files, edges)),
+        )
+      : undefined
     if (wave) wave.push(task)
     else waves.push([task]) // nothing fits: a full wave splits into the next consecutive one
   }
-  return { waves, mode }
+
+  const mode = edges === null ? "sequential" : missing.size ? "partial" : "graph"
+  return { waves, mode, ungraphed: [...missing].sort() }
 }

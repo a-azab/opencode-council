@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileEdges, conflicts, schedule, MAX_WAVE_WIDTH, MAX_TASKS } from "./schedule.ts"
+import { fileEdges, conflicts, schedule, ungraphed, MAX_WAVE_WIDTH, MAX_TASKS } from "./schedule.ts"
 
 // A hand-built stand-in for graphify output. The repo's real graph is stale and will
 // change; these tests pin behaviour, not this month's dependency structure.
@@ -19,6 +19,17 @@ const FIXTURE = {
     { id: "b1", source_file: "src/b.ts" },
     { id: "c1", source_file: "src/c.ts" },
     { id: "d1", source_file: "src/d.ts" },
+    // Isolated modules: present in the graph (so disjointness is PROVEN) but linked to
+    // nothing (so they conflict with nothing). The wave-packing tests below need this
+    // combination - before it existed they used file names absent from the graph, which
+    // reads as "no conflicts" but actually means "no evidence", and the ungraphed rule
+    // correctly stopped scheduling them together.
+    { id: "i1", source_file: "src/i1.ts" },
+    { id: "i2", source_file: "src/i2.ts" },
+    { id: "i3", source_file: "src/i3.ts" },
+    { id: "i4", source_file: "src/i4.ts" },
+    { id: "i5", source_file: "src/i5.ts" },
+    { id: "i6", source_file: "src/i6.ts" },
     { id: "community_0", label: "core", community: 0 }, // not a file
   ],
   links: [
@@ -65,7 +76,9 @@ test("a file whose only links are internal has no neighbours, and is still known
 test("nodes without source_file are skipped, not treated as a file named undefined", () => {
   const edges = withGraph(fileEdges)!
   // A community label is not a file. Guessing one would invent conflicts out of nothing.
-  assert.deepEqual([...edges.keys()].sort(), ["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts"])
+  assert.deepEqual([...edges.keys()].sort(),
+    ["src/a.ts", "src/b.ts", "src/c.ts", "src/d.ts",
+     "src/i1.ts", "src/i2.ts", "src/i3.ts", "src/i4.ts", "src/i5.ts", "src/i6.ts"])
   for (const [, neighbours] of edges) {
     for (const n of neighbours) assert.ok(n && n !== "undefined", `bogus neighbour ${n}`)
   }
@@ -146,15 +159,23 @@ test("one hop only: a--b--c lets the ends of the chain share a wave", () => {
   assert.deepEqual(names(waves), [["t1", "t2"]], "two hops must not conflict")
 })
 
-test("a task creating a new file is placed on literal path comparison alone", () => {
+test("a file the graph never saw is isolated - 'new' and 'missing' are indistinguishable", () => {
+  // This test previously asserted the opposite, on the premise that src/new.ts must be a
+  // NEW file and therefore safe: nothing references it yet, so it cannot conflict through
+  // the graph. That premise does not hold. A file absent from the graph is equally
+  // consistent with a STALE graph that simply never saw an existing, heavily-referenced
+  // file - measured on this repo, 9 of 27 src/*.ts files were absent for exactly that
+  // reason. The two cases are indistinguishable from here, and one of them is dangerous,
+  // so the unprovable task runs alone.
   const edges = withGraph(fileEdges)!
-  const { waves } = schedule(
+  const { waves, mode, ungraphed: missing } = schedule(
     [task("new", "src/new.ts"), task("touches-a", "src/a.ts"), task("new-again", "src/new.ts")],
     edges,
   )
-  // src/new.ts has no node, so nothing can be inferred about it; only the repeated
-  // literal path forces separation.
-  assert.deepEqual(names(waves), [["new", "touches-a"], ["new-again"]])
+  assert.deepEqual(names(waves), [["new"], ["touches-a"], ["new-again"]],
+    "an unprovable task shares a wave with nothing, not even a provable one")
+  assert.equal(mode, "partial", "the caller must be able to say the graph was incomplete")
+  assert.deepEqual(missing, ["src/new.ts"], "and to name the file, so it can suggest a rebuild")
 })
 
 test("a missing graph gives mode sequential and one task per wave", () => {
@@ -175,7 +196,7 @@ test("an unparseable graph degrades the same way and does not throw", () => {
 
 test("plan order is preserved as far as conflicts allow", () => {
   const edges = withGraph(fileEdges)!
-  const plan = [task("p1", "src/n1.ts"), task("p2", "src/n2.ts"), task("p3", "src/n3.ts")]
+  const plan = [task("p1", "src/i1.ts"), task("p2", "src/i2.ts"), task("p3", "src/i3.ts")]
   assert.deepEqual(names(schedule(plan, edges).waves), [["p1", "p2", "p3"]], "no conflicts, no reordering")
 
   // Earliest-fit: p3 does not conflict with p1, so it joins wave 0 rather than waiting.
@@ -185,7 +206,7 @@ test("plan order is preserved as far as conflicts allow", () => {
 
 test("no wave exceeds MAX_WAVE_WIDTH - the cost bound", () => {
   const edges = withGraph(fileEdges)!
-  const plan = ["w1", "w2", "w3", "w4", "w5", "w6"].map((n) => task(n, `src/${n}.ts`))
+  const plan = ["i1", "i2", "i3", "i4", "i5", "i6"].map((n, k) => task(`w${k + 1}`, `src/${n}.ts`))
   const { waves } = schedule(plan, edges) // all mutually compatible
   assert.deepEqual(names(waves), [["w1", "w2", "w3", "w4"], ["w5", "w6"]])
   for (const w of waves) assert.ok(w.length <= MAX_WAVE_WIDTH, `wave of ${w.length}`)
@@ -234,4 +255,38 @@ test("the real graph is stale, and fileEdges reports it as-is without touching t
   const edges = fileEdges(real)!
   const stale = [...edges.keys()].filter((f) => !existsSync(fileURLToPath(new URL("../" + f, import.meta.url))))
   assert.ok(stale.length > 0, "if this fails the graph was regenerated - update the report, not the test")
+})
+
+test("a task touching a file the graph never saw is never scheduled concurrently", () => {
+  // The failure this closes: a file absent from the graph and a file present-with-no-
+  // neighbours both look like "no conflicts", but they mean opposite things - evidence of
+  // independence versus absence of evidence. Measured on this repo, 9 of 27 src/*.ts files
+  // were missing from a stale graph, so the unsafe reading was the common case.
+  const dir = mkdtempSync(join(tmpdir(), "sched-ung-"))
+  try {
+    const p = join(dir, "g.json")
+    writeFileSync(p, JSON.stringify({
+      directed: false,
+      nodes: [{ id: "n1", source_file: "a.ts" }, { id: "n2", source_file: "b.ts" }],
+      links: [],
+    }))
+    const edges = fileEdges(p)!
+    assert.deepEqual(ungraphed(["a.ts"], edges), [], "a graphed file is provable")
+    assert.deepEqual(ungraphed(["ghost.ts"], edges), ["ghost.ts"], "an unseen file is not")
+
+    // a.ts and b.ts have no edge between them, so they WOULD share a wave.
+    const clean = schedule([{ files: ["a.ts"] }, { files: ["b.ts"] }], edges)
+    assert.equal(clean.waves.length, 1, "two provably-independent tasks share a wave")
+    assert.equal(clean.mode, "graph")
+    assert.deepEqual(clean.ungraphed, [])
+
+    // Swap one for a file the graph never saw: it must NOT share, despite also having
+    // no known conflicts.
+    const risky = schedule([{ files: ["a.ts"] }, { files: ["ghost.ts"] }], edges)
+    assert.equal(risky.waves.length, 2, "an unprovable task runs alone")
+    assert.equal(risky.mode, "partial", "and the caller can tell why")
+    assert.deepEqual(risky.ungraphed, ["ghost.ts"], "naming it lets the report say to rebuild")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

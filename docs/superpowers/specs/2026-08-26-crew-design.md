@@ -67,11 +67,15 @@ Three corrections to rev 1, each of which changes the design:
    conservative superset: it will call some independent tasks conflicting, and will never
    call a conflicting pair independent. For a safety gate that is the correct direction to
    err, and the spec says so rather than claiming precision it does not have.
-3. **A new file has no node.** An item creating `src/new.ts` has no graph presence, so its
-   disjointness falls back to literal path comparison. That is sound — a file nothing
-   references yet cannot conflict through the graph — but it must be explicit, because the
-   scheduler's guarantee is otherwise silently weaker for exactly the items most likely to
-   be added.
+3. **A file absent from the graph proves nothing, and "new" cannot be told from "missed".**
+   Rev 2 claimed an item creating `src/new.ts` could safely fall back to literal path
+   comparison, on the reasoning that a file nothing references yet cannot conflict. That is
+   wrong: absence is equally consistent with a **stale graph that never saw an existing,
+   heavily-referenced file** — measured on this repo, **9 of 27 `src/*.ts` files** are absent
+   for exactly that reason. The two cases are indistinguishable from inside the scheduler
+   and one of them is dangerous, so an unprovable task shares a wave with nothing. The
+   result reports `mode: "partial"` and names the files, so the caller can say *rebuild the
+   graph* rather than silently losing parallelism.
 
 **The checked-in graph is stale**: `graphify-out/manifest.json` still names `src/crew.ts`,
 from before the rename. So the degradation path in §5.3 fires on this repo *today*, which
@@ -146,7 +150,7 @@ Every row is a pure-function test. No models, no network, no repo.
 | two tasks touching unrelated files share a wave | otherwise it is sequential with extra steps |
 | two tasks whose files are graph **neighbours** land in different waves | the reason the graph is consulted at all |
 | conflict is **one hop**, not transitive | at two hops everything conflicts and the schedule silently degenerates |
-| a task creating a **new** file (no graph node) is compared by literal path | the guarantee is weaker there and must be deliberate |
+| a task touching a file **absent from the graph** shares a wave with nothing, reports `mode: "partial"`, and names the file | absence of evidence is not evidence of independence, and the two look identical from here |
 | a **missing** graph yields one wave per task, and the caller can tell it degraded | this repo's graph is stale today, so this is the default path |
 | an **unparseable** graph degrades the same way rather than throwing | a scheduler that crashes on a bad graph is worse than one that runs sequentially |
 | plan order is preserved where conflicts allow | the plan's order carries intent |
