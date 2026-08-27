@@ -495,3 +495,20 @@ test("lets:team no longer claims crew is unbuilt", async () => {
   assert.match(team, /\/crew:plan/, "lets:team must point at the crew namespace now that it exists")
 })
 
+
+test("crew asks for one council on the integrated branch, not one per task", () => {
+  // runExecute reviews its branch unconditionally unless told otherwise, so without this
+  // flag a crew run is structurally N+1 full councils - N task branches plus the integrated
+  // one - which the design measured as its largest single cost line. The per-task signal is
+  // not lost: verify and the acceptance judge (a different model than the implementer) both
+  // still run inside each task.
+  const src = readFileSync(join(PKG, "src/index.ts"), "utf8")
+  const call = src.slice(src.indexOf("const run = await runExecute("))
+  const body = call.slice(0, call.indexOf("})"))
+  assert.match(body, /review: false/, "crew must suppress the per-task branch review")
+  assert.match(body, /openPr: false/, "and must not open N PRs before integration")
+
+  // ...and the pipeline must still honour it.
+  const lets = readFileSync(join(PKG, "src/lets.ts"), "utf8")
+  assert.match(lets, /input\.review === false/, "runExecute must act on the flag it accepts")
+})

@@ -564,6 +564,11 @@ export const CouncilPlugin = async (input: any) => ({
                   slug,
                   // N tasks must not open N competing PRs before anything is integrated.
                   openPr: false,
+                  // ONE council, on the integrated branch below - not one per task as well.
+                  // Reviewing both is structurally N+1 full councils and the largest single
+                  // cost line in a crew run. `verify` and the acceptance judge still run per
+                  // task, so the per-task signal survives.
+                  review: false,
                   label: t.title,
                   onStep: say,
                   // One Tracker per run, never shared: guarded() refuses a second start, and a

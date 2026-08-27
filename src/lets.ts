@@ -1728,6 +1728,16 @@ export async function runExecute(
      */
     openPr?: boolean
     /**
+     * Run the council on this branch when its items land. Default true.
+     *
+     * A caller running many tasks and merging them itself wants ONE council on the
+     * integrated result, not one per task: reviewing both makes review structurally N+1
+     * full councils, which is the largest single cost line in a fan-out run. Setting this
+     * false does not weaken the per-task signal - `verify` and acceptance judged by a
+     * different model than the implementer both still run, and neither depends on it.
+     */
+    review?: boolean
+    /**
      * Prefix every progress line with this.
      *
      * N concurrent runs interleave into one stdout. Unlabelled, the record cannot say which
@@ -1825,6 +1835,16 @@ export async function runExecute(
         }
       }
       if (stuck) break
+
+      if (input.review === false) {
+        // Crew asks for this. It runs ONE council on the integrated branch instead, and
+        // reviewing every task branch as well makes review structurally N+1 full councils -
+        // measured as the largest single cost line in a crew run. The per-task signal is
+        // not lost: `verify` and acceptance-judged-by-a-different-model both already ran
+        // above, and neither depends on this call.
+        queue = []
+        break
+      }
 
       say(`reviewing the branch`)
       const review = await reviewBranch(ctx, { worktree, base: input.cfg.base })
