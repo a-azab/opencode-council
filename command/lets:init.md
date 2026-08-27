@@ -20,12 +20,28 @@ Then resolve, in this order, asking only about what is genuinely ambiguous:
    `graphify extract . --code-only --max-workers 16` (local tree-sitter AST, no LLM calls,
    seconds even on a large repo). Do not plan against a stale graph.
 
-5. **Tracking** — if the proposal says it is not recorded, ask once whether runs should be
-   mirrored anywhere. Offer only what the proposal lists as available; do not offer Linear
-   if it is not there, since that needs `LINEAR_API_TOKEN`. If the user says no, record
-   `none` — that is a real answer and stops the question coming back. Never enable a
-   tracker they did not ask for: creating issues in someone's workspace uninvited is worse
-   than one question.
+5. **Tracking** — if the proposal says it is not recorded, **ask**, via the **`question`**
+   tool. Do not infer an answer and do not skip it:
+
+   - question: `Mirror runs into a tracker?`
+   - options: one per tracker the proposal listed, **in the order it listed them** — the
+     recommended one is first and its description says so. Always include **none**.
+     - **beads** — "Recommended. Local task database, already set up in this repo — no
+       token, no server, nothing leaves the machine."
+     - **none** — "Runs report to the terminal only. A real answer, and it stops the
+       question coming back."
+     - **mcp** / **linear** — as the proposal described them.
+
+   Offer only what the proposal lists as available: it has already checked the token, the
+   server and the `.beads/` directory, so anything it left out cannot be honoured and
+   offering it would promise mirroring that silently never happens.
+
+   If the proposal says `beads` is not on offer because `bd` is installed but this repo has
+   no `.beads/`, pass that on — including that `bd init` is theirs to run. **Do not run
+   `bd init`.** Creating a task database in someone's repo uninvited is the same overreach
+   as creating issues in their workspace: worse than one question.
+
+   Never enable a tracker they did not ask for.
 
 Once the user has confirmed, call `lets` again with `write: true` and the confirmed
 `verify`, `base`, `lanes` and `tracker`.

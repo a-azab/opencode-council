@@ -14,7 +14,7 @@ import { join } from "node:path"
 import { selectRoles, bySlug, skepticPool, ROSTER, KNOWN_ROLES, type Role } from "./roster.ts"
 import { ask, runReview, type Ctx, type NodeState } from "./engine.ts"
 import { localMcpServers, mcpTracker } from "./mcp.ts"
-import { beadsAvailable, beadsTracker } from "./beads.ts"
+import { beadsAvailable, bdInstalled, beadsTracker } from "./beads.ts"
 import { WORKITEMS_SCHEMA, VERDICT_SCHEMA } from "./schema.ts"
 import {
   findIssue,
@@ -605,11 +605,32 @@ export function renderInitProposal(p: InitProposal): string {
   else {
     const others = availableTrackers(p.env, p.root).filter((t) => t !== "none")
     const servers = [...localMcpServers(p.root).keys()]
+    // beads is the recommendation wherever it can actually be honoured: it is local, needs
+    // no token and no server, and the repo has already opted into it by having `.beads/`.
+    // Where it cannot, `none` carries the default - a recommendation must be something the
+    // human can accept as-is, and every other tracker needs configuring first.
+    const recommended = others.includes("beads") ? "beads" : "none"
+    const mark = (t: string) => `\`${t}\`${t === recommended ? " (recommended)" : ""}`
+    // Recommended first, but every option still listed: a default is not a decision made
+    // for the user.
+    const offered = [recommended, ...["none", ...others].filter((t) => t !== recommended)]
     out.push(
       others.length
-        ? `  not recorded — options: ${["none", ...others].map((t) => `\`${t}\``).join(", ")}`
-        : "  not recorded — runs report to the terminal only",
+        ? `  not recorded — options: ${offered.map(mark).join(", ")}`
+        : `  not recorded — options: ${mark("none")}; runs report to the terminal only`,
     )
+    if (recommended !== "beads")
+      // Named specifically, because the two halves of the rule want different things from
+      // the human. `bd init` is offered, never run: creating a task database in someone's
+      // repo uninvited is the same overreach trackerFor refuses when it declines to invent
+      // an issue. The repo opts in, not us.
+      out.push(
+        bdInstalled()
+          ? "  `beads` is not on offer: `bd` is installed, but this repo has no `.beads/`." +
+              " Run `bd init` here yourself if you want it — I will not create a task" +
+              " database in your repo uninvited."
+          : "  `beads` is not on offer: `bd` is not on PATH. Install it, then `bd init` here.",
+      )
     if (servers.length)
       out.push(
         `  \`mcp\` mirrors to any MCP server configured in opencode.json — available here: ${servers
