@@ -111,6 +111,15 @@ test("every lets session command registers", async () => {
     assert.ok(config.command[c]?.template?.length > 100, `${c} missing or empty`)
 })
 
+test("every lets work-loop command registers", async () => {
+  // The spine is start/end; this is the loop between them - commit, done, and the backlog
+  // that chooses what to work on next. Same failure mode as the spine test above: a command
+  // file whose name is wrong is silently absent, never an error.
+  const { config } = await load()
+  for (const c of ["lets:commit", "lets:done", "lets:backlog"])
+    assert.ok(config.command[c]?.template?.length > 100, `${c} missing or empty`)
+})
+
 test("the plugin registers its own skills directory", async () => {
   // Skills are the session spine's shared logic - orient, detect-task, artifact-path,
   // session-snapshot. A command that invokes a skill opencode never registered fails at
