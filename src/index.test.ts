@@ -120,6 +120,18 @@ test("every lets work-loop command registers", async () => {
     assert.ok(config.command[c]?.template?.length > 100, `${c} missing or empty`)
 })
 
+test("every delegating lets command registers and points somewhere real", async () => {
+  const { config } = await load()
+  for (const c of ["lets:check", "lets:review", "lets:opinion", "lets:ask", "lets:research", "lets:team"])
+    assert.ok(config.command[c]?.template?.length > 100, `${c} missing or empty`)
+  // A delegating command that names a command which does not exist is worse than no
+  // command at all - it sends the user somewhere that will silently do nothing.
+  const names = new Set(Object.keys(config.command))
+  for (const [c, target] of [["lets:check","council:check"], ["lets:review","council:review"],
+                             ["lets:opinion","council:plan"], ["lets:ask","council:task"]])
+    assert.ok(names.has(target), `${c} delegates to ${target}, which is not registered`)
+})
+
 test("no command file still claims a built command is unbuilt", () => {
   // The spine's footers were written before the work loop existed: each told the user
   // /lets:commit was "not built yet" and sent them to raw `git add -p` instead. It exists
