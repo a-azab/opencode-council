@@ -70,6 +70,17 @@ test("every agent file is registered and read-only unless it opts in", async () 
   }
 })
 
+test("every council lane has an agent file behind it", async () => {
+  // engine.ts spawns `council-${node.role}` by string. A role in ALL_ROLES with no agent
+  // file asks opencode for an agent that does not exist - the lane fails at the call, not
+  // at load, so nothing here would notice until a real review ran. Self-maintaining: it
+  // covers any lane added later, not just the one that prompted it.
+  const { config } = await load()
+  const { ALL_ROLES } = await import("./roster.ts")
+  for (const role of ALL_ROLES)
+    assert.ok(config.agent[`council-${role}`], `role '${role}' has no agent/council-${role}.md`)
+})
+
 test("lets-dev is the one agent granted tools, via its own frontmatter", async () => {
   // The grant is safe only because runItem pins its session to a worktree. If this ever
   // becomes true for an agent that is called without a `directory`, it edits the user's

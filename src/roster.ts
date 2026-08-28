@@ -7,7 +7,7 @@ import path from "node:path"
 export type Role =
   | "security" | "systems" | "code" | "pragmatist" | "product"
   | "breadth" | "reviewer" | "docs" | "qa" | "ops" | "skeptic"
-  | "architect" | "infrastructure"
+  | "architect" | "infrastructure" | "techwriter"
 
 export type Member = {
   slug: string
@@ -54,7 +54,11 @@ export const ROSTER: Member[] = [
   // code lane substitutes here first (same role) before borrowing another model. Measured
   // 2026-08-23: emits schema-valid structured output, 6782ms on a trivial task.
   { slug: "kimik3go",  model: "opencode-go/kimi-k3",                    roles: ["code"],                   ms: 6782 },
-  { slug: "gemini36",  model: "google/gemini-3.6-flash",                roles: ["breadth", "docs"],        ms: 9028 },
+  // `techwriter` is APPENDED here and on gpt56terra, never prepended: roles[0] is the voice
+  // a model answers in (engine.ts:1272), so prepending would re-cast an existing member.
+  // Both already carry `docs`, which is the roster's existing statement that they are the
+  // prose members, and both are schema-capable - the writing role still answers structured.
+  { slug: "gemini36",  model: "google/gemini-3.6-flash",                roles: ["breadth", "docs", "techwriter"], ms: 9028 },
   { slug: "grok45",    model: "opencode-go/grok-4.5",                   roles: ["systems", "skeptic", "infrastructure"], ms: 7146 },
   { slug: "mimo",      model: "opencode-go/mimo-v2.5-pro",              roles: ["pragmatist", "skeptic"],  ms: 7027 },
   { slug: "minimax",   model: "opencode-go/minimax-m3",                 roles: ["reviewer", "skeptic"],    ms: 4532 },
@@ -69,7 +73,7 @@ export const ROSTER: Member[] = [
   // openai's three are TIERS, not variants - peak / balanced / fast.
   { slug: "gpt56sol",   model: "openai/gpt-5.6-sol",   roles: ["security", "systems", "architect"],
     ms: 3696, tier: "deep",     capability: ["schema", "agentic"] },
-  { slug: "gpt56terra", model: "openai/gpt-5.6-terra", roles: ["product", "reviewer", "docs"],
+  { slug: "gpt56terra", model: "openai/gpt-5.6-terra", roles: ["product", "reviewer", "docs", "techwriter"],
     ms: 2664, tier: "standard", capability: ["schema", "agentic"] },
   // carries `skeptic` on purpose: skepticPool filters on that role, so without it the fast
   // tier is unreachable from the highest-volume loop in the system.
@@ -94,7 +98,7 @@ export const bySlug = (slug: string) => ROSTER.find((m) => m.slug === slug)
 export const ALL_ROLES: Role[] = [
   "security", "systems", "code", "pragmatist", "product",
   "breadth", "reviewer", "docs", "qa", "ops",
-  "architect", "infrastructure",
+  "architect", "infrastructure", "techwriter",
 ]
 
 /** Every role a repo's lets block may legally name. Lives here, not in lets.ts, so the

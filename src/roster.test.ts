@@ -100,6 +100,19 @@ test("every role a config may name is answerable by some model", () => {
   }
 })
 
+test("techwriter is carried, and joining it never changed a model's voice", () => {
+  // Two failures in one, both silent. A role no model carries is an empty lane that
+  // recruits fine and answers nothing. And `roles[0]` is the voice a model speaks in
+  // (engine.ts:1272 - `council-${voice(m)}`), so PREPENDING techwriter to a carrier would
+  // quietly re-cast an existing member as the tech writer in runTask.
+  const carriers = ROSTER.filter((m) => m.roles.includes("techwriter"))
+  assert.ok(carriers.length, "no model carries 'techwriter' — a silently empty lane")
+  for (const m of carriers) {
+    assert.ok(canSchema(m), `${m.slug} carries techwriter but cannot emit structured output`)
+    assert.notEqual(m.roles[0], "techwriter", `${m.slug}'s voice was displaced; append, never prepend`)
+  }
+})
+
 test("skeptics never include the model that raised the finding", () => {
   const pool = skepticPool(["fable"], 3)
   assert.ok(!pool.some((m) => m.slug === "fable"))
