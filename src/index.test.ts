@@ -146,6 +146,27 @@ test("every delegating lets command registers and points somewhere real", async 
     assert.ok(names.has(target), `${c} delegates to ${target}, which is not registered`)
 })
 
+test("the ADR has a named author in crew, and exists at all in lets", async () => {
+  // crew:plan already REQUIRED an ADR - the tool refuses without one (index.ts ~473) - but
+  // said nothing about who writes it or when. A required artifact with no owner gets
+  // written by whoever notices, which is nobody, and the refusal then gets satisfied with
+  // a stub. Naming the architect is the fix: the role that owns the design owns its record.
+  const { config } = await load()
+  const crew = config.command["crew:plan"].template
+  assert.match(crew, /architect/i, "crew:plan does not say who writes the ADR")
+  assert.match(crew, /ADR/, "crew:plan lost the ADR step entirely")
+
+  // lets has a human gate, so this is not a refusal - but the plan the human approves
+  // should arrive with its reasoning recorded, not just its task list.
+  const lets = config.command["lets:plan"].template
+  assert.match(lets, /ADR/, "lets:plan never mentions an ADR")
+  assert.match(
+    lets,
+    /docs\/adr\/YYYY-MM-DD-/,
+    "date-slug, never a sequential number: 0007- races when parallel tasks write decisions",
+  )
+})
+
 test("no command file still claims a built command is unbuilt", () => {
   // The spine's footers were written before the work loop existed: each told the user
   // /lets:commit was "not built yet" and sent them to raw `git add -p` instead. It exists
