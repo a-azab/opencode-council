@@ -223,6 +223,20 @@ moves little: `index.test.ts:38-41` (primary_tools), `:67-69` (command registrat
 Not here: `lets:start`, `lets:commit`, `lets:done`, `lets:end`; beads as a tracker; the ADR
 and docs gates; the compaction hook; the implementer model policy.
 
+> **Status, 2026-08-28.** All of the above shipped except the compaction hook, which was
+> **cancelled rather than deferred.** The human turned auto-compaction off entirely
+> (`compaction: { auto: false }` in the global config) and chose `/lets:end` as the session
+> boundary instead: snapshot deliberately, start fresh, resume from the `## RESUME` file.
+>
+> That makes the hook moot. Its whole purpose was to keep a few facts alive *through* a
+> compaction, and there are now no compactions to survive. Building it would add a code path
+> that never runs — and one whose only trigger the human has disabled on purpose.
+>
+> The trade is real and was accepted knowingly: with `auto: false` there is no graceful
+> degradation at the context limit, so the discipline replaces the safety net. `/lets:end`
+> earns its keep here rather than being a nicety — it is now the only thing standing between
+> a long session and losing its own thread.
+
 1. **A beads tracker cannot receive its id through the existing seam.** `trackerFor`'s
    `issueRef` is the only channel, produced by `issueIdentifierIn`, whose regex is
    `/^[A-Z][A-Z0-9]*-\d+$/`. Beads ids (`oci-infrastructure-5o2`, `bd-a3f8e9`) all fail it,
