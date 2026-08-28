@@ -156,7 +156,14 @@ export const ROUTES: [string, Role[]][] = [
   ["**/{terraform,infra,infrastructure}/**", ["infrastructure", "security"]],
   // CI and runtime config stay `ops`: a pipeline is not topology.
   ["**/.github/workflows/**", ["ops", "security"]],
-  ["**/{migrations,migrate}/**", ["systems", "security"]],
+  // `ciso` rides along here because a schema change is where the obligations physically
+  // live: what personal data we now hold, how long we may keep it, and whether the access
+  // to it leaves a trail. A migration adding customer columns with no retention story is a
+  // textbook control gap that `security` will correctly say nothing about - nothing in it
+  // is exploitable. This was left out of the role's first introduction to keep it
+  // conservative and added on the reasoning above, which is the one place the lane's own
+  // ADR predicted it would be needed first.
+  ["**/{migrations,migrate}/**", ["systems", "security", "ciso"]],
   ["**/*.sql", ["systems", "security"]],
   ["**/*.{py,go,java,rb,rs,php,cs}", ["code", "security"]],
   ["**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte}", ["code"]],

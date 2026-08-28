@@ -326,3 +326,12 @@ test("essentials beyond the cap all run, and the cap loses", () => {
   }))
   assert.equal(essentialFirst([...pins, { slug: "q", model: "t/q", roles: ["security"], ms: 1 }], "security", 2).length, 3)
 })
+
+test("a schema change wakes the CISO — retention and classification live there", () => {
+  // security reads a migration and correctly has nothing to say: adding a column is not
+  // exploitable. The compliance question is the one nobody else asks - what personal data
+  // do we now hold, for how long, and can we prove who read it. That is why the lane exists.
+  const roles = selectRoles(["db/migrations/003_add_customer_pii.sql"])
+  assert.ok(roles.includes("ciso"), "a migration must wake the compliance lane")
+  assert.ok(roles.includes("security"), "and must not stop waking the adversarial one")
+})
