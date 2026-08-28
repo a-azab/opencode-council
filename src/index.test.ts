@@ -60,7 +60,7 @@ test("the spawned-worker deny rule names the tools that actually exist", () => {
 test("every agent file is registered and read-only unless it opts in", async () => {
   const { config } = await load()
   const agents = Object.keys(config.agent)
-  for (const required of ["lets-cpo", "lets-cto", "lets-dev", "council-skeptic", "council-reviewer"])
+  for (const required of ["lets-cpo", "lets-cto", "lets-dev", "council-skeptic", "council-reviewer", "council-ciso"])
     assert.ok(agents.includes(required), `missing agent: ${required}`)
 
   for (const [name, a] of Object.entries<any>(config.agent)) {
