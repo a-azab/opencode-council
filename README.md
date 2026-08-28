@@ -73,7 +73,7 @@ plugin fails to load, opencode starts anyway and swallows the error — check
 Verify:
 
 ```bash
-opencode agent list | grep -E '^council-.* \(all\)'   # expect 14 agents
+opencode agent list | grep -E '^council-.* \(all\)'   # expect 15 agents
 ```
 
 (Match on `(all)`. A plain `grep council-` will also catch any older model-named council
@@ -242,6 +242,15 @@ Two lanes, in sequence, handing an artifact to each other:
   [graphify](https://github.com/Graphify-Labs/graphify) knowledge graph of your codebase —
   real node locations and call edges, so `files` are cited rather than guessed.
 
+**Then the architect writes an ADR** to `docs/adr/YYYY-MM-DD-<slug>.md` — after the plan
+comes back and *before* the gate, so the plan you approve arrives with its reasoning and not
+just its task list. Scaled to what `/lets` is: the directive as understood, the design
+decision, the alternatives rejected, and any sources consulted. Unlike `/crew:plan`, which
+**refuses** without one because it has no gate at all, here it is expected rather than
+enforced — a human is about to read the plan. A change too small to have a design decision
+skips it, and says that it skipped. A plan whose ADR is hard to write is usually a plan that
+has not been decided yet.
+
 Then it **stops**. Nothing is written until you approve. If a lane failed to answer, the
 gate says so — a thin plan is never presented as a simple one.
 
@@ -271,6 +280,11 @@ The worker gets `edit` and `bash`, **confined to the worktree by a runtime rule*
 surrounding code, greps callers, runs the failing test; a path outside the worktree is
 refused, not merely discouraged. Your own checkout is never touched; a bad run costs
 `git worktree remove`, not a recovery.
+
+**`deepseek` is the worker**, at the head of a six-model fallback chain — the cheapest model
+that drives tools, on the highest-volume paid call lets makes. That chain is not the one
+intake uses, and the difference is load-bearing: see [the two model
+chains](#the-two-model-chains).
 
 An incomplete run reports as incomplete, in the terminal and in the PR body. Items that
 never ran are listed as `not-attempted` with the reason — a plan that stopped at item 2 of
@@ -441,14 +455,14 @@ costs you a warning line. The work is real; the mirror is not.
 runs them concurrently. Three commands:
 
 ```
-/crew:plan add structured logging across the API   # interview → research → design → ADR → decompose
+/crew:plan add structured logging across the API   # interview → research → architect writes the ADR → decompose
 /crew:execute                                      # waves → integrate → verify → review → report
 /crew:status                                       # read-only: what would run, what's stranded
 ```
 
 | command | does | writes |
 |---|---|---|
-| `/crew:plan <directive>` | interviews you, reads the repo, researches, designs, decomposes, writes the ADR | the ADR, and the plan artifact. **No approval gate** |
+| `/crew:plan <directive>` | interviews you, reads the repo, researches, then the **architect** writes the ADR, and only then decomposes | the ADR, and the plan artifact. **No approval gate** |
 | `/crew:execute` | schedules the recorded plan into waves, runs them in isolated worktrees, integrates, verifies and reviews | task branches and one integration branch, all **local and unpushed** |
 | `/crew:status` | the last plan, the waves it would produce against today's graph, and live worktrees | nothing — it starts, writes and removes nothing |
 
@@ -480,6 +494,20 @@ on a guessed requirement is exactly the failure this namespace has no gate to ca
 and paraphrasing it away destroys the only evidence of what you asked for. The tool enforces
 this rather than trusting it: `crew:plan` **refuses without an `adr` path**, and the ADR is
 written *before* execution — a record written afterwards records outcomes, not requirements.
+
+**The architect writes it, and is recruited unconditionally.** The architect owns the design
+decision, so it owns the record of it; a decision written up by whoever happened to be free
+is a summary, not a record. The role used to be keyword-triggered — woken by a regex over
+the directive that matched "new service", "migrate", "rewrite" and the like. That left a
+document the tool *refuses to run without* with a conditional author: any directive the
+regex missed produced a mandatory ADR and nobody assigned to write it. `recruitFloor` now
+adds `architect` to every crew run (`src/crew-org.ts`). The regex survives, but it only
+marks structural work for the prompt's benefit; it no longer decides whether the ADR has an
+owner.
+
+**It is written after research and before decomposition**, in that order. A record written
+after the tasks exist is a justification for them; written before, it is the decision the
+tasks come out of. Anything that cannot be justified in the ADR should not become a task.
 
 ### Waves, gated by the graph
 
@@ -777,7 +805,7 @@ Seventeen members: fifteen carry council lanes, two are implementer-class and ca
 | `fable` | anthropic/claude-fable-5 | security, skeptic | | schema | 6704 |
 | `kimik3` | kimi-for-coding/k3 | code | | schema | 21151 |
 | `kimik3go` | opencode-go/kimi-k3 | code | | schema | 6782 |
-| `gemini36` | google/gemini-3.6-flash | breadth, docs | | schema | 9028 |
+| `gemini36` | google/gemini-3.6-flash | breadth, docs, techwriter | | schema | 9028 |
 | `grok45` | opencode-go/grok-4.5 | systems, skeptic, infrastructure | | schema | 7146 |
 | `mimo` | opencode-go/mimo-v2.5-pro | pragmatist, skeptic | | schema | 7027 |
 | `minimax` | opencode-go/minimax-m3 | reviewer, skeptic | | schema | 4532 |
@@ -785,17 +813,23 @@ Seventeen members: fifteen carry council lanes, two are implementer-class and ca
 | `nemolight` | opencode/nemotron-3.5-lightning-free | skeptic, qa, ops | | schema | 4672 · free |
 | `hy3` | opencode-go/hy3 | qa, ops | | schema | 6117 |
 | `gpt56sol` | openai/gpt-5.6-sol | security, systems, architect | **deep** | schema, agentic | 3696 |
-| `gpt56terra` | openai/gpt-5.6-terra | product, reviewer, docs | **standard** | schema, agentic | 2664 |
+| `gpt56terra` | openai/gpt-5.6-terra | product, reviewer, docs, techwriter | **standard** | schema, agentic | 2664 |
 | `gpt56luna` | openai/gpt-5.6-luna | reviewer, qa, skeptic | **fast** | schema, agentic | 4228 |
 | `glm53` | zai-coding-plan/glm-5.3 | systems, reviewer, infrastructure | | schema, agentic | 6007 |
-| `musespark` | opencode/muse-spark-1.2-contributor-free | *none* | | agentic | 8000 · free |
-| `deepseek` | deepseek/deepseek-v4-pro | *none* | | agentic | 9459 |
+| `musespark` | opencode/muse-spark-1.2-contributor-free | *no lane* | | agentic | 8000 · free |
+| `deepseek` | deepseek/deepseek-v4-pro | *no lane* — **leads the implementer chain** | | agentic | 9459 |
 
 **`capability` is measured, never read off a catalogue flag.** `schema` means the model can
 emit forced-tool-call structured output — every council lane needs it. `agentic` means it
 can drive tools in a session — an implementer needs only that. A member with `agentic`
 alone gets no lane, and every role-based selector excludes it twice over: by capability and
 by its empty `roles`.
+
+**The `roles` column is council lanes, not workload.** `no lane` means the member is never
+recruited to review a diff; it does not mean the member is idle. `deepseek` carries no lane
+and is nonetheless the model that writes the code — it **leads `LETS_IMPLEMENT_MODELS`**, so
+it runs on every item of every `/lets:execute` and every `/crew:execute` task. See [the two
+model chains](#the-two-model-chains) below.
 
 **The `gpt-5.6` three are tiers, not variants** — Sol is peak reasoning (slowest, dearest),
 Terra the balanced production default, Luna the fast high-volume budget tier. Note what the
@@ -811,6 +845,24 @@ regardless of order, and sorting it moves no volume.
 
 `kimik3go` exists as the `code` lane's billing-cycle fallback: when kimi-for-coding's
 quota trips, the lane substitutes to it first (same role, same model, other provider).
+
+**`techwriter` authors documentation; `docs` reviews it.** They are different jobs and the
+roster keeps them apart. `docs` is a review lane — it reads a diff and names the statements
+that diff has made untrue. `techwriter` writes and repairs the documentation a change left
+behind, as part of the work (`/crew:execute`), and it is not a second opinion on a markdown
+file. It is carried by `gemini36` and `gpt56terra`, the two members already carrying `docs`,
+because the roster's existing statement about who the prose models are should not be
+relitigated by a new role.
+
+It is **appended** to those members' `roles`, never prepended: `roles[0]` is the voice a
+model answers in, so prepending would quietly re-cast an existing member as the tech writer.
+A test pins that.
+
+And it is **deliberately absent from `ROUTES`**, where it would look natural beside `docs` on
+the markdown globs. `ROUTES` wakes *review* lanes on a diff, and adding `techwriter` there
+would put two prose models on every documentation change saying close to the same thing —
+the per-change cost routing exists to hold down. It reaches a panel through `ALL_ROLES`,
+which is the whole-council case rather than the per-diff one.
 
 Model diversity earns its keep in the **skeptic pool**: three votes from one model are
 correlated and near-worthless; three from different models are evidence.
@@ -847,6 +899,42 @@ output, not inference.
 requires a data-collection opt-in at `opencode.ai/workspace/.../go` — consent that is the
 human's to give, so it is not pinned here.
 
+### The two model chains
+
+`lets` drives two model chains directly, each tried in order, first to answer wins. They are
+lists rather than single picks for the reason `WORKERS` is a list: one hardcoded model is one
+single point of failure, and a run that dies at intake has produced nothing at all.
+
+| chain | members | the call site passes | the constraint |
+|---|---|---|---|
+| `LETS_INTAKE_MODELS` | `opus5`, `gpt56terra`, `glm53`, `minimax`, `kimik3` | a **schema** — a forced tool call | every member must be `canSchema` |
+| `LETS_IMPLEMENT_MODELS` | **`deepseek`**, then the intake five unchanged | `allow: ["edit", "bash"]` and **no schema** | the **lead** must be `canAgentic` |
+
+**deepseek leads the implementer chain because it is the cheapest model that drives tools**,
+and implementing is the highest-volume paid call lets makes — every item, every attempt,
+every escalation. It cannot appear in the intake chain at all: it 400s on a forced
+`tool_choice`, which is exactly what intake sends.
+
+**They were one list, and the split is not tidiness.** The obvious alternative — keep one
+list and filter it per call site — cannot work, because the two sites need *opposite*
+capabilities. Intake needs `canSchema`, which excludes deepseek. The implementer needs
+`canAgentic`, which is the one thing deepseek has. A single list can be filtered down but
+never filtered *up*: no predicate over one list produces a chain that both starts with
+deepseek and excludes it.
+
+**The implementer's tail is deliberately unfiltered, and this is the part most likely to be
+"fixed".** Filtering the tail on `canAgentic` would drop `minimax` and `kimik3`, whose
+`capability` is **unset** — which `canAgentic` reads as false, since it defaults to
+`["schema"]`. Unset means *never measured* for tool driving, not measured and failed; the two
+members that genuinely fail are flagged explicitly, because the roster records measurements
+rather than assumptions. Both have been implementing here all along. Filtering on an absent
+measurement would silently cut the fallback from **five models to three** — and the run that
+needed those two would be the one where deepseek was already down.
+
+`src/lets.test.ts` checks each list against `canSchema`/`canAgentic` in the roster rather
+than trusting the slugs, so a roster edit that invalidates a chain fails a test instead of a
+run.
+
 ### Excluded, with cause
 
 | model | cause | remedy |
@@ -863,7 +951,7 @@ schema lane; a second parse path for two models is complexity for marginal diver
 ## Known limits
 
 - **`/council:review` is now the most expensive path in the system.** That is the intended
-  trade, so here it is in numbers: a full panel is **23 nodes**, each subject to **up to 2
+  trade, so here it is in numbers: a full panel is **25 nodes**, each subject to **up to 2
   debate rounds**, before verification adds 3 skeptic calls per BLOCKER and 2 per
   SUGGESTION. `/council:task` is **15 proposals + 45 scoring calls** (all-pairs would have
   been 210). Rounds are sequential and each is bounded by its slowest member, so wall time
@@ -915,8 +1003,8 @@ it, the two asymmetries above are the things most likely to be "simplified" into
 | `src/schedule.ts` | pure scheduling: file edges from the graph, one-hop conflicts, waves, and the `graph`/`partial`/`sequential` degradation. No model, no I/O beyond reading the graph |
 | `src/crew-org.ts` | crew's testable core: the deterministic lane floor, branch integration, and the CEO report |
 | `src/index.ts` | plugin entry: registers agents, commands, the `skills/` path, and the `council`, `lets` and `crew` tools |
-| `agent/*.md` | 17 agent prompts — 14 council (13 roles plus the fixer) and 3 lets (`cpo`, `cto`, `dev`); expertise and tier calibration only |
-| `src/*.test.ts` | 280 tests: `decide`, `roster`, `tally`, task states, catalog, patch classification, the lets config and worktree paths, the beads parsers, the wave scheduler, and crew's recruiting, integration and report |
+| `agent/*.md` | 18 agent prompts — 15 council (14 roles plus the fixer) and 3 lets (`cpo`, `cto`, `dev`); expertise and tier calibration only |
+| `src/*.test.ts` | 289 tests: `decide`, `roster`, `tally`, task states, catalog, patch classification, the lets config and worktree paths, the beads parsers, the wave scheduler, and crew's recruiting, integration and report |
 
 The rule the whole design rests on: **anything that decides an outcome lives in
 `decide.ts` and is tested.** `engine.ts` may move data and call models, but if you find
