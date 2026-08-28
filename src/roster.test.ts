@@ -113,6 +113,73 @@ test("techwriter is carried, and joining it never changed a model's voice", () =
   }
 })
 
+test("ciso is carried, and never by a model that also carries security", () => {
+  // Two silent failures in one. A role no model carries recruits fine and answers nothing.
+  // And the correlation one, which is the entire reason this lane is separate from
+  // `security`: selectNodes only DEPRIORITISES an already-used model, it does not forbid
+  // one - so a security carrier holding `ciso` too would, on any diff waking both, be
+  // handed both and write the governance finding in the voice that just wrote the attack.
+  // The roster is the only place that can be prevented, so it is pinned here rather than
+  // left to arithmetic that happens to work today.
+  const carriers = ROSTER.filter((m) => m.roles.includes("ciso"))
+  assert.ok(carriers.length, "no model carries 'ciso' — a silently empty lane")
+  for (const m of carriers) {
+    assert.ok(canSchema(m), `${m.slug} carries ciso but cannot emit structured output`)
+    assert.ok(!m.roles.includes("security"), `${m.slug} carries ciso AND security; the lanes correlate`)
+    assert.notEqual(m.roles[0], "ciso", `${m.slug}'s voice was displaced; append, never prepend`)
+  }
+})
+
+test("a diff that wakes ciso alongside its neighbours still gets distinct models", () => {
+  // The property the carrier rule above exists to buy, asserted behaviourally rather than
+  // by proxy: an IAM path is the densest overlap in ROUTES - ciso, infrastructure,
+  // security and reviewer all fire - so it is where a shared carrier collapses two lanes
+  // into one opinion.
+  //
+  // Not vacuous, verified by mutation: moving `ciso` onto opus5 fails this with
+  // `[["opus5",2]]`. The reason it bites is that `ciso` has exactly two carriers and the
+  // default cap is two, so the cap truncates nothing and BOTH always run - the used-count
+  // sort in selectNodes has no unused carrier left to prefer. A third carrier would be
+  // spared by that sort, which is precisely why this guards the arithmetic and not just
+  // the roster's role lists.
+  const nodes = selectNodes(selectRoles(["infra/iam_policy.tf"]))
+  assert.ok(nodes.some((n) => n.role === "ciso"), "fixture: this path must wake ciso")
+  const counts = new Map<string, number>()
+  for (const n of nodes) counts.set(n.slug, (counts.get(n.slug) ?? 0) + 1)
+  const doubled = [...counts.entries()].filter(([, c]) => c > 1)
+  assert.equal(doubled.length, 0, `a model answers two lanes on one diff: ${JSON.stringify(doubled)}`)
+})
+
+test("ciso wakes where governance lives, not on ordinary source", () => {
+  const wakes = (f: string) => selectRoles([f]).includes("ciso")
+  // access control, secrets, declared vendors, and the repo's own control surface
+  for (const f of ["src/auth/session.ts", "infra/iam_policy.tf", "k8s/rbac.yaml",
+                   ".env.production", "package.json", "go.mod", "docs/compliance/soc2.md"])
+    assert.ok(wakes(f), `${f} should wake ciso: ${selectRoles([f]).join(", ")}`)
+
+  // ...and nowhere else. `ciso` is deliberately absent from every source-code glob: "is
+  // this exploitable" is the question the prompt forbids it to ask, so a plain source or
+  // docs diff must not pay for the lane.
+  for (const f of ["src/parser.ts", "lib/render.go", "docs/guide.md", "README.md",
+                   "envs/prod/main.tf"])
+    assert.ok(!wakes(f), `${f} woke ciso and should not: ${selectRoles([f]).join(", ")}`)
+
+  // A lockfile is a transitive bump nobody decided; a manifest is someone choosing a
+  // vendor. Only the second is a governance event, and conflating them would wake the lane
+  // on every `npm install`.
+  assert.ok(!wakes("package-lock.json"), "lockfile churn must not wake the lane")
+  assert.ok(!wakes("go.sum"), "lockfile churn must not wake the lane")
+})
+
+test("the full panel is 27 nodes, and the ciso lane is 2 of them", () => {
+  // ALL_ROLES is the most expensive path in the system and every role added is paid on
+  // every full review. 23 → 25 when techwriter joined, 25 → 27 with ciso. Pinned as a
+  // number because "it only adds a couple of nodes" is how the cost stops being noticed;
+  // a future reader weighing whether to keep this lane needs the figure, not an adjective.
+  assert.equal(selectNodes(ALL_ROLES).length, 27)
+  assert.equal(selectNodes(ALL_ROLES).filter((n) => n.role === "ciso").length, 2)
+})
+
 test("skeptics never include the model that raised the finding", () => {
   const pool = skepticPool(["fable"], 3)
   assert.ok(!pool.some((m) => m.slug === "fable"))
@@ -258,4 +325,13 @@ test("essentials beyond the cap all run, and the cap loses", () => {
     slug, model: `test/${slug}`, roles: ["security"], ms: 100, essential: ["security"],
   }))
   assert.equal(essentialFirst([...pins, { slug: "q", model: "t/q", roles: ["security"], ms: 1 }], "security", 2).length, 3)
+})
+
+test("a schema change wakes the CISO — retention and classification live there", () => {
+  // security reads a migration and correctly has nothing to say: adding a column is not
+  // exploitable. The compliance question is the one nobody else asks - what personal data
+  // do we now hold, for how long, and can we prove who read it. That is why the lane exists.
+  const roles = selectRoles(["db/migrations/003_add_customer_pii.sql"])
+  assert.ok(roles.includes("ciso"), "a migration must wake the compliance lane")
+  assert.ok(roles.includes("security"), "and must not stop waking the adversarial one")
 })

@@ -7,7 +7,7 @@ import path from "node:path"
 export type Role =
   | "security" | "systems" | "code" | "pragmatist" | "product"
   | "breadth" | "reviewer" | "docs" | "qa" | "ops" | "skeptic"
-  | "architect" | "infrastructure" | "techwriter"
+  | "architect" | "infrastructure" | "techwriter" | "ciso"
 
 export type Member = {
   slug: string
@@ -65,10 +65,36 @@ export const ROSTER: Member[] = [
   // prose members, and both are schema-capable - the writing role still answers structured.
   { slug: "gemini36",  model: "google/gemini-3.6-flash",                roles: ["breadth", "docs", "techwriter"], ms: 9028 },
   { slug: "grok45",    model: "opencode-go/grok-4.5",                   roles: ["systems", "skeptic", "infrastructure"], ms: 7146 },
-  { slug: "mimo",      model: "opencode-go/mimo-v2.5-pro",              roles: ["pragmatist", "skeptic"],  ms: 7027 },
+  // `ciso` carriers are mimo and minimax, and the choice is load-bearing rather than
+  // spare-capacity: NEITHER CARRIES `security`.
+  //
+  // The mechanism, because it is not the obvious one. selectNodes deprioritises a model
+  // already used this round, which is usually enough to keep two lanes on two voices - but
+  // that only helps while there are unused carriers left to reach for. `ciso` has exactly
+  // two carriers and DEFAULT_MODELS_PER_ROLE is two, so the cap never truncates anything:
+  // BOTH CARRIERS ALWAYS RUN. A carrier that also carried `security` would therefore be
+  // handed both lanes on every diff waking both - the governance finding written in the
+  // voice that just wrote the attack, which is the one outcome the second lane was bought
+  // to avoid. Measured, not assumed: putting `ciso` on opus5 yields `security:opus5` and
+  // `ciso:opus5` in the same round on `src/auth/session.ts`. That is why opus5, gpt56sol
+  // and fable are all excluded despite being the obvious strong-reasoning picks.
+  //
+  // glm53 was passed over on LOAD, not correlation - it already carries three lanes, and
+  // as a third carrier the used-count sort would in fact have kept it out of a doubled
+  // round. Load is the whole reason: mimo and minimax carry two lanes each, the lightest
+  // schema members outside the code pair.
+  //
+  // Both are judgement lanes already: mimo's `pragmatist` weighs proportionality, which is
+  // the risk arithmetic a CISO does. APPENDED, never prepended - roles[0] is the voice
+  // (engine.ts:1272).
+  { slug: "mimo",      model: "opencode-go/mimo-v2.5-pro",              roles: ["pragmatist", "skeptic", "ciso"],  ms: 7027 },
   // agentic MEASURED 2026-08-28: drove bash in a pinned worktree and returned the exact
   // marker, 10.4s. It sat in the implementer fallback on prior use alone until then.
-  { slug: "minimax",   model: "opencode-go/minimax-m3",                 roles: ["reviewer", "skeptic"],    ms: 4532, capability: ["schema", "agentic"] },
+  // `ciso` appended for the reason above: minimax is a `reviewer` - weighing whether a
+  // claim actually holds is the same motion as judging a control gap - and at 4532ms it is
+  // the fastest reviewer that does NOT normally win a reviewer slot (the cap of 2 goes to
+  // gpt56terra/gpt56luna on ms), so the lane costs a model that was otherwise idle.
+  { slug: "minimax",   model: "opencode-go/minimax-m3",                 roles: ["reviewer", "skeptic", "ciso"],    ms: 4532, capability: ["schema", "agentic"] },
   { slug: "nemoultra", model: "opencode/nemotron-3-ultra-free",         roles: ["reviewer", "systems", "breadth"], ms: 7307, free: true },
   { slug: "nemolight", model: "opencode/nemotron-3.5-lightning-free",   roles: ["skeptic", "qa", "ops"],   ms: 4672, free: true },
   // Implementer class: chats and drives tools fine, 400s on a *named* tool_choice with
@@ -105,7 +131,7 @@ export const bySlug = (slug: string) => ROSTER.find((m) => m.slug === slug)
 export const ALL_ROLES: Role[] = [
   "security", "systems", "code", "pragmatist", "product",
   "breadth", "reviewer", "docs", "qa", "ops",
-  "architect", "infrastructure", "techwriter",
+  "architect", "infrastructure", "techwriter", "ciso",
 ]
 
 /** Every role a repo's lets block may legally name. Lives here, not in lets.ts, so the
@@ -130,17 +156,53 @@ export const ROUTES: [string, Role[]][] = [
   ["**/{terraform,infra,infrastructure}/**", ["infrastructure", "security"]],
   // CI and runtime config stay `ops`: a pipeline is not topology.
   ["**/.github/workflows/**", ["ops", "security"]],
-  ["**/{migrations,migrate}/**", ["systems", "security"]],
+  // `ciso` rides along here because a schema change is where the obligations physically
+  // live: what personal data we now hold, how long we may keep it, and whether the access
+  // to it leaves a trail. A migration adding customer columns with no retention story is a
+  // textbook control gap that `security` will correctly say nothing about - nothing in it
+  // is exploitable. This was left out of the role's first introduction to keep it
+  // conservative and added on the reasoning above, which is the one place the lane's own
+  // ADR predicted it would be needed first.
+  ["**/{migrations,migrate}/**", ["systems", "security", "ciso"]],
   ["**/*.sql", ["systems", "security"]],
   ["**/*.{py,go,java,rb,rs,php,cs}", ["code", "security"]],
   ["**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte}", ["code"]],
-  ["**/*{auth,session,token,login,passwd,password,crypto,secret,jwt,oauth}*", ["security"]],
+  // `ciso` JOINS `security` here deliberately - this is the one place the two lanes are
+  // pointed at the same file on purpose, and it is not a mirror. Security asks whether the
+  // token can be forged; the CISO asks whether the access it grants is least privilege and
+  // whether we could prove afterwards who used it. A correct auth check that writes no
+  // audit record is a finding only one of them has.
+  ["**/*{auth,session,token,login,passwd,password,crypto,secret,jwt,oauth}*", ["security", "ciso"]],
   ["**/*.{test,spec}.*", ["qa"]],
   ["**/{test,tests,__tests__,spec}/**", ["qa"]],
   ["**/*.{md,mdx,rst,txt}", ["docs"]],
   ["**/{docs,doc}/**", ["docs"]],
-  ["**/.env*", ["security", "ops"]],
+  ["**/.env*", ["security", "ops", "ciso"]],
   ["**/*.{yml,yaml,toml,ini,conf}", ["ops", "security"]],
+
+  // ---- ciso-only routes. Deliberately NOT a copy of security's: `ciso` is absent from
+  // every source-code glob above, because "is this code exploitable" is the question it is
+  // explicitly told not to ask. It wakes where governance lives, not where bugs do.
+
+  // Access control as a governed thing, and NARROWER than `*.tf` on purpose: routing every
+  // terraform diff here would put the CISO on tag renames and keep the infrastructure lane
+  // company for no added question. `iam`/`rbac`/`policy` in a path is an unambiguous
+  // access-control artefact whatever the language - terraform, k8s, OPA, a policy JSON.
+  // `role`/`roles` are excluded despite fitting: too common in ordinary source (`roles.ts`)
+  // to carry the signal.
+  ["**/*{iam,rbac,policy,policies,permission,permissions,authz}*", ["ciso"]],
+
+  // A newly declared dependency is a new subprocessor: third-party exposure is the CISO's,
+  // and nothing else in ROUTES looks at vendor risk. MANIFESTS ONLY, never lockfiles -
+  // `package-lock.json` and `go.sum` churn on every transitive bump and would wake the lane
+  // constantly for a decision nobody took. A manifest edit is someone CHOOSING a vendor.
+  ["**/{package.json,requirements*.txt,go.mod,Gemfile,pom.xml,Cargo.toml,pyproject.toml,composer.json,build.gradle}", ["ciso"]],
+
+  // The repo's own control surface. `docs` reviews these as prose; the CISO reads them as
+  // the commitments every one of its other findings is measured against, so a change to
+  // what we claim is precisely when it should look.
+  ["**/{SECURITY.md,COMPLIANCE.md,PRIVACY.md}", ["ciso", "docs"]],
+  ["**/{compliance,policies,policy,governance}/**", ["ciso", "docs"]],
 ]
 
 /** Large diffs get an over-engineering lens. Below this, it is not worth a model call. */

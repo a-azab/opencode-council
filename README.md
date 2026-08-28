@@ -807,8 +807,8 @@ Seventeen members: fifteen carry council lanes, two are implementer-class and ca
 | `kimik3go` | opencode-go/kimi-k3 | code | | schema | 6782 |
 | `gemini36` | google/gemini-3.6-flash | breadth, docs, techwriter | | schema | 9028 |
 | `grok45` | opencode-go/grok-4.5 | systems, skeptic, infrastructure | | schema | 7146 |
-| `mimo` | opencode-go/mimo-v2.5-pro | pragmatist, skeptic | | schema | 7027 |
-| `minimax` | opencode-go/minimax-m3 | reviewer, skeptic | | schema | 4532 |
+| `mimo` | opencode-go/mimo-v2.5-pro | pragmatist, skeptic, ciso | | schema | 7027 |
+| `minimax` | opencode-go/minimax-m3 | reviewer, skeptic, ciso | | schema | 4532 |
 | `nemoultra` | opencode/nemotron-3-ultra-free | reviewer, systems, breadth | | schema | 7307 · free |
 | `nemolight` | opencode/nemotron-3.5-lightning-free | skeptic, qa, ops | | schema | 4672 · free |
 | `hy3` | opencode-go/hy3 | qa, ops | | schema | 6117 |
@@ -863,6 +863,44 @@ the markdown globs. `ROUTES` wakes *review* lanes on a diff, and adding `techwri
 would put two prose models on every documentation change saying close to the same thing —
 the per-change cost routing exists to hold down. It reaches a panel through `ALL_ROLES`,
 which is the whole-council case rather than the per-diff one.
+
+**`security` asks how it breaks; `ciso` asks whether we could prove it.** The second role
+exists because the first one's question does not reach governance. `security` is
+adversarial — an attack scenario, a CWE, a concrete fix. `ciso` is the compliance and risk
+lane: data classification, least privilege as a *governed* thing rather than a bypassable
+one, auditability, retention and deletion, vendor exposure, segregation of duties. The test
+its prompt applies to every finding is *"would Security have raised this? If yes, drop
+it."* What survives is the finding neither of them would otherwise write down — the control
+that works correctly and leaves no evidence it worked.
+
+It is grounded in **the repo's own controls**, not in framework boilerplate: it reads
+`docs/compliance*`, `SECURITY.md`, policy directories and `AGENTS.md` first and cites those.
+SOC 2, ISO 27001, PCI-DSS, GDPR and NIST CSF are vocabulary it may borrow to be precise,
+never standards it may assume apply. Where a repo claims no controls, it says so and reasons
+from the change's actual exposure.
+
+**A `ciso` BLOCKER becomes work automatically.** `reviewBranch` maps BLOCKERs to work items
+and feeds them straight back into execution, bounded by `MAX_REVIEW_CYCLES`. That is the
+point — findings that action themselves rather than landing in a report — and it is why the
+prompt spends more space on tier discipline than on scope: a vague blocker does not merely
+annoy someone, it burns one of three cycles. (A NIT, by contrast, gets **zero** skeptic
+verification under `SKEPTICS_PER_TIER`, so it is unverified by construction.)
+
+Carried by `mimo` and `minimax`, and the binding constraint is that **neither carries
+`security`**. The lane has exactly two carriers and the default cap is two, so the cap
+truncates nothing and both always run — `selectNodes`' used-count sort has no unused carrier
+left to prefer. A `security` carrier holding `ciso` would therefore be handed both lanes on
+any diff waking both, and the governance finding would arrive in the voice that just wrote
+the attack. That excludes `opus5`, `gpt56sol` and `fable`; `glm53` was passed over on load.
+Appended, never prepended, for the same `roles[0]`-is-the-voice reason as `techwriter`.
+
+Its `ROUTES` entries are **deliberately not a copy of `security`'s**. `ciso` appears in no
+source-code glob at all — "is this exploitable" is the question its prompt forbids it to
+ask — and wakes instead on access-control artefacts (`iam`, `rbac`, `policy`, `authz`),
+`.env*`, dependency **manifests but never lockfiles** (a manifest edit is someone choosing a
+vendor; a lockfile bump is transitive churn nobody decided), and the repo's own control
+surface. It shares the auth/secret glob with `security` on purpose: same file, two
+questions.
 
 Model diversity earns its keep in the **skeptic pool**: three votes from one model are
 correlated and near-worthless; three from different models are evidence.
@@ -951,7 +989,7 @@ schema lane; a second parse path for two models is complexity for marginal diver
 ## Known limits
 
 - **`/council:review` is now the most expensive path in the system.** That is the intended
-  trade, so here it is in numbers: a full panel is **25 nodes**, each subject to **up to 2
+  trade, so here it is in numbers: a full panel is **27 nodes**, each subject to **up to 2
   debate rounds**, before verification adds 3 skeptic calls per BLOCKER and 2 per
   SUGGESTION. `/council:task` is **15 proposals + 45 scoring calls** (all-pairs would have
   been 210). Rounds are sequential and each is bounded by its slowest member, so wall time
@@ -1000,8 +1038,8 @@ it, the two asymmetries above are the things most likely to be "simplified" into
 | `src/schedule.ts` | pure scheduling: file edges from the graph, one-hop conflicts, waves, and the `graph`/`partial`/`sequential` degradation. No model, no I/O beyond reading the graph |
 | `src/crew-org.ts` | crew's testable core: the deterministic lane floor, branch integration, and the CEO report |
 | `src/index.ts` | plugin entry: registers agents, commands, the `skills/` path, and the `council`, `lets` and `crew` tools |
-| `agent/*.md` | 18 agent prompts — 15 council (14 roles plus the fixer) and 3 lets (`cpo`, `cto`, `dev`); expertise and tier calibration only |
-| `src/*.test.ts` | 289 tests: `decide`, `roster`, `tally`, task states, catalog, patch classification, the lets config and worktree paths, the beads parsers, the wave scheduler, and crew's recruiting, integration and report |
+| `agent/*.md` | 19 agent prompts — 16 council (15 roles plus the fixer) and 3 lets (`cpo`, `cto`, `dev`); expertise and tier calibration only |
+| `src/*.test.ts` | 294 tests: `decide`, `roster`, `tally`, task states, catalog, patch classification, the lets config and worktree paths, the beads parsers, the wave scheduler, and crew's recruiting, integration and report |
 
 The rule the whole design rests on: **anything that decides an outcome lives in
 `decide.ts` and is tested.** `engine.ts` may move data and call models, but if you find
