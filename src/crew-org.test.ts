@@ -49,6 +49,27 @@ test("recruitFloor wakes qa for test work and architect for new structure", () =
   assert.ok(recruitFloor("fix the typo in the readme", []).includes("architect"))
 })
 
+test("recruitFloor recruits the ciso on regulated ground", () => {
+  // Two routes into the lane, and both are exercised here on purpose. The last directive
+  // reaches `ciso` through ROUTES unaided (`iam` and `policy` are path-shaped words); the
+  // rest only get there because AS_PATH translates regulatory vocabulary into the
+  // compliance path first. If AS_PATH were dropped, the last one would still pass - so
+  // testing only that shape would leave the translation untested.
+  for (const directive of [
+    "make the data export path GDPR compliant",
+    "we need an audit trail for admin actions",
+    "add PII redaction to the request logs",
+    "set a retention window on the events table",
+    "tighten the IAM policy on the deploy role",
+  ])
+    assert.ok(recruitFloor(directive, []).includes("ciso"), `"${directive}" did not recruit the ciso`)
+
+  // ...and it does not ride along on ordinary work. The floor errs wide, not everywhere:
+  // a lane on every directive is the cost ROUTES exists to hold down.
+  assert.ok(!recruitFloor("speed up the parser", ["node"]).includes("ciso"))
+  assert.ok(!recruitFloor("fix the typo in the readme", []).includes("ciso"))
+})
+
 test("recruitFloor reads the detected stack, not just the directive", () => {
   // `docker` is what detectStack actually emits; ROUTES only knows `Dockerfile`.
   assert.ok(recruitFloor("speed up the build", ["node", "docker"]).includes("infrastructure"))

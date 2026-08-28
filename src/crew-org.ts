@@ -29,6 +29,26 @@ const AS_PATH: Record<string, string> = {
   containerize: "Dockerfile", compose: "docker-compose.yml",
   infra: "infra/x", infrastructure: "infrastructure/x",
   testing: "test/x", tests: "test/x", coverage: "test/x", qa: "test/x",
+  // Regulated ground. A directive says "GDPR" or "audit trail"; it never says
+  // `docs/compliance/`. These map to the compliance PATH and nothing else - which lanes
+  // that wakes stays in ROUTES, same contract as every entry above, which is why this is
+  // an extension of the one routing table rather than a second keyword table beside it.
+  //
+  // Words that ALREADY route are deliberately absent: `compliance`, `policy`, `policies`,
+  // `governance`, `iam`, `rbac`, `permissions` and `authz` all reach `ciso` through
+  // probesFor unaided, and restating them here would be a second place to keep in sync.
+  //
+  // `audit` is knowingly wide - it catches "audit the bundle size" too. recruitFloor is a
+  // floor and errs wide by design: a redundant lane costs one model call, a missing one on
+  // an unattended run costs a merged mistake nobody reviewed.
+  gdpr: "compliance/x", hipaa: "compliance/x", ccpa: "compliance/x", sox: "compliance/x",
+  pci: "compliance/x", dss: "compliance/x", fedramp: "compliance/x", hitrust: "compliance/x",
+  // Only the unspaced forms survive the `[a-z0-9]+` tokeniser; "SOC 2" arrives as two
+  // tokens and is carried by whatever else the directive says.
+  soc2: "compliance/x", iso27001: "compliance/x",
+  audit: "compliance/x", auditable: "compliance/x", auditor: "compliance/x",
+  regulatory: "compliance/x", regulation: "compliance/x", regulated: "compliance/x",
+  pii: "compliance/x", phi: "compliance/x", retention: "compliance/x",
 }
 
 /**
