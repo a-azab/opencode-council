@@ -1,5 +1,5 @@
 ---
-description: Interview the human into a directive, research it, design it, decompose it, and record the ADR. No approval gate — /crew:execute runs whatever this writes.
+description: Interview the human into a directive, research it, have the architect write the ADR, then decompose it. No approval gate — /crew:execute runs whatever this writes.
 ---
 
 `/crew:plan` is the front half of the third namespace. `/lets` has you state the
@@ -10,6 +10,9 @@ here is what runs.
 That asymmetry is the whole reason for the ADR. With nobody approving the plan, the ADR is
 the only record of what was asked for and why — so it is written **before** execution, not
 after, and it is a hard requirement of the tool: `crew:plan` refuses without one.
+
+The sequence is **interview → research → the architect writes the ADR → decompose**, in that
+order, for the reasons each step gives below.
 
 ## 1. Read the repo before you ask anything
 
@@ -53,15 +56,40 @@ Use the **browser MCP** for anything you need from outside the repo.
 > **`websearch` does not exist in this environment.** A spawned session that reaches for it
 > reports `NO-TOOL` and comes back with nothing. If you need the web, drive the browser.
 
-Prefer primary sources — the actual docs, the actual changelog, the actual RFC. Record what
-you found and what you could not find; "I could not confirm X" belongs in the ADR too.
+Prefer primary sources — the actual docs, the actual changelog, the actual RFC. **Keep the
+URLs** — the ADR records what you consulted, not just what you concluded, so the next person
+can check the source rather than re-run the search. Record what you found and what you could
+not find; "I could not confirm X" belongs in the ADR too.
 
-## 4. Design, then decompose
+## 4. The architect writes the ADR
 
-Design first, in the ADR: the approach, what you rejected and why, the risks, and what would
-make this the wrong call. Then decompose into tasks.
+This is where the design gets decided, not merely recorded.
 
-Decomposition rules that the scheduler depends on:
+**The `architect` lane writes it.** The architect is the role that owns the design decision,
+so it owns the record of it — a decision written up by whoever happened to be free is a
+summary, not a record. If the recruited lane floor did not include `architect` (it is only
+added when the directive reads like structural work), this step recruits one; the ADR is not
+optional, so its author is not conditional either.
+
+Write it to `docs/adr/YYYY-MM-DD-<slug>.md`. **Date-slug, never a sequential number** —
+`0007-` allocates a number, and two tasks writing decisions at the same time allocate the
+same one. Read an existing file in `docs/adr/` and match its shape.
+
+It contains:
+
+1. The directive as finally understood
+2. **Every interview question and answer, verbatim** — that is the requirements record
+3. The research findings, **including the source URLs consulted** and the dead ends
+4. The design decision, the alternatives rejected and why, the risks
+5. What would make this the wrong call
+
+**It is written before decomposition, not after.** A record written after the tasks exist is
+a justification for them; written before, it is the decision the tasks come out of. Anything
+you cannot justify in the ADR should not become a task.
+
+## 5. Decompose
+
+Now turn the design into tasks. Decomposition rules that the scheduler depends on:
 
 - **At most 12 tasks** (`MAX_TASKS`). More than that wants a human splitting it, not a
   scheduler. The tool refuses.
@@ -73,17 +101,10 @@ Decomposition rules that the scheduler depends on:
 - Order tasks so that anything foundational comes first — the scheduler preserves plan order
   when it builds waves.
 
-## 5. Write the ADR, then record the plan
+## 6. Record the plan
 
-Write the ADR to `docs/adr/` (or wherever this repo keeps them) **first**. It contains:
-
-1. The directive as finally understood
-2. Every interview question and answer
-3. Research findings, including the dead ends
-4. The design, the rejected alternatives, the risks
-5. The task decomposition and why it splits that way
-
-Then record it:
+Add the decomposition and why it splits that way to the ADR you wrote in step 4, then
+record the plan:
 
 ```
 Call the `crew` tool with mode: "plan", directive: "<the settled directive>",
@@ -107,7 +128,10 @@ rebuilding the graph fixes it.
   requirements gathering; there is no later gate to catch what it missed.
 - Never exceed two rounds or four questions per round. An interview that cannot converge is
   a signal, not an obstacle to push through.
-- Never write the ADR after execution. A record written after the fact records outcomes,
-  not requirements.
+- Never write the ADR after execution, and never after decomposition. A record written after
+  the fact records outcomes, not requirements — and one written after the tasks exist is a
+  justification for them rather than the decision they came from.
+- Never let the ADR be written by whoever is convenient. The architect owns the design, so
+  the architect owns its record.
 - Do not implement anything here. This command plans; `/crew:execute` runs.
 - Respond in the user's language.

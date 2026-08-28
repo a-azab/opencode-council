@@ -31,8 +31,10 @@ test("recruitFloor wakes security on auth keywords alone", () => {
 
 test("recruitFloor always includes reviewer, even for a directive that routes nowhere", () => {
   // The floor's whole job: an unattended run has no human to notice an empty panel.
+  // architect rides along unconditionally - crew:plan refuses without an ADR and the
+  // architect writes it, so a mandatory document must never have a conditional author.
   const roles = recruitFloor("tidy up", [])
-  assert.deepEqual(roles, ["reviewer"])
+  assert.deepEqual(roles.sort(), ["architect", "reviewer"])
 })
 
 test("recruitFloor wakes qa for test work and architect for new structure", () => {
@@ -40,8 +42,11 @@ test("recruitFloor wakes qa for test work and architect for new structure", () =
   assert.ok(recruitFloor("improve test coverage", []).includes("qa"))
   assert.ok(recruitFloor("extract a new service for billing", []).includes("architect"))
   assert.ok(recruitFloor("migrate the store to postgres", []).includes("architect"))
-  // ...and does NOT invent an architect for ordinary work
-  assert.ok(!recruitFloor("fix the typo in the readme", []).includes("architect"))
+  // ...and it is there for ordinary work too. This assertion was previously inverted: the
+  // architect was keyword-triggered, which left the ADR - a hard requirement of the tool -
+  // with no assigned author whenever the regex missed. A record written by whoever happened
+  // to be free is a summary, not a decision.
+  assert.ok(recruitFloor("fix the typo in the readme", []).includes("architect"))
 })
 
 test("recruitFloor reads the detected stack, not just the directive", () => {

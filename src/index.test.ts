@@ -70,6 +70,17 @@ test("every agent file is registered and read-only unless it opts in", async () 
   }
 })
 
+test("every council lane has an agent file behind it", async () => {
+  // engine.ts spawns `council-${node.role}` by string. A role in ALL_ROLES with no agent
+  // file asks opencode for an agent that does not exist - the lane fails at the call, not
+  // at load, so nothing here would notice until a real review ran. Self-maintaining: it
+  // covers any lane added later, not just the one that prompted it.
+  const { config } = await load()
+  const { ALL_ROLES } = await import("./roster.ts")
+  for (const role of ALL_ROLES)
+    assert.ok(config.agent[`council-${role}`], `role '${role}' has no agent/council-${role}.md`)
+})
+
 test("lets-dev is the one agent granted tools, via its own frontmatter", async () => {
   // The grant is safe only because runItem pins its session to a worktree. If this ever
   // becomes true for an agent that is called without a `directory`, it edits the user's
@@ -133,6 +144,38 @@ test("every delegating lets command registers and points somewhere real", async 
   for (const [c, target] of [["lets:check","council:check"], ["lets:review","council:review"],
                              ["lets:opinion","council:plan"], ["lets:ask","council:task"]])
     assert.ok(names.has(target), `${c} delegates to ${target}, which is not registered`)
+})
+
+test("the ADR has a named author in crew, and exists at all in lets", async () => {
+  // crew:plan already REQUIRED an ADR - the tool refuses without one (index.ts ~473) - but
+  // said nothing about who writes it or when. A required artifact with no owner gets
+  // written by whoever notices, which is nobody, and the refusal then gets satisfied with
+  // a stub. Naming the architect is the fix: the role that owns the design owns its record.
+  const { config } = await load()
+  const crew = config.command["crew:plan"].template
+  assert.match(crew, /architect/i, "crew:plan does not say who writes the ADR")
+  assert.match(crew, /ADR/, "crew:plan lost the ADR step entirely")
+
+  // lets has a human gate, so this is not a refusal - but the plan the human approves
+  // should arrive with its reasoning recorded, not just its task list.
+  const lets = config.command["lets:plan"].template
+  assert.match(lets, /ADR/, "lets:plan never mentions an ADR")
+  assert.match(
+    lets,
+    /docs\/adr\/YYYY-MM-DD-/,
+    "date-slug, never a sequential number: 0007- races when parallel tasks write decisions",
+  )
+})
+
+test("crew:execute hands the docs to the tech writer, as a job and not a gate", async () => {
+  // Crew ships code unattended; without this step it ships code and leaves the docs
+  // describing the previous version. The framing is load-bearing, not decoration: a
+  // documentation step written as a gate is the first thing dropped when a run is long,
+  // whereas a team member's job is simply part of the work.
+  const { config } = await load()
+  const x = config.command["crew:execute"].template
+  assert.match(x, /tech writer/i, "no documentation step: the docs are left describing the old behaviour")
+  assert.match(x, /not a gate/i, "a documentation step that reads as a gate gets skipped under pressure")
 })
 
 test("no command file still claims a built command is unbuilt", () => {

@@ -41,8 +41,11 @@ import {
   type Tracker,
   type LetsConfig,
   type WorkItem,
+  LETS_INTAKE_MODELS,
+  LETS_IMPLEMENT_MODELS,
 } from "./lets.ts"
 import { beadsAvailable, bdInstalled } from "./beads.ts"
+import { bySlug, canSchema, canAgentic } from "./roster.ts"
 
 const gitOut = (cwd: string, args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8" })
@@ -1006,4 +1009,45 @@ test("a suppressed PR renders as a choice, never as a failed push", () => {
   assert.doesNotMatch(out, /failed/, "a deliberate choice must not read as an error")
   assert.match(out, /local/i, "it must still say the branch never left the machine")
   assert.match(out, /worktree/, "and where the work actually is")
+})
+
+test("the intake chain is entirely schema-capable", () => {
+  // The one that would 400 in production. runIntake passes WORKITEMS_SCHEMA, which is a
+  // FORCED tool call, and the two agentic-only members answer that with
+  // `only "auto" is supported`. A slug added here without checking its capability breaks
+  // planning for every repo at once, so this is checked against the roster rather than
+  // eyeballed off the slug names.
+  assert.ok(LETS_INTAKE_MODELS.length, "fixture: the intake chain must not be empty")
+  for (const slug of LETS_INTAKE_MODELS) {
+    const m = bySlug(slug)
+    assert.ok(m, `${slug} is not in the roster at all`)
+    assert.ok(canSchema(m!), `${slug} cannot emit structured output and must not do intake`)
+  }
+})
+
+test("the implementer chain leads with an agentic model, and it is deepseek", () => {
+  // Cost: deepseek is the cheapest member that drives tools, and the implementer is the
+  // highest-volume paid call in the system. `canAgentic` is asserted rather than assumed —
+  // leading with a model that cannot drive `edit`/`bash` would burn the first attempt of
+  // every item before falling through.
+  const lead = bySlug(LETS_IMPLEMENT_MODELS[0])
+  assert.ok(lead, `${LETS_IMPLEMENT_MODELS[0]} is not in the roster`)
+  assert.ok(canAgentic(lead!), `${lead!.slug} leads the implementer but cannot drive tools`)
+  assert.equal(lead!.slug, "deepseek", "the cheapest agentic member leads on cost")
+})
+
+test("deepseek implements and never does intake", () => {
+  assert.ok(LETS_IMPLEMENT_MODELS.includes("deepseek"))
+  assert.ok(
+    !LETS_INTAKE_MODELS.includes("deepseek" as never),
+    "deepseek 400s on a forced tool_choice; intake is exactly that call",
+  )
+})
+
+test("the implementer keeps every intake model behind its lead", () => {
+  // The fallback is the whole reason a cheapest-first chain is safe: when deepseek is down
+  // or rate-limited, the implementer must still finish rather than fail the run. Every
+  // model that was in the single pre-split list stays reachable.
+  for (const slug of LETS_INTAKE_MODELS)
+    assert.ok(LETS_IMPLEMENT_MODELS.includes(slug), `${slug} lost its implementer fallback`)
 })
