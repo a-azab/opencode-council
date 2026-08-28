@@ -71,7 +71,13 @@ export function recruitFloor(directive: string, stack: string[]): Role[] {
   // selectRoles already pins `reviewer`, and pinning it in one place keeps that guarantee
   // single-sourced rather than restated here where it could drift.
   const roles = new Set<Role>(selectRoles(probes))
-  if (ARCHITECT.test(directive)) roles.add("architect")
+  // The architect is unconditional, not keyword-triggered. `crew:plan` REFUSES without an
+  // ADR, and the architect is the role that writes it - so a directive that failed a regex
+  // would leave a mandatory document with no assigned author, and the model would pick
+  // whoever was free. A decision written up by whoever happened to be free is a summary,
+  // not a record. `ARCHITECT` still marks structural work for the prompt's benefit; it no
+  // longer decides whether the ADR has an owner.
+  roles.add("architect")
   return [...roles]
 }
 
