@@ -49,6 +49,11 @@ export const ROSTER: Member[] = [
   // carrier joins. It is in the lane today by arithmetic coincidence - the pin makes it a
   // rule, so a roster edit cannot silently take the security panel's named reviewer out.
   { slug: "fable",     model: "anthropic/claude-fable-5",               roles: ["security", "skeptic"],    ms: 6704, essential: ["security"] },
+  // agentic still UNMEASURED, and not for want of trying: the 2026-08-28 probe came back
+  // "you have reached your weekly (7-day) usage", so the account is exhausted rather than
+  // the model incapable. It stays in the implementer chain on prior use, as its tail, and
+  // is the one member of that chain currently guaranteed to fail. kimik3go covers the
+  // code lane meanwhile.
   { slug: "kimik3",    model: "kimi-for-coding/k3",                     roles: ["code"],                   ms: 21151 },
   // The requested quota fallback: when kimi-for-coding/k3 hits its billing-cycle limit, the
   // code lane substitutes here first (same role) before borrowing another model. Measured
@@ -61,7 +66,9 @@ export const ROSTER: Member[] = [
   { slug: "gemini36",  model: "google/gemini-3.6-flash",                roles: ["breadth", "docs", "techwriter"], ms: 9028 },
   { slug: "grok45",    model: "opencode-go/grok-4.5",                   roles: ["systems", "skeptic", "infrastructure"], ms: 7146 },
   { slug: "mimo",      model: "opencode-go/mimo-v2.5-pro",              roles: ["pragmatist", "skeptic"],  ms: 7027 },
-  { slug: "minimax",   model: "opencode-go/minimax-m3",                 roles: ["reviewer", "skeptic"],    ms: 4532 },
+  // agentic MEASURED 2026-08-28: drove bash in a pinned worktree and returned the exact
+  // marker, 10.4s. It sat in the implementer fallback on prior use alone until then.
+  { slug: "minimax",   model: "opencode-go/minimax-m3",                 roles: ["reviewer", "skeptic"],    ms: 4532, capability: ["schema", "agentic"] },
   { slug: "nemoultra", model: "opencode/nemotron-3-ultra-free",         roles: ["reviewer", "systems", "breadth"], ms: 7307, free: true },
   { slug: "nemolight", model: "opencode/nemotron-3.5-lightning-free",   roles: ["skeptic", "qa", "ops"],   ms: 4672, free: true },
   // Implementer class: chats and drives tools fine, 400s on a *named* tool_choice with

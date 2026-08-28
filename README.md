@@ -971,9 +971,6 @@ schema lane; a second parse path for two models is complexity for marginal diver
   calls, and the hand-off into integration, verify and review — is exercised only by its
   refusals. `schedule`, `integrate`, `recruitFloor` and `renderCrewReport` are each tested
   directly and hard; the wiring between them is not tested at all.
-- **crew's `crew:execute` orchestration has never run end to end.** No test may call a
-  model, so the path from waves through `runExecute` to integrate, verify and review is
-  unexercised as a whole; `integrate` and the report renderer are tested directly.
 - **This repo's own dependency graph is stale**, so crew here schedules close to
   sequentially. `/crew:status` reports it; rebuilding the graph is what fixes it.
 
