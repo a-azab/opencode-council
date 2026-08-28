@@ -661,14 +661,33 @@ export function renderInitProposal(p: InitProposal): string {
 // ------------------------------------------------------------------ intake
 
 /**
- * Models lets drives directly - intake lanes AND the implementer - in order of
- * preference, first to answer wins.
+ * The two chains lets drives directly, each in order of preference, first to answer wins.
  *
  * A list rather than one pick for the same reason `WORKERS` is a list: hardcoding a single
  * model makes it a single point of failure, and a run that dies at intake has produced
  * nothing at all.
+ *
+ * They were ONE list until the implementer's lead changed. The call sites want opposite
+ * things and only the split can express both: intake passes a schema (a forced tool call),
+ * the implementer passes `allow: ["edit", "bash"]` and no schema. `lets.test.ts` checks each
+ * list against `canSchema`/`canAgentic` in the roster rather than trusting these slugs.
  */
-export const LETS_MODELS = ["opus5", "gpt56terra", "glm53", "minimax", "kimik3"] as const
+
+/** Intake (CPO, CTO). Every member must be `canSchema`: a forced tool call is the one thing
+ *  the agentic-only members 400 on. Unchanged in order and membership by the split. */
+export const LETS_INTAKE_MODELS = ["opus5", "gpt56terra", "glm53", "minimax", "kimik3"] as const
+
+/**
+ * The implementer. **deepseek leads because it is the cheapest model that drives tools**,
+ * and implementing is the highest-volume paid call lets makes - every item, every attempt,
+ * every escalation.
+ *
+ * The rest is the intake chain unchanged, and it is not decoration: a cheapest-first chain
+ * is only safe if it still finishes when the cheapest is unavailable. deepseek down, rate
+ * limited or 400ing means the run falls through to the models that were doing this job
+ * before, rather than failing the item.
+ */
+export const LETS_IMPLEMENT_MODELS = ["deepseek", ...LETS_INTAKE_MODELS] as const
 
 export type WorkItem = { title: string; detail: string; files: string[]; acceptance: string }
 
@@ -756,8 +775,8 @@ export async function runIntake(
   let calls = 0
 
   const askAny = async <T>(agent: string, text: string, schema?: unknown): Promise<T | null> => {
-    let last = { state: "failed" as NodeState, detail: "no model in LETS_MODELS resolved" }
-    for (const slug of LETS_MODELS) {
+    let last = { state: "failed" as NodeState, detail: "no model in LETS_INTAKE_MODELS resolved" }
+    for (const slug of LETS_INTAKE_MODELS) {
       const member = bySlug(slug)
       if (!member) continue
       calls++
@@ -1517,7 +1536,7 @@ export async function runItem(
     say(`  attempt ${attempt}/${total}: implementing`)
 
     let answered = false
-    for (const slug of LETS_MODELS) {
+    for (const slug of LETS_IMPLEMENT_MODELS) {
       const member = bySlug(slug)
       if (!member) continue
       const r = await ask<string>(ctx, {
