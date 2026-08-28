@@ -118,3 +118,19 @@ test("the substitute list never repeats a model", () => {
   const slugs = subs.map((m) => m.slug)
   assert.equal(new Set(slugs).size, slugs.length, `duplicate in: ${slugs.join(", ")}`)
 })
+
+test("a spent kimi quota falls through to the other kimi route, not to a different model", () => {
+  // kimi-for-coding/k3 and opencode-go/kimi-k3 are the same model behind two billing
+  // routes, so the quota escape should stay within kimi rather than handing the lane to a
+  // different vendor. Measured 2026-08-28: the coding plan answered "you have reached your
+  // weekly (7-day) usage", which is exactly the case this covers.
+  const node = round.find((n) => n.slug === "kimik3" && n.role === "security")!
+  const spent: Bench = new Map([["kimik3", "quota"]])
+  assert.equal(substitutesFor(node, round, spent, new Set())[0].slug, "kimik3go")
+
+  // And when both routes are out, the lane still fills rather than being lost.
+  const bothOut: Bench = new Map([["kimik3", "quota"], ["kimik3go", "quota"]])
+  const subs = substitutesFor(node, round, bothOut, new Set())
+  assert.ok(subs.length > 0, "the lane must still be coverable")
+  assert.ok(!subs.some((m) => m.slug.startsWith("kimi")), "and must not offer a spent route")
+})

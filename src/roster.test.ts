@@ -359,8 +359,15 @@ test("no model reviews the same diff wearing two hats", () => {
 
 test("security is reviewed by the security specialists", () => {
   // The owner's call: fable (pinned essential), kimi and glm - not whichever generalists
-  // happen to be most reliable. kimik3go rather than kimik3 because the kimi-for-coding
-  // account is at its weekly limit; opencode-go/kimi-k3 is the live route.
+  // happen to be most reliable.
+  //
+  // kimi is the CODING-PLAN route, with the opencode-go one as its named fallback rather
+  // than as a second carrier. Both on the lane would not work: the ms sort would compare
+  // 21151 against 6782 and pick the go route every time, so the coding plan would never be
+  // used at all. As a fallback it is reached only when the plan hits its limit, which is
+  // the intent.
   const carriers = ROSTER.filter((m) => m.roles.includes("security")).map((m) => m.slug).sort()
-  assert.deepEqual(carriers, ["fable", "glm53", "kimik3go"])
+  assert.deepEqual(carriers, ["fable", "glm53", "kimik3"])
+  assert.equal(ROSTER.find((m) => m.slug === "kimik3")?.fallback, "kimik3go",
+    "the coding plan escapes to the go route when its quota runs out")
 })

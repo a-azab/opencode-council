@@ -54,11 +54,11 @@ export const ROSTER: Member[] = [
   // the model incapable. It stays in the implementer chain on prior use, as its tail, and
   // is the one member of that chain currently guaranteed to fail. kimik3go covers the
   // code lane meanwhile.
-  { slug: "kimik3",    model: "kimi-for-coding/k3",                     roles: ["code"],                   ms: 21151 },
+  { slug: "kimik3",    model: "kimi-for-coding/k3",                     roles: ["code", "security"],                   ms: 21151, fallback: "kimik3go" },
   // The requested quota fallback: when kimi-for-coding/k3 hits its billing-cycle limit, the
   // code lane substitutes here first (same role) before borrowing another model. Measured
   // 2026-08-23: emits schema-valid structured output, 6782ms on a trivial task.
-  { slug: "kimik3go",  model: "opencode-go/kimi-k3",                    roles: ["code", "security"],       ms: 6782, fallback: "gpt56sol" },
+  { slug: "kimik3go",  model: "opencode-go/kimi-k3",                    roles: ["code"],                   ms: 6782, fallback: "gpt56sol" },
   // `techwriter` is APPENDED here and on gpt56terra, never prepended: roles[0] is the voice
   // a model answers in (engine.ts:1272), so prepending would re-cast an existing member.
   // Both already carry `docs`, which is the roster's existing statement that they are the
