@@ -43,7 +43,7 @@ export type Member = {
  * or tier signal.
  */
 export const ROSTER: Member[] = [
-  { slug: "opus5",     model: "anthropic/claude-opus-5",                roles: ["reviewer", "security", "architect"], ms: 4263, capability: ["schema", "agentic"] },
+  { slug: "opus5",     model: "anthropic/claude-opus-5",                roles: ["reviewer", "architect"], ms: 4263, capability: ["schema", "agentic"] },
   // `essential` on security: fable is the SLOWEST of the three security carriers, so under
   // the (timesUsed, ms) sort it is last and would be the first dropped the moment a fourth
   // carrier joins. It is in the lane today by arithmetic coincidence - the pin makes it a
@@ -58,12 +58,12 @@ export const ROSTER: Member[] = [
   // The requested quota fallback: when kimi-for-coding/k3 hits its billing-cycle limit, the
   // code lane substitutes here first (same role) before borrowing another model. Measured
   // 2026-08-23: emits schema-valid structured output, 6782ms on a trivial task.
-  { slug: "kimik3go",  model: "opencode-go/kimi-k3",                    roles: ["code"],                   ms: 6782 },
+  { slug: "kimik3go",  model: "opencode-go/kimi-k3",                    roles: ["code", "security"],       ms: 6782 },
   // `techwriter` is APPENDED here and on gpt56terra, never prepended: roles[0] is the voice
   // a model answers in (engine.ts:1272), so prepending would re-cast an existing member.
   // Both already carry `docs`, which is the roster's existing statement that they are the
   // prose members, and both are schema-capable - the writing role still answers structured.
-  { slug: "gemini36",  model: "google/gemini-3.6-flash",                roles: ["breadth", "docs", "techwriter"], ms: 9028 },
+  { slug: "gemini36",  model: "google/gemini-3.6-flash",                roles: ["breadth", "docs", "techwriter", "code"], ms: 9028 },
   { slug: "grok45",    model: "opencode-go/grok-4.5",                   roles: ["systems", "skeptic", "infrastructure"], ms: 7146 },
   // `ciso` carriers are mimo and minimax, and the choice is load-bearing rather than
   // spare-capacity: NEITHER CARRIES `security`.
@@ -104,7 +104,7 @@ export const ROSTER: Member[] = [
   // 2026-08-23, this one holds the schema at 6.1s.
   { slug: "hy3",       model: "opencode-go/hy3",                         roles: ["qa", "ops"],              ms: 6117 },
   // openai's three are TIERS, not variants - peak / balanced / fast.
-  { slug: "gpt56sol",   model: "openai/gpt-5.6-sol",   roles: ["security", "systems", "architect"],
+  { slug: "gpt56sol",   model: "openai/gpt-5.6-sol",   roles: ["systems", "architect", "infrastructure"],
     ms: 3696, tier: "deep",     capability: ["schema", "agentic"] },
   { slug: "gpt56terra", model: "openai/gpt-5.6-terra", roles: ["product", "reviewer", "docs", "techwriter"],
     ms: 2664, tier: "standard", capability: ["schema", "agentic"] },
@@ -112,7 +112,7 @@ export const ROSTER: Member[] = [
   // tier is unreachable from the highest-volume loop in the system.
   { slug: "gpt56luna",  model: "openai/gpt-5.6-luna",  roles: ["reviewer", "qa", "skeptic"],
     ms: 4228, tier: "fast",     capability: ["schema", "agentic"] },
-  { slug: "glm53", model: "zai-coding-plan/glm-5.3", roles: ["systems", "reviewer", "infrastructure"],
+  { slug: "glm53", model: "zai-coding-plan/glm-5.3", roles: ["systems", "reviewer", "infrastructure", "security"],
     ms: 6007, capability: ["schema", "agentic"] },
   // Implementer class: drives tools, refuses a named schema call.
   { slug: "deepseek", model: "deepseek/deepseek-v4-pro", roles: [], ms: 9459, capability: ["agentic"] },

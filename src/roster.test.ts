@@ -335,3 +335,32 @@ test("a schema change wakes the CISO — retention and classification live there
   assert.ok(roles.includes("ciso"), "a migration must wake the compliance lane")
   assert.ok(roles.includes("security"), "and must not stop waking the adversarial one")
 })
+
+test("no model reviews the same diff wearing two hats", () => {
+  // The panel's whole value is decorrelation: two lanes agreeing means two models agreed.
+  // If one model holds both, the report shows two lanes and you have one opinion.
+  //
+  // This is why `code` and `infrastructure` carry a THIRD model each. A lane whose carrier
+  // count equals its cap runs ALL of them, every time - so any model holding that lane plus
+  // security was guaranteed to double up. Measured before the third carriers were added:
+  // glm53 = security+infrastructure on a .tf diff, kimik3go = security+code on auth code.
+  // With a third, the least-used sort routes around whoever security already took.
+  const securityPaths = [
+    "envs/prod/main.tf", "db/migrations/001.sql", "src/auth/session.ts",
+    ".env.production", "src/pay.py",
+  ]
+  for (const path of securityPaths) {
+    const held: Record<string, string[]> = {}
+    for (const n of selectNodes(selectRoles([path]))) (held[n.slug] ??= []).push(n.role)
+    const doubled = Object.entries(held).filter(([, roles]) => roles.length > 1)
+    assert.deepEqual(doubled, [], `on ${path}: ${doubled.map(([s, r]) => `${s} holds ${r.join("+")}`).join(", ")}`)
+  }
+})
+
+test("security is reviewed by the security specialists", () => {
+  // The owner's call: fable (pinned essential), kimi and glm - not whichever generalists
+  // happen to be most reliable. kimik3go rather than kimik3 because the kimi-for-coding
+  // account is at its weekly limit; opencode-go/kimi-k3 is the live route.
+  const carriers = ROSTER.filter((m) => m.roles.includes("security")).map((m) => m.slug).sort()
+  assert.deepEqual(carriers, ["fable", "glm53", "kimik3go"])
+})
