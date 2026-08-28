@@ -686,6 +686,14 @@ export const LETS_INTAKE_MODELS = ["opus5", "gpt56terra", "glm53", "minimax", "k
  * is only safe if it still finishes when the cheapest is unavailable. deepseek down, rate
  * limited or 400ing means the run falls through to the models that were doing this job
  * before, rather than failing the item.
+ *
+ * **Do not "fix" this by filtering the tail on `canAgentic`.** It would drop minimax and
+ * kimik3, and their `capability` is UNSET - which `canAgentic` reads as false by defaulting
+ * to `["schema"]`. Unset means never measured for tool driving, not measured and failed;
+ * the two members that genuinely fail are flagged explicitly, because the roster records
+ * measurements rather than assumptions. Both have been implementing here all along. Filtering
+ * on an absent measurement would silently cut the fallback from five models to three, and
+ * the run that needed it would be the one where deepseek was already down.
  */
 export const LETS_IMPLEMENT_MODELS = ["deepseek", ...LETS_INTAKE_MODELS] as const
 

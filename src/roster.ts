@@ -105,7 +105,15 @@ export const ALL_ROLES: Role[] = [
  *  roster suite can assert on it without importing a 2000-line module. */
 export const KNOWN_ROLES: string[] = [...ALL_ROLES, "skeptic"]
 
-/** Changed-path globs to the roles they should wake. Ported from lets-workflow §4.1. */
+/** Changed-path globs to the roles they should wake. Ported from lets-workflow §4.1.
+ *
+ *  `techwriter` is deliberately NOT here, though it would look natural beside `docs` on the
+ *  markdown routes. ROUTES wakes REVIEW lanes on a diff, and `docs` already reviews exactly
+ *  that - statements a diff has made untrue. techwriter is an authoring role: it writes and
+ *  repairs documentation as part of the work (`/crew:execute`), it does not second-opinion a
+ *  markdown change. Adding it would put two prose models on every doc diff saying close to
+ *  the same thing, which is the per-change cost ROUTES exists to hold down. It reaches a
+ *  panel through ALL_ROLES, which is the "whole council" case, not the per-diff one. */
 export const ROUTES: [string, Role[]][] = [
   // `infrastructure` REPLACES `ops` here rather than joining it: the specific lane covers
   // what the generic one would have said, and a swap keeps the node count flat.
