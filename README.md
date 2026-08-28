@@ -799,25 +799,25 @@ Seventeen members: fifteen carry council lanes, two are implementer-class and ca
 (see below). `ms` is measured latency on a trivial structured task — for setting timeouts,
 **not a quality signal and never a tier**. Every member is smoke-tested on joining.
 
-| slug | model | roles | tier | capability | ms |
-|---|---|---|---|---|---|
-| `opus5` | anthropic/claude-opus-5 | reviewer, security, architect | | schema, agentic | 4263 |
-| `fable` | anthropic/claude-fable-5 | security, skeptic | | schema | 6704 |
-| `kimik3` | kimi-for-coding/k3 | code | | schema | 21151 |
-| `kimik3go` | opencode-go/kimi-k3 | code | | schema | 6782 |
-| `gemini36` | google/gemini-3.6-flash | breadth, docs, techwriter | | schema | 9028 |
-| `grok45` | opencode-go/grok-4.5 | systems, skeptic, infrastructure | | schema | 7146 |
-| `mimo` | opencode-go/mimo-v2.5-pro | pragmatist, skeptic, ciso | | schema | 7027 |
-| `minimax` | opencode-go/minimax-m3 | reviewer, skeptic, ciso | | schema | 4532 |
-| `nemoultra` | opencode/nemotron-3-ultra-free | reviewer, systems, breadth | | schema | 7307 · free |
-| `nemolight` | opencode/nemotron-3.5-lightning-free | skeptic, qa, ops | | schema | 4672 · free |
-| `hy3` | opencode-go/hy3 | qa, ops | | schema | 6117 |
-| `gpt56sol` | openai/gpt-5.6-sol | security, systems, architect | **deep** | schema, agentic | 3696 |
-| `gpt56terra` | openai/gpt-5.6-terra | product, reviewer, docs, techwriter | **standard** | schema, agentic | 2664 |
-| `gpt56luna` | openai/gpt-5.6-luna | reviewer, qa, skeptic | **fast** | schema, agentic | 4228 |
-| `glm53` | zai-coding-plan/glm-5.3 | systems, reviewer, infrastructure | | schema, agentic | 6007 |
-| `musespark` | opencode/muse-spark-1.2-contributor-free | *no lane* | | agentic | 8000 · free |
-| `deepseek` | deepseek/deepseek-v4-pro | *no lane* — **leads the implementer chain** | | agentic | 9459 |
+| slug | model | roles | tier | capability | fallback | ms |
+|---|---|---|---|---|---|---|
+| `opus5` | anthropic/claude-opus-5 | reviewer, architect |  | schema, agentic |  | 4263 |
+| `fable` | anthropic/claude-fable-5 | security, skeptic **(security pinned)** |  | schema | `opus5` | 6704 |
+| `kimik3` | kimi-for-coding/k3 | code, security |  | schema | `kimik3go` | 21151 |
+| `kimik3go` | opencode-go/kimi-k3 | code |  | schema | `gpt56sol` | 6782 |
+| `gemini36` | google/gemini-3.6-flash | breadth, docs, techwriter, code |  | schema |  | 9028 |
+| `grok45` | opencode-go/grok-4.5 | systems, skeptic, infrastructure |  | schema |  | 7146 |
+| `mimo` | opencode-go/mimo-v2.5-pro | pragmatist, skeptic, ciso |  | schema |  | 7027 |
+| `minimax` | opencode-go/minimax-m3 | reviewer, skeptic, ciso |  | schema, agentic |  | 4532 |
+| `nemoultra` | opencode/nemotron-3-ultra-free | reviewer, systems, breadth |  | schema |  | 7307 · free |
+| `nemolight` | opencode/nemotron-3.5-lightning-free | skeptic, qa, ops |  | schema |  | 4672 · free |
+| `musespark` | opencode/muse-spark-1.2-contributor-free | *none — implementer-class* |  | agentic |  | 8000 · free |
+| `hy3` | opencode-go/hy3 | qa, ops |  | schema |  | 6117 |
+| `gpt56sol` | openai/gpt-5.6-sol | systems, architect, infrastructure | deep | schema, agentic |  | 3696 |
+| `gpt56terra` | openai/gpt-5.6-terra | product, reviewer, docs, techwriter | standard | schema, agentic |  | 2664 |
+| `gpt56luna` | openai/gpt-5.6-luna | reviewer, qa, skeptic | fast | schema, agentic |  | 4228 |
+| `glm53` | zai-coding-plan/glm-5.3 | systems, reviewer, infrastructure, security |  | schema, agentic |  | 6007 |
+| `deepseek` | deepseek/deepseek-v4-pro | *none — implementer-class* |  | agentic |  | 9459 |
 
 **`capability` is measured, never read off a catalogue flag.** `schema` means the model can
 emit forced-tool-call structured output — every council lane needs it. `agentic` means it
@@ -843,8 +843,30 @@ would be unreachable from the highest-volume loop in the system. The `council:ta
 pass gets no such lever: its assignment is cyclic, so every member scores exactly three
 regardless of order, and sorting it moves no volume.
 
-`kimik3go` exists as the `code` lane's billing-cycle fallback: when kimi-for-coding's
-quota trips, the lane substitutes to it first (same role, same model, other provider).
+### Named understudies
+
+Failover ranks by availability by default — free before busy, carries-the-role before not.
+That is right when nobody has an opinion and wrong when someone does: a specialist holds a
+lane *for what it is*, so its cover is named on the member rather than inferred.
+
+| member | covered by | why |
+|---|---|---|
+| `fable` | `opus5` | fable is the security specialist and is pinned essential to that lane; if it drops, the cover should be chosen rather than whoever the sort reaches |
+| `kimik3` | `kimik3go` | the same model behind two billing routes. When the coding plan reports its weekly limit, the next thing tried should be that model on a route with budget, not a different vendor |
+| `kimik3go` | `gpt56sol` | when both kimi routes are spent |
+
+A named cover leads the substitute list even when it is already busy — a chosen model
+holding two lanes in an already-degraded round beats the lane going to one nobody picked,
+and the report names any stand-in that was answering elsewhere, so the correlation stays
+visible. It is a preference, not a dependency: if the specialist *and* its understudy are
+both down, the lane still fills from the ordinary tiers.
+
+`kimik3go` sits directly behind `kimik3` in `LETS_INTAKE_MODELS` and `LETS_IMPLEMENT_MODELS`
+too, for the same reason. It also carries the `code` lane in its own right: `kimik3` is the
+slowest member of the roster at 21151ms, and `selectNodes` sorts carriers by latency, so on
+a lane with more carriers than its cap the coding plan is never selected. It holds
+`security` only because that lane has exactly as many carriers as its cap, so all three run
+regardless of speed.
 
 **`techwriter` authors documentation; `docs` reviews it.** They are different jobs and the
 roster keeps them apart. `docs` is a review lane — it reads a diff and names the statements
@@ -945,7 +967,7 @@ single point of failure, and a run that dies at intake has produced nothing at a
 
 | chain | members | the call site passes | the constraint |
 |---|---|---|---|
-| `LETS_INTAKE_MODELS` | `opus5`, `gpt56terra`, `glm53`, `minimax`, `kimik3` | a **schema** — a forced tool call | every member must be `canSchema` |
+| `LETS_INTAKE_MODELS` | `opus5`, `gpt56terra`, `glm53`, `minimax`, `kimik3`, `kimik3go` | a **schema** — a forced tool call | every member must be `canSchema` |
 | `LETS_IMPLEMENT_MODELS` | **`deepseek`**, then the intake five unchanged | `allow: ["edit", "bash"]` and **no schema** | the **lead** must be `canAgentic` |
 
 **deepseek leads the implementer chain because it is the cheapest model that drives tools**,
