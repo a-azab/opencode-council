@@ -167,6 +167,17 @@ test("the ADR has a named author in crew, and exists at all in lets", async () =
   )
 })
 
+test("crew:execute hands the docs to the tech writer, as a job and not a gate", async () => {
+  // Crew ships code unattended; without this step it ships code and leaves the docs
+  // describing the previous version. The framing is load-bearing, not decoration: a
+  // documentation step written as a gate is the first thing dropped when a run is long,
+  // whereas a team member's job is simply part of the work.
+  const { config } = await load()
+  const x = config.command["crew:execute"].template
+  assert.match(x, /tech writer/i, "no documentation step: the docs are left describing the old behaviour")
+  assert.match(x, /not a gate/i, "a documentation step that reads as a gate gets skipped under pressure")
+})
+
 test("no command file still claims a built command is unbuilt", () => {
   // The spine's footers were written before the work loop existed: each told the user
   // /lets:commit was "not built yet" and sent them to raw `git add -p` instead. It exists

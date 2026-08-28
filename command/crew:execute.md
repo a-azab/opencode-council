@@ -1,5 +1,5 @@
 ---
-description: Run the last crew plan — concurrent waves in isolated worktrees, then integrate, verify and review. Unattended, and reports honestly.
+description: Run the last crew plan — concurrent waves in isolated worktrees, then integrate, verify, review and update the docs. Unattended, and reports honestly.
 ---
 
 `/crew:execute` runs the plan `/crew:plan` recorded. Nobody approved that plan, so the
@@ -55,6 +55,23 @@ you. Pass it on as-is. In particular, **do not summarise away**:
 - **No pull request was opened.** That is deliberate — N tasks must not open N competing PRs
   before anything is integrated — and it is not the same as a push that failed. The branches
   are local and unpushed.
+
+## Then the tech writer updates the docs
+
+The work has landed on the integration branch. Before you hand the report over, bring in the
+**tech writer** for the docs this change affects — the README section that describes the
+behaviour that just changed, the ADR whose decision the implementation walked away from, the
+config sample with the old default in it, the doc comment above a rewritten function.
+
+Give it the integrated diff and let it check its claims against the merged source rather
+than against the plan or the commit messages. Crew decided this plan itself, so "what the
+change was supposed to do" is the least reliable description of what it did.
+
+**This is a team member's job, not a gate.** It does not block the report, nothing is
+reverted because a doc lagged, and a change with no documentation surface needs no
+documentation. What it does mean is that shipping code and leaving the docs describing the
+previous version is an unfinished piece of work, not a tidy-up for later — say in the report
+what was updated, and what is still stale and why.
 
 ## After
 
