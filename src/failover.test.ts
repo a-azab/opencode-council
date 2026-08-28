@@ -79,3 +79,42 @@ test("substitution is bounded", () => {
   // Without a cap one dead lane could walk the entire roster on every node.
   assert.ok(MAX_SUBSTITUTIONS >= 1 && MAX_SUBSTITUTIONS <= 5, `implausible cap: ${MAX_SUBSTITUTIONS}`)
 })
+
+test("a specialist's lane is covered by the model named for it, not by whoever is idle", () => {
+  // The owner's call: fable holds security because it is the security specialist, so when
+  // it drops the cover is opus5 - not whichever carrier the availability sort happens to
+  // reach first. Same for kimi and gpt56sol. Without a named cover the lane still gets
+  // filled, but by a model nobody chose for it.
+  const securityNode = round.find((n) => n.role === "security" && n.slug === "fable")!
+  const bench: Bench = new Map([["fable", "dead"]])
+  assert.equal(substitutesFor(securityNode, round, bench, new Set())[0].slug, "opus5",
+    "fable's named cover must lead, ahead of the availability tiers")
+
+  const kimiNode = round.find((n) => n.slug === "kimik3go")!
+  assert.equal(
+    substitutesFor(kimiNode, round, new Map([["kimik3go", "dead"]]), new Set())[0].slug,
+    "gpt56sol",
+    "kimi's named cover must lead",
+  )
+})
+
+test("a named cover that is itself dead does not block the lane", () => {
+  // The cover is a preference, not a dependency. If both the specialist and its understudy
+  // are down the lane still fills from the ordinary tiers - losing a lane because the
+  // second choice also failed would be worse than the default it replaced.
+  const securityNode = round.find((n) => n.role === "security" && n.slug === "fable")!
+  const both: Bench = new Map([["fable", "dead"], ["opus5", "dead"]])
+  const subs = substitutesFor(securityNode, round, both, new Set())
+  assert.ok(subs.length > 0, "the lane must still be coverable")
+  assert.ok(!subs.some((m) => m.slug === "opus5"), "and never offers the benched cover")
+})
+
+test("the substitute list never repeats a model", () => {
+  // The named cover also qualifies for whichever availability tier it belongs to, so
+  // without a dedupe it would appear twice and MAX_SUBSTITUTIONS would burn an attempt
+  // re-trying a model that had already failed.
+  const securityNode = round.find((n) => n.role === "security" && n.slug === "fable")!
+  const subs = substitutesFor(securityNode, round, new Map([["fable", "dead"]]), new Set())
+  const slugs = subs.map((m) => m.slug)
+  assert.equal(new Set(slugs).size, slugs.length, `duplicate in: ${slugs.join(", ")}`)
+})

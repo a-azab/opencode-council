@@ -433,13 +433,30 @@ export function substitutesFor(
     .filter((m) => !unavailable.has(m.slug) && canSchema(m))
     .sort((a, b) => sameFamily(b) - sameFamily(a) || a.ms - b.ms)
 
-  return [
+  // Tier 0: the failed member's DESIGNATED understudy, named on the member itself.
+  //
+  // The other tiers rank by availability - free before busy, carries-the-role before not.
+  // That is the right default when nobody has an opinion, and the wrong answer when someone
+  // does. A specialist lane is given to a specialist for what it is, so when it drops the
+  // human wants a specific model covering it, not whichever carrier happens to be idle.
+  //
+  // It leads even when busy. A designated cover holding two lanes in an already-degraded
+  // round beats the lane going to a model nobody chose - and the report names any stand-in
+  // that was already answering elsewhere, so the correlation is visible rather than hidden.
+  const designated = ROSTER.filter(
+    (m) => m.slug === bySlug(node.slug)?.fallback && !unavailable.has(m.slug) && canSchema(m),
+  )
+
+  const ordered = [
+    ...designated, // named cover for THIS member
     ...usable.filter((m) => !inRound.has(m.slug)).filter(byRole(true)), // free, carries the role
     ...usable.filter((m) => !inRound.has(m.slug)).filter(byRole(false)), // free, any role
     ...usable.filter((m) => inRound.has(m.slug)).filter(byRole(true)), // busy, carries the role
     ...usable.filter((m) => inRound.has(m.slug)).filter(byRole(false)), // busy, any role
     ...recruits, // off-roster, only once the roster is genuinely out
   ]
+  // The designated cover also appears in whichever tier it qualifies for; first mention wins.
+  return ordered.filter((m, i) => ordered.findIndex((x) => x.slug === m.slug) === i)
 }
 
 /** Failures that are the model's fault for the whole run, not this one call's. */
