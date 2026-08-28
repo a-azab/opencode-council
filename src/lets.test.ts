@@ -1051,3 +1051,16 @@ test("the implementer keeps every intake model behind its lead", () => {
   for (const slug of LETS_INTAKE_MODELS)
     assert.ok(LETS_IMPLEMENT_MODELS.includes(slug), `${slug} lost its implementer fallback`)
 })
+
+test("a spent kimi quota falls through to the other kimi route in both chains", () => {
+  // kimi-for-coding/k3 and opencode-go/kimi-k3 are one model behind two billing routes.
+  // Both chains ended at the coding plan, so a spent quota ran the chain out rather than
+  // trying the route that still had budget. Measured 2026-08-28: the plan answered "you
+  // have reached your weekly (7-day) usage".
+  for (const [name, chain] of [["intake", LETS_INTAKE_MODELS], ["implement", LETS_IMPLEMENT_MODELS]] as const) {
+    const plan = chain.indexOf("kimik3")
+    const go = chain.indexOf("kimik3go")
+    assert.ok(plan > -1 && go > -1, `${name}: both kimi routes must be in the chain`)
+    assert.equal(go, plan + 1, `${name}: the go route must sit directly behind the coding plan`)
+  }
+})

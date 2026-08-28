@@ -675,7 +675,11 @@ export function renderInitProposal(p: InitProposal): string {
 
 /** Intake (CPO, CTO). Every member must be `canSchema`: a forced tool call is the one thing
  *  the agentic-only members 400 on. Unchanged in order and membership by the split. */
-export const LETS_INTAKE_MODELS = ["opus5", "gpt56terra", "glm53", "minimax", "kimik3"] as const
+// kimik3go sits directly behind kimik3, not somewhere else in the order: they are the same
+// model behind two billing routes, so when the coding plan reports "you have reached your
+// weekly usage" the next thing tried should be the same model on a route that still has
+// budget - not a different vendor. Without it the chain simply ended at a spent quota.
+export const LETS_INTAKE_MODELS = ["opus5", "gpt56terra", "glm53", "minimax", "kimik3", "kimik3go"] as const
 
 /**
  * The implementer. **deepseek leads because it is the cheapest model that drives tools**,
