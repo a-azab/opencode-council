@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
-import { recruitFloor, integrate, renderCrewReport, type CrewResult, type CrewTask } from "./crew-org.ts"
+import { recruitFloor, integrate, inferLanded, taskSlug, renderCrewReport, type CrewResult, type CrewTask } from "./crew-org.ts"
 import plugin from "./index.ts"
 
 const PKG = join(dirname(fileURLToPath(import.meta.url)), "..")
@@ -729,4 +729,123 @@ test("crew:status also names a run that finished every task and then stopped", a
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// ------------------------------------------------- recovery without a checkpoint
+
+/** A recorded plan and nothing else - the state a run from before checkpointing leaves. */
+function planOnly(dir: string, titles: string[]) {
+  const planDir = "2026-01-01T00-00-00-crew-org-plan"
+  mkdirSync(join(dir, "council-artifacts", planDir), { recursive: true })
+  writeFileSync(
+    join(dir, "council-artifacts", planDir, "plan.json"),
+    JSON.stringify({
+      directive: "ship it",
+      adr: "docs/adr/x.md",
+      roles: ["reviewer"],
+      tasks: titles.map((title) => ({
+        title,
+        items: [{ title: "i", detail: "", files: ["x.ts"], acceptance: "ok" }],
+      })),
+    }),
+  )
+}
+
+test("taskSlug is what a branch name carries, and recovery matches on it", () => {
+  // One derivation, used by both the execute path that writes the branch name and the
+  // recovery that reads it. Two copies that drifted would make an interrupted run look like
+  // one that never started - silent, and in the unsafe direction.
+  assert.equal(taskSlug("Add auth"), "add-auth")
+  assert.equal(taskSlug("Fix bug 2"), "fix-bug-2")
+  assert.equal(taskSlug("  Trailing --- punctuation!! "), "trailing-punctuation")
+  assert.equal(taskSlug("A title far longer than twenty-four characters"), "a-title-far-longer-than-")
+})
+
+test("finished branches are recovered when no checkpoint exists", () => {
+  // The user's actual case: a run interrupted before checkpointing shipped. The branches are
+  // still the work - their names still say which task each belongs to.
+  const dir = toolRepo()
+  try {
+    branchWith(dir, "lets/crew-abc123-11-first", "one.ts", "1\n")
+    const found = inferLanded(dir, [{ title: "First" }, { title: "Second" }], "main")
+    assert.equal(found.length, 1)
+    assert.equal(found[0].title, "First")
+    assert.equal(found[0].run!.branch, "lets/crew-abc123-11-first")
+    assert.equal(found[0].inferred, true, "recovered work must be marked as inferred, never as recorded")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a branch with no commits on it is not finished work", () => {
+  const dir = toolRepo()
+  try {
+    execFileSync("git", ["branch", "lets/crew-abc123-11-first", "main"], { cwd: dir, stdio: "ignore" })
+    assert.deepEqual(inferLanded(dir, [{ title: "First" }], "main"), [], "a name is not evidence; commits are")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("two branches for one task are ambiguous, so neither is claimed", () => {
+  // Two runs of the same plan each left a branch for this task. Nothing here can tell which
+  // holds the work meant, and picking one silently is how the wrong work gets merged.
+  const dir = toolRepo()
+  try {
+    branchWith(dir, "lets/crew-aaa-11-first", "one.ts", "1\n")
+    branchWith(dir, "lets/crew-bbb-11-first", "two.ts", "2\n")
+    assert.deepEqual(inferLanded(dir, [{ title: "First" }], "main"), [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("crew:execute offers a recovered run, and says the evidence is weaker", async () => {
+  const dir = toolRepo()
+  try {
+    branchWith(dir, "lets/crew-abc123-11-first", "one.ts", "1\n")
+    planOnly(dir, ["First", "Second"])
+    const out = await (await crewTool()).execute({ mode: "execute" }, { directory: dir })
+    assert.match(out, /stopped part-way/)
+    assert.match(out, /lets\/crew-abc123-11-first/)
+    assert.match(out, /no checkpoint recorded them/, "the weaker evidence must be named as weaker")
+    assert.match(out, /not that the task finished/, "and its specific limit spelled out")
+    assert.doesNotMatch(out, /Prior run:/, "there is no prior run directory to name")
+    assert.match(out, /resume: true/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("crew:status offers a recovered run too", async () => {
+  const dir = toolRepo()
+  try {
+    branchWith(dir, "lets/crew-abc123-11-first", "one.ts", "1\n")
+    planOnly(dir, ["First", "Second"])
+    const out = await (await crewTool()).execute({ mode: "status" }, { directory: dir })
+    assert.match(out, /stopped part-way/)
+    assert.match(out, /Recovered from the branch names/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a recovered task is reported as recovered, not merely as carried forward", () => {
+  const out = renderCrewReport({
+    directive: "d",
+    roles: ["reviewer"],
+    scheduling: { mode: "graph", ungraphed: [], waves: 1 },
+    tasks: [
+      {
+        title: "Recovered",
+        slug: "crew-old-11-recovered",
+        wave: 1,
+        resumed: true,
+        inferred: true,
+        run: { branch: "lets/old", outcomes: [], stoppedBy: "complete", seconds: 1, worktree: "/w", cycles: [], pushed: false } as any,
+      },
+    ],
+  })
+  assert.match(out, /recovered from the branch/)
+  assert.match(out, /no checkpoint recorded it/)
 })

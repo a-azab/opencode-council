@@ -101,6 +101,71 @@ export function recruitFloor(directive: string, stack: string[]): Role[] {
   return [...roles]
 }
 
+// ------------------------------------------------------------------ recovery
+
+/**
+ * The tail of a task's slug - the only part of a branch name that is stable across runs.
+ *
+ * Must stay identical to the derivation in the execute path. If the two drift, recovery
+ * silently matches nothing and an interrupted run looks like one that never started, which
+ * is the failure this exists to prevent.
+ */
+export const taskSlug = (title: string) =>
+  String(title)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 24)
+
+/**
+ * Finished branches worked out from git alone, for a run that predates checkpointing or whose
+ * artifact directory has since been deleted.
+ *
+ * The branches ARE the work - they outlive the process that made them, and their names carry
+ * the task title. But this is weaker evidence than a checkpoint and is labelled as such
+ * wherever it surfaces: a branch proves something was committed, never that the task finished.
+ * So it feeds the same refuse-and-name path rather than resuming on its own. The human is the
+ * check that the record cannot be here.
+ */
+export function inferLanded(root: string, planned: { title: string }[], base: string): CrewTask[] {
+  let branches: string[] = []
+  try {
+    branches = git(root, ["branch", "--list", "lets/crew-*", "--format=%(refname:short)"])
+      .split("\n")
+      .map((b) => b.trim())
+      .filter(Boolean)
+  } catch {
+    return []
+  }
+
+  const out: CrewTask[] = []
+  for (const t of planned) {
+    const want = taskSlug(t.title)
+    // `lets/crew-<runId>-<wave><index>-<title>`. Strip our own prefix rather than matching the
+    // tail loosely - a title slug may itself contain digits and dashes.
+    const hits = branches.filter((b) => b.replace(/^lets\/crew-[^-]+-\d+-/, "") === want)
+    // Two hits means two runs of this plan each left a branch for this task, and nothing here
+    // can tell which one holds the work meant. Naming neither is safer than picking one.
+    if (hits.length !== 1) continue
+    // A branch with no commits on it is not finished work, whatever its name says.
+    let ahead = 0
+    try {
+      ahead = Number(git(root, ["rev-list", "--count", `${base}..${hits[0]}`]))
+    } catch {
+      continue
+    }
+    if (ahead > 0)
+      out.push({
+        title: t.title,
+        slug: hits[0].replace(/^lets\//, ""),
+        wave: 1,
+        inferred: true,
+        run: { branch: hits[0] } as any,
+      })
+  }
+  return out
+}
+
 // ------------------------------------------------------------------ integration
 
 const git = (cwd: string, args: string[]) =>
@@ -197,6 +262,14 @@ export type CrewTask = {
    * it never performed - and the record is the only thing standing in for the approval gate.
    */
   resumed?: boolean
+  /**
+   * Recovered from a branch on disk rather than from a checkpoint.
+   *
+   * Weaker evidence, and the report says so. A branch proves work was committed; it never
+   * proves the task finished, because a task that crashed after its second of three items
+   * leaves a branch that looks exactly like a complete one.
+   */
+  inferred?: boolean
 }
 
 export type CrewResult = {
@@ -272,7 +345,11 @@ export function renderCrewReport(r: CrewResult): string {
     const mark = succeeded(t) ? "✓" : "⚠"
     out.push(
       `- ${mark} **${t.title}** (wave ${t.wave}) — \`${t.run.branch}\`, stopped: ${t.run.stoppedBy}` +
-        (t.resumed ? " · **carried forward from an earlier run**" : ""),
+        (t.resumed
+          ? t.inferred
+            ? " · **carried forward from an earlier run, recovered from the branch — no checkpoint recorded it**"
+            : " · **carried forward from an earlier run**"
+          : ""),
     )
     for (const o of bad) out.push(`    - ${o.state}: ${o.item.title}${o.detail ? ` — ${o.detail}` : ""}`)
     // An acceptance nobody independently judged is not an acceptance that passed.
