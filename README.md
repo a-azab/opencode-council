@@ -73,7 +73,7 @@ plugin fails to load, opencode starts anyway and swallows the error — check
 Verify:
 
 ```bash
-opencode agent list | grep -E '^council-.* \(all\)'   # expect 15 agents
+opencode agent list | grep -E '^council-.* \(all\)'   # expect 16 agents
 ```
 
 (Match on `(all)`. A plain `grep council-` will also catch any older model-named council
@@ -832,7 +832,7 @@ applied by code — no model or role holds a veto.
 
 ## Roster
 
-Seventeen members: fifteen carry council lanes, two are implementer-class and carry none
+Sixteen members: fourteen carry council lanes, two are implementer-class and carry none
 (see below). `ms` is measured latency on a trivial structured task — for setting timeouts,
 **not a quality signal and never a tier**. Every member is smoke-tested on joining.
 
@@ -843,11 +843,10 @@ Seventeen members: fifteen carry council lanes, two are implementer-class and ca
 | `kimik3` | kimi-for-coding/k3 | code, security |  | schema | `kimik3go` | 21151 |
 | `kimik3go` | opencode-go/kimi-k3 | code |  | schema | `gpt56sol` | 6782 |
 | `gemini36` | google/gemini-3.6-flash | breadth, docs, techwriter, code |  | schema |  | 9028 |
-| `grok45` | opencode-go/grok-4.5 | systems, skeptic, infrastructure |  | schema |  | 7146 |
+| `grok46` | opencode-go/grok-4.6 | systems, skeptic, infrastructure |  | schema |  | 5741 |
 | `mimo` | opencode-go/mimo-v2.5-pro | pragmatist, skeptic, ciso |  | schema |  | 7027 |
 | `minimax` | opencode-go/minimax-m3 | reviewer, skeptic, ciso |  | schema, agentic |  | 4532 |
-| `nemoultra` | opencode/nemotron-3-ultra-free | reviewer, systems, breadth |  | schema |  | 7307 · free |
-| `nemolight` | opencode/nemotron-3.5-lightning-free | skeptic, qa, ops |  | schema |  | 4672 · free |
+| `bigpickle` | opencode/big-pickle | breadth, ops |  | schema |  | 3097 · free |
 | `musespark` | opencode/muse-spark-1.2-contributor-free | *none — implementer-class* |  | agentic |  | 8000 · free |
 | `hy3` | opencode-go/hy3 | qa, ops |  | schema |  | 6117 |
 | `gpt56sol` | openai/gpt-5.6-sol | systems, architect, infrastructure | deep | schema, agentic |  | 3696 |
@@ -1032,6 +1031,35 @@ needed those two would be the one where deepseek was already down.
 than trusting the slugs, so a roster edit that invalidates a chain fails a test instead of a
 run.
 
+### A timeout falls through; a retired pin recovers to its own successor
+
+Every caller that has somewhere else to go — a council lane with a substitute waiting, the
+intake chain, the implement chain — treats a **timeout** as "this model did not fit the
+budget" rather than as a transient blip. It yields its slot to the next model instead of
+asking the same one the same question twice more. Transient faults (rate limits, 5xx) still
+retry, because those genuinely do pass.
+
+That distinction is worth real time: `timeoutFor` caps a review node at 300s, so a timing-out
+lane used to spend up to ten extra minutes before the stand-in it already had ran.
+
+**A pin that fails is often retired rather than broken.** `opencode-go/grok-4.5` returned
+http 500 for an unknown stretch because the provider had replaced it with `4.6` — and nothing
+noticed, precisely because failover covered for it. The lane kept working, so nothing ever
+reported that the pin itself was gone.
+
+So a failed node now asks the server what it offers and prefers **the same model's next
+version up** before borrowing a different model. The match is deliberately narrow, because
+getting it wrong means silently reviewing with a model nobody chose:
+
+- same provider, same base name, same suffix — `gpt-5.6-sol` never matches `gpt-5.6-terra`,
+  which are sibling tiers rather than versions
+- the **lowest** strictly-higher version — `4.5` takes `4.6` even when `5.0` is on offer,
+  because a major jump is a different model
+- a name with no parseable version (`kimi-k3`, `big-pickle`) gets no successor at all
+
+It is a **runtime substitution, reported like any other** — the roster file is never rewritten.
+`/council:models` remains the thing that proposes roster changes for you to accept.
+
 ### Excluded, with cause
 
 | model | cause | remedy |
@@ -1098,7 +1126,7 @@ it, the two asymmetries above are the things most likely to be "simplified" into
 | `src/crew-org.ts` | crew's testable core: the deterministic lane floor, branch integration, and the CEO report |
 | `src/index.ts` | plugin entry: registers agents, commands, the `skills/` path, and the `council`, `lets` and `crew` tools |
 | `agent/*.md` | 19 agent prompts — 16 council (15 roles plus the fixer) and 3 lets (`cpo`, `cto`, `dev`); expertise and tier calibration only |
-| `src/*.test.ts` | 294 tests: `decide`, `roster`, `tally`, task states, catalog, patch classification, the lets config and worktree paths, the beads parsers, the wave scheduler, and crew's recruiting, integration and report |
+| `src/*.test.ts` | 326 tests: `decide`, `roster`, `tally`, task states, catalog, patch classification, the lets config and worktree paths, the beads parsers, the wave scheduler, and crew's recruiting, integration and report |
 
 The rule the whole design rests on: **anything that decides an outcome lives in
 `decide.ts` and is tested.** `engine.ts` may move data and call models, but if you find
