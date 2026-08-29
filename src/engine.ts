@@ -121,6 +121,13 @@ export type RetryPolicy = {
   backoffFactor: number
   maxInterval: number
   jitter: boolean
+  /**
+   * Retry a timeout on the same model. Default true.
+   *
+   * False for callers that have a fallback chain: falling through to a different model is
+   * strictly better than paying the same budget for the same model to time out again.
+   */
+  retryTimeout?: boolean
 }
 
 export const DEFAULT_RETRY: RetryPolicy = {
@@ -132,6 +139,13 @@ export const DEFAULT_RETRY: RetryPolicy = {
 }
 
 /**
+ * Retry policy for an agentic session: transient faults still get another go, a timeout does
+ * not. See `isRetryable` - the caller that sets this has a fallback chain and is better off
+ * spending the next slot on a different model than on the same one again.
+ */
+export const FALL_THROUGH_ON_TIMEOUT: RetryPolicy = { ...DEFAULT_RETRY, retryTimeout: false }
+
+/**
  * Retry transient failures only.
  *
  * `autherror` and `malformed` are DETERMINISTIC - a bad key stays bad, and a model that
@@ -140,8 +154,15 @@ export const DEFAULT_RETRY: RetryPolicy = {
  * opposite: the same request later usually succeeds, which is why every node we lost in
  * real runs was lost to one of these.
  */
-export function isRetryable(state: NodeState, error?: any): boolean {
-  if (state === "ratelimited" || state === "timeout") return true
+export function isRetryable(state: NodeState, error?: any, policy?: RetryPolicy): boolean {
+  // A timeout is retryable for a one-shot call - the model was slow once and may not be
+  // again. It is NOT retryable for an agentic session: a timeout there means the work did
+  // not fit the budget, and the same model gets the same budget, so a retry buys the same
+  // outcome at the same price. A caller with somewhere else to go says so and we fall
+  // through to it instead. (2026-08-29 incident: 7 models x 3 attempts x 90s = 32 minutes
+  // of timing out before the item was finally reported model-failed.)
+  if (state === "timeout") return policy?.retryTimeout !== false
+  if (state === "ratelimited") return true
   if (state === "failed") {
     const code = error?.data?.statusCode
     if (error?.data?.isRetryable === true) return true
@@ -197,7 +218,7 @@ export async function ask<T>(
     const r = await askOnce<T>(ctx, opts)
     if (r.ok) return { ...r, ms: Date.now() - t0 }
     last = r
-    if (attempt === policy.maxAttempts || !isRetryable(r.state, (r as any).error)) break
+    if (attempt === policy.maxAttempts || !isRetryable(r.state, (r as any).error, policy)) break
     await sleep(backoffMs(attempt, policy, (r as any).retryAfter))
   }
   return { ...(last as any), ms: Date.now() - t0 }
@@ -256,7 +277,17 @@ async function askOnce<T>(
       return {
         ok: false,
         state: sessionRes.status === 401 || sessionRes.status === 403 ? "autherror" : "failed",
-        detail: `session create http ${sessionRes.status}: ${sessionRaw.slice(0, 160) || "(empty body)"}`,
+        detail:
+          sessionRes.status === 401 || sessionRes.status === 403
+            ? // Not the model's credential - OURS. The plugin authenticates to its own
+              // opencode server with OPENCODE_SERVER_USERNAME/PASSWORD from the environment,
+              // and a server started with those as CLI flags rather than exported vars
+              // rejects every session this tool opens, whichever model it names. Saying
+              // "<model>: http 401" sent the 2026-08-29 incident chasing provider
+              // credentials through two whole runs.
+              `the opencode server rejected this tool's own session (http ${sessionRes.status}) - not a model credential. ` +
+              `Export OPENCODE_SERVER_USERNAME and OPENCODE_SERVER_PASSWORD so spawned sessions inherit them.`
+            : `session create http ${sessionRes.status}: ${sessionRaw.slice(0, 160) || "(empty body)"}`,
         ms: Date.now() - t0,
       }
     let session: any

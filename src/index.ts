@@ -173,10 +173,36 @@ function latestArtifact(repoRoot: string, kind: string | string[], file: string)
  * the two in one wave. An explicit `files` on the task is honoured as a superset.
  */
 const withFiles = (tasks: any[]): any[] =>
-  tasks.map((t) => ({
-    ...t,
-    files: [...new Set([...(t.files ?? []), ...(t.items ?? []).flatMap((i: any) => i.files ?? [])])],
-  }))
+  tasks.map((t, ti) => {
+    // Refuse a `files` that is not a list, rather than spreading it.
+    //
+    // A STRING is iterable, so `...("a.ts")` spreads to ["a",".","t","s"] and the task's file
+    // set becomes characters. The scheduler then reasons over those as if they were paths,
+    // finds no overlap between any two tasks, and runs genuinely conflicting work
+    // concurrently - silently, because every path it compared was fictional. The crash that
+    // followed (`item.files.join is not a function`, 2026-08-29) was the lucky half: it
+    // stopped the run. This is the half that would not have.
+    const check = (files: any, where: string) => {
+      if (files === undefined || files === null) return []
+      if (!Array.isArray(files))
+        throw new TypeError(
+          `${where}: \`files\` must be a list of paths, got ${typeof files} (${JSON.stringify(files).slice(0, 60)}). ` +
+            `A string here is spread into single characters and the dependency graph is computed over nonsense.`,
+        )
+      return files
+    }
+    return {
+      ...t,
+      files: [
+        ...new Set([
+          ...check(t.files, `task ${ti + 1} (${t.title ?? "untitled"})`),
+          ...(t.items ?? []).flatMap((i: any, ii: number) =>
+            check(i.files, `task ${ti + 1} (${t.title ?? "untitled"}) item ${ii + 1}`),
+          ),
+        ]),
+      ],
+    }
+  })
 
 export const CouncilPlugin = async (input: any) => ({
   tool: {
@@ -450,10 +476,18 @@ export const CouncilPlugin = async (input: any) => ({
             const saved = JSON.parse(readFileSync(last.path, "utf8"))
             const tasks = saved.tasks ?? []
             const edges = fileEdges(join(scope.root, "graphify-out", "graph.json"))
-            const sched = tasks.length <= MAX_TASKS ? schedule(withFiles(tasks), edges) : null
+            let sched = null
+            let planProblem = ""
+            try {
+              sched = tasks.length <= MAX_TASKS ? schedule(withFiles(tasks), edges) : null
+            } catch (e: any) {
+              // A read-only view must still answer. Say what is wrong rather than throwing.
+              planProblem = String(e?.message ?? e)
+            }
             out.push(`Plan ${last.dir}: ${String(saved.directive ?? "(none)").slice(0, 120)}`)
             out.push(`${tasks.length} task(s), ADR ${saved.adr ?? "(none recorded)"}`)
-            if (!sched) out.push(`Too many tasks to schedule (max ${MAX_TASKS}).`)
+            if (planProblem) out.push(`**This plan cannot be scheduled** — ${planProblem}`)
+            else if (!sched) out.push(`Too many tasks to schedule (max ${MAX_TASKS}).`)
             else {
               out.push(`Schedule: ${sched.mode}, ${sched.waves.length} wave(s), max width ${MAX_WAVE_WIDTH}`)
               sched.waves.forEach((w, i) => out.push(`  wave ${i + 1}: ${w.map((t: any) => t.title).join(", ")}`))
@@ -546,14 +580,23 @@ export const CouncilPlugin = async (input: any) => ({
           const bad = tasks.findIndex((t: any) => !t?.title || !Array.isArray(t?.items) || !t.items.length)
           if (bad !== -1) return `task ${bad + 1} has no title or no items — every task needs both.`
 
+          // Before anything is recorded: a plan that cannot be scheduled honestly must not
+          // become the thing `/crew:execute` runs without an approval gate.
+          let checked: any[]
+          try {
+            checked = withFiles(tasks)
+          } catch (e: any) {
+            return `That plan cannot be recorded — ${String(e?.message ?? e)}`
+          }
+
           const roles = recruitFloor(directive, detectStack(scope.root))
           const dir = artifactDir(scope.root, "crew-org-plan")
           writeFileSync(
             join(dir, "plan.json"),
-            JSON.stringify({ directive, adr, roles, tasks: withFiles(tasks) }, null, 2),
+            JSON.stringify({ directive, adr, roles, tasks: checked }, null, 2),
           )
           const edges = fileEdges(join(scope.root, "graphify-out", "graph.json"))
-          const sched = schedule(withFiles(tasks), edges)
+          const sched = schedule(checked, edges)
           return [
             `Recorded ${tasks.length} task(s) in ${dir}. No approval gate — \`/crew:execute\` will run this as-is.`,
             `ADR: ${adr}`,
@@ -572,7 +615,18 @@ export const CouncilPlugin = async (input: any) => ({
         const found = latestArtifact(scope.root, "crew-org-plan", "plan.json")
         if (!found) return "No crew plan found. Run `/crew:plan <directive>` first."
         const saved = JSON.parse(readFileSync(found.path, "utf8"))
-        let planned = withFiles(saved.tasks ?? [])
+        let planned: any[]
+        try {
+          planned = withFiles(saved.tasks ?? [])
+        } catch (e: any) {
+          // Recorded before the guard existed, or hand-edited since. Refusing beats running
+          // it: the schedule would be computed over paths that are not paths.
+          return [
+            `The recorded plan (${found.dir}) cannot be scheduled — ${String(e?.message ?? e)}`,
+            "",
+            "Fix `files` in that plan.json to be a list of paths, or re-run `/crew:plan`.",
+          ].join("\n")
+        }
         if (!planned.length) return `The last crew plan (${found.dir}) had no tasks — nothing to run.`
 
         // A crew run is long and unattended, which makes it exactly the thing that gets

@@ -12,7 +12,7 @@ import { createHash } from "node:crypto"
 import { existsSync, readFileSync, statSync, writeFileSync, symlinkSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { selectRoles, bySlug, skepticPool, ROSTER, KNOWN_ROLES, type Role } from "./roster.ts"
-import { ask, runReview, type Ctx, type NodeState } from "./engine.ts"
+import { ask, runReview, FALL_THROUGH_ON_TIMEOUT, type Ctx, type NodeState } from "./engine.ts"
 import { localMcpServers, mcpTracker } from "./mcp.ts"
 import { beadsAvailable, bdInstalled, beadsTracker } from "./beads.ts"
 import { WORKITEMS_SCHEMA, VERDICT_SCHEMA } from "./schema.ts"
@@ -693,27 +693,65 @@ export function renderInitProposal(p: InitProposal): string {
 // model behind two billing routes, so when the coding plan reports "you have reached your
 // weekly usage" the next thing tried should be the same model on a route that still has
 // budget - not a different vendor. Without it the chain simply ended at a spent quota.
-export const LETS_INTAKE_MODELS = ["opus5", "gpt56terra", "glm53", "minimax", "kimik3", "kimik3go"] as const
+/**
+ * Wall clock for ONE implementer call, per model.
+ *
+ * `ask`'s default is 90s, sized for a single structured answer. The implementer is not that:
+ * it is an agentic session that reads the surrounding code, edits files and runs the
+ * project's verify command, and 90 seconds is not enough to do that once. So every model
+ * timed out, the chain fell through all of them, and the item was reported `model-failed`
+ * with only the last model's error - the 2026-08-29 incident, where 7 models x 3 retries x
+ * 90s came to 32 minutes of timing out before an item was given up on.
+ *
+ * Ten minutes is a budget a real attempt fits in. The run's own wall-clock floor
+ * (`MAX_RUN_SECONDS`) still bounds the chain, so a pathological item cannot spend the hour
+ * here.
+ */
+export const IMPLEMENT_TIMEOUT_MS = 10 * 60_000
+
+export const LETS_INTAKE_MODELS = ["opus5", "gpt56terra", "glm53", "minimax"] as const
 
 /**
- * The implementer. **deepseek leads because it is the cheapest model that drives tools**,
- * and implementing is the highest-volume paid call lets makes - every item, every attempt,
- * every escalation.
+ * Neither kimi route is in either chain, and that is a budget decision rather than a
+ * capability one (user directive 2026-08-29). Both answer fine - measured schema-valid at
+ * 8687ms and 6155ms the same day.
+ *
+ * The quota is small enough that where it is spent matters more than whether it works. A
+ * chain is the wrong place to spend it: intake runs per plan, and the implementer runs per
+ * item, per attempt and per escalation, which is the highest-volume paid call this tool
+ * makes. Both are also positions of LAST resort - reached only when four or five other
+ * models have already failed - so a small quota would be consumed by routine work and then
+ * be absent from the judgement lanes where the model was actually wanted.
+ *
+ * It keeps its council lanes, which is where deep reasoning is the job: `security` (the
+ * adversarial audit) for the coding-plan route, `code` for the go route. Those fire per
+ * review, not per item.
+ */
+
+/**
+ * The implementer. **opus5 leads** — user directive 2026-08-29.
+ *
+ * That directive was given while every model was returning 401, and the reason recorded at
+ * the time — "deepseek's credential was 401ing" — was **wrong**. The incident report's own
+ * root cause 2 establishes it: the opencode server requires basic auth, the plugin reads
+ * those credentials from the environment, and a server started with them as CLI flags
+ * rejected every session this tool opened. Anthropic 401'd identically. deepseek's
+ * credential was never the problem and it answers today.
+ *
+ * The lead is left as directed rather than silently reverted, but the standing directive
+ * before it was deepseek-leads-on-cost, and the only evidence against that has been
+ * withdrawn. Worth revisiting deliberately.
  *
  * The rest is the intake chain unchanged, and it is not decoration: a cheapest-first chain
- * is only safe if it still finishes when the cheapest is unavailable. deepseek down, rate
- * limited or 400ing means the run falls through to the models that were doing this job
- * before, rather than failing the item.
+ * is only safe if it still finishes when the cheapest is unavailable.
  *
- * **Do not "fix" this by filtering the tail on `canAgentic`.** It would drop minimax and
- * kimik3, and their `capability` is UNSET - which `canAgentic` reads as false by defaulting
- * to `["schema"]`. Unset means never measured for tool driving, not measured and failed;
- * the two members that genuinely fail are flagged explicitly, because the roster records
- * measurements rather than assumptions. Both have been implementing here all along. Filtering
- * on an absent measurement would silently cut the fallback from five models to three, and
- * the run that needed it would be the one where deepseek was already down.
+ * **Do not "fix" this by filtering the tail on `canAgentic`.** It would drop minimax, whose
+ * `capability` is UNSET - which `canAgentic` reads as false by defaulting to `["schema"]`.
+ * Unset means never measured for tool driving, not measured and failed; the members that
+ * genuinely fail are flagged explicitly, because the roster records measurements rather than
+ * assumptions.
  */
-export const LETS_IMPLEMENT_MODELS = ["deepseek", ...LETS_INTAKE_MODELS] as const
+export const LETS_IMPLEMENT_MODELS = ["opus5", "deepseek", ...LETS_INTAKE_MODELS.slice(1)] as const
 
 export type WorkItem = { title: string; detail: string; files: string[]; acceptance: string }
 
@@ -1562,22 +1600,49 @@ export async function runItem(
     say(`  attempt ${attempt}/${total}: implementing`)
 
     let answered = false
+    const tried: string[] = []
     for (const slug of LETS_IMPLEMENT_MODELS) {
       const member = bySlug(slug)
       if (!member) continue
-      const r = await ask<string>(ctx, {
-        model: member.model,
-        agent: "lets-dev",
-        text: implementPrompt(input.item, input.cfg, input.instructions, feedback),
-        directory: input.worktree,
-        allow: ["edit", "bash"],
-      })
+      // The deadline is checked per MODEL, not only per attempt. Each model may now spend
+      // IMPLEMENT_TIMEOUT_MS, so an unchecked chain of five would run ~50 minutes into an
+      // hour-long run budget before anything noticed - and the check at the top of the
+      // attempt loop would not fire again until it had. Falling through models is the right
+      // behaviour right up until there is no time left to fall through into.
+      if (input.deadline && Date.now() > input.deadline) {
+        say(`  out of time after ${tried.length} model(s)`)
+        return {
+          ...last,
+          state: "out-of-time",
+          detail: tried.length
+            ? `the run's wall-clock budget ran out mid-chain · ${tried.join(" · ")}`
+            : "the run's wall-clock budget ran out mid-item",
+        }
+      }
+      const r = await ask<string>(
+        // An agentic session needs a budget an attempt fits in, and a timeout here means
+        // this model did not fit it - so spend the next slot on a DIFFERENT model rather
+        // than on the same one again at the same price for the same outcome.
+        { ...ctx, timeoutMs: IMPLEMENT_TIMEOUT_MS, retry: FALL_THROUGH_ON_TIMEOUT },
+        {
+          model: member.model,
+          agent: "lets-dev",
+          text: implementPrompt(input.item, input.cfg, input.instructions, feedback),
+          directory: input.worktree,
+          allow: ["edit", "bash"],
+        },
+      )
       if (r.ok) {
         answered = true
         if (!wrote.includes(slug)) wrote.push(slug)
         break
       }
-      last = { ...last, state: "model-failed", detail: `${member.model}: ${r.detail}` }
+      // Every model's error, not just the tail's. `detail` used to carry only the last, so a
+      // chain that exhausted reported whatever the final model said and buried what actually
+      // happened upstream - the 2026-08-29 incident was misdiagnosed twice from a `detail`
+      // naming a model that was never the problem.
+      tried.push(`${member.model}: ${r.detail}`)
+      last = { ...last, state: "model-failed", detail: tried.join(" · ") }
       if (r.state === "autherror") return last
     }
     if (!answered) return last

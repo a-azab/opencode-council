@@ -849,3 +849,52 @@ test("a recovered task is reported as recovered, not merely as carried forward",
   assert.match(out, /recovered from the branch/)
   assert.match(out, /no checkpoint recorded it/)
 })
+
+test("a plan whose files is a string is refused, not spread into characters", async () => {
+  // 2026-08-29: 19 of 19 items recorded `files` as a string. The visible symptom was a crash
+  // (`item.files.join is not a function`) and it was written off as a plan-encoding problem with
+  // no plugin change needed. The invisible half is worse: a string is iterable, so "a.ts"
+  // spreads to ["a",".","t","s"], the scheduler compares fictional paths, finds no overlap
+  // and runs conflicting tasks concurrently.
+  const dir = toolRepo()
+  try {
+    const out = await (await crewTool()).execute(
+      {
+        mode: "plan",
+        directive: "d",
+        adr: "docs/adr/x.md",
+        tasks: JSON.stringify([{ title: "T", items: [{ title: "i", files: "src/main.tf", acceptance: "ok" }] }]),
+      },
+      { directory: dir },
+    )
+    assert.match(out, /must be a list of paths/)
+    assert.match(out, /item 1/, "the offending item must be named")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("crew:execute refuses a recorded plan whose files is a string", async () => {
+  // The 09:24 plan in the incident was already on disk in this shape. A plan recorded before
+  // the guard existed still reaches execute, and execute is the path with no approval gate.
+  const dir = toolRepo()
+  try {
+    const planDir = "2026-01-01T00-00-00-crew-org-plan"
+    mkdirSync(join(dir, "council-artifacts", planDir), { recursive: true })
+    writeFileSync(
+      join(dir, "council-artifacts", planDir, "plan.json"),
+      JSON.stringify({
+        directive: "d",
+        adr: "a.md",
+        roles: ["reviewer"],
+        tasks: [{ title: "T", items: [{ title: "i", files: "src/main.tf", acceptance: "ok" }] }],
+      }),
+    )
+    const out = await (await crewTool()).execute({ mode: "execute" }, { directory: dir })
+    assert.match(out, /cannot be scheduled/)
+    assert.match(out, /must be a list of paths/)
+    assert.match(out, /re-run `\/crew:plan`/, "and say how to get out of it")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

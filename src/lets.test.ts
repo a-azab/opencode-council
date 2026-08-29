@@ -42,10 +42,12 @@ import {
   type LetsConfig,
   type WorkItem,
   LETS_INTAKE_MODELS,
+  MAX_RUN_SECONDS,
+  IMPLEMENT_TIMEOUT_MS,
   LETS_IMPLEMENT_MODELS,
 } from "./lets.ts"
 import { beadsAvailable, bdInstalled } from "./beads.ts"
-import { bySlug, canSchema, canAgentic } from "./roster.ts"
+import { bySlug, canSchema, canAgentic, selectNodes, ALL_ROLES } from "./roster.ts"
 
 const gitOut = (cwd: string, args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8" })
@@ -1025,15 +1027,17 @@ test("the intake chain is entirely schema-capable", () => {
   }
 })
 
-test("the implementer chain leads with an agentic model, and it is deepseek", () => {
-  // Cost: deepseek is the cheapest member that drives tools, and the implementer is the
-  // highest-volume paid call in the system. `canAgentic` is asserted rather than assumed —
+test("the implementer chain leads with an agentic model — opus5 (user directive 2026-08-29)", () => {
+  // User directive: deepseek's credential 401s (autherror), which aborts the chain before
+  // any fallback, so Claude leads. `canAgentic` is asserted rather than assumed —
   // leading with a model that cannot drive `edit`/`bash` would burn the first attempt of
   // every item before falling through.
   const lead = bySlug(LETS_IMPLEMENT_MODELS[0])
   assert.ok(lead, `${LETS_IMPLEMENT_MODELS[0]} is not in the roster`)
   assert.ok(canAgentic(lead!), `${lead!.slug} leads the implementer but cannot drive tools`)
-  assert.equal(lead!.slug, "deepseek", "the cheapest agentic member leads on cost")
+  assert.equal(lead!.slug, "opus5", "claude leads the implementer per user directive")
+  // deepseek must remain reachable so a healthy credential costs less once fixed
+  assert.ok(LETS_IMPLEMENT_MODELS.includes("deepseek"))
 })
 
 test("deepseek implements and never does intake", () => {
@@ -1045,24 +1049,48 @@ test("deepseek implements and never does intake", () => {
 })
 
 test("the implementer keeps every intake model behind its lead", () => {
-  // The fallback is the whole reason a cheapest-first chain is safe: when deepseek is down
-  // or rate-limited, the implementer must still finish rather than fail the run. Every
-  // model that was in the single pre-split list stays reachable.
+  // The fallback is the whole reason a cheapest-first chain is safe: when the lead is down
+  // or rate-limited, the implementer must still finish rather than fail the run. Every model
+  // in the intake list stays reachable behind it.
+  //
+  // kimik3 was dropped from this chain on 2026-08-29 as "known-dead: weekly usage
+  // exhausted". The quota had reset the day before; a re-probe answered schema-valid in
+  // 8687ms. It is restored. A spent quota is a temporary state that reads exactly like a
+  // permanent one, and the roster comment asserting the permanent reading outlived the fact
+  // by a day - which is why this test states the invariant with no exceptions in it.
   for (const slug of LETS_INTAKE_MODELS)
     assert.ok(LETS_IMPLEMENT_MODELS.includes(slug), `${slug} lost its implementer fallback`)
 })
 
-test("a spent kimi quota falls through to the other kimi route in both chains", () => {
-  // kimi-for-coding/k3 and opencode-go/kimi-k3 are one model behind two billing routes.
-  // Both chains ended at the coding plan, so a spent quota ran the chain out rather than
-  // trying the route that still had budget. Measured 2026-08-28: the plan answered "you
-  // have reached your weekly (7-day) usage".
-  for (const [name, chain] of [["intake", LETS_INTAKE_MODELS], ["implement", LETS_IMPLEMENT_MODELS]] as const) {
-    const plan = chain.indexOf("kimik3")
-    const go = chain.indexOf("kimik3go")
-    assert.ok(plan > -1 && go > -1, `${name}: both kimi routes must be in the chain`)
-    assert.equal(go, plan + 1, `${name}: the go route must sit directly behind the coding plan`)
-  }
+test("kimi is reserved for the judgement lanes and kept out of both chains", () => {
+  // A budget decision, not a capability one (user directive 2026-08-29): both routes answer
+  // fine - measured 8687ms and 6155ms schema-valid that day - but the quota is small enough
+  // that WHERE it is spent matters more than whether it works.
+  //
+  // A chain is the wrong place: intake runs per plan, the implementer runs per item, per
+  // attempt and per escalation, and both are last-resort positions reached only after four
+  // or five other models have failed. A small quota spent there is consumed by routine work
+  // and then missing from the lanes the model was actually wanted for.
+  for (const [name, chain] of [
+    ["intake", LETS_INTAKE_MODELS],
+    ["implement", LETS_IMPLEMENT_MODELS],
+  ] as const)
+    for (const route of ["kimik3", "kimik3go"])
+      assert.ok(!chain.includes(route as never), `${name}: ${route} must stay out of the chain`)
+
+  // Where it does run: the lanes. Losing these would make the reservation pointless - the
+  // quota would simply go unspent.
+  const lanes = selectNodes(ALL_ROLES).filter((n) => n.slug.startsWith("kimik3"))
+  assert.deepEqual(
+    lanes.map((n) => `${n.slug}:${n.role}`).sort(),
+    ["kimik3:security", "kimik3go:code"],
+    "kimi must keep the judgement lanes it was reserved for",
+  )
+
+  // And the standing route preference survives where it still applies: if the coding plan's
+  // quota is spent, its named cover is the same model on the other billing route rather than
+  // a different vendor.
+  assert.equal(bySlug("kimik3")!.fallback, "kimik3go")
 })
 
 test("the tool's own output is not counted as your uncommitted work", () => {
@@ -1084,4 +1112,22 @@ test("the tool's own output is not counted as your uncommitted work", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test("the implementer's call is budgeted for agentic work and falls through on timeout", () => {
+  // Asserted from source: reaching this code needs a model, and the suite makes no model
+  // calls. Four properties, one decision - the 2026-08-29 incident is what each prevents.
+  const src = readFileSync(new URL("./lets.ts", import.meta.url), "utf8")
+  const call = src.slice(src.indexOf("const tried: string[] = []"), src.indexOf('if (r.state === "autherror") return last'))
+
+  assert.match(call, /timeoutMs: IMPLEMENT_TIMEOUT_MS/, "90s is not enough to read code, edit it and run the tests")
+  assert.match(call, /retry: FALL_THROUGH_ON_TIMEOUT/, "a timed-out model must yield its slot to the next one")
+  assert.match(call, /tried\.push/, "every model's error, not just the tail's - the incident was misdiagnosed twice from that")
+  assert.match(call, /input\.deadline/, "each model may spend 10 minutes, so the chain needs the deadline too")
+
+  // The budget has to leave room to actually fall through inside one run.
+  assert.ok(
+    IMPLEMENT_TIMEOUT_MS * 2 < MAX_RUN_SECONDS * 1000,
+    "at least two models must fit in a run's wall clock, or the chain is decoration",
+  )
 })

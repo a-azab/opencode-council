@@ -49,11 +49,18 @@ export const ROSTER: Member[] = [
   // carrier joins. It is in the lane today by arithmetic coincidence - the pin makes it a
   // rule, so a roster edit cannot silently take the security panel's named reviewer out.
   { slug: "fable",     model: "anthropic/claude-fable-5",               roles: ["security", "skeptic"],    ms: 6704, fallback: "opus5", essential: ["security"] },
-  // agentic still UNMEASURED, and not for want of trying: the 2026-08-28 probe came back
-  // "you have reached your weekly (7-day) usage", so the account is exhausted rather than
-  // the model incapable. It stays in the implementer chain on prior use, as its tail, and
-  // is the one member of that chain currently guaranteed to fail. kimik3go covers the
-  // code lane meanwhile.
+  // The 2026-08-28 probe came back "you have reached your weekly (7-day) usage" and this
+  // entry was written off as dead. It was a WEEKLY limit: re-probed 2026-08-29 it answered
+  // schema-valid in 8687ms. A spent quota is a temporary state that reads exactly like a
+  // permanent one, so "currently guaranteed to fail" belonged in a probe result, never in a
+  // roster comment - it outlived the fact by one day and a 2026-08-29 incident report
+  // repeated it as grounds for dropping this model from the implementer chain.
+  //
+  // `ms` stays at the 2026-08-28 figure deliberately. It is a timeout hint, where high is
+  // merely conservative - but it is ALSO what `selectNodes` sorts carriers by, and lowering
+  // it to 8687 would move this model ahead of gemini36 onto the `code` lane, where it would
+  // then hold `code` and `security` at once and review an auth diff twice wearing two hats.
+  // That arrangement was considered and declined on 2026-08-27.
   { slug: "kimik3",    model: "kimi-for-coding/k3",                     roles: ["code", "security"],                   ms: 21151, fallback: "kimik3go" },
   // The requested quota fallback: when kimi-for-coding/k3 hits its billing-cycle limit, the
   // code lane substitutes here first (same role) before borrowing another model. Measured
@@ -64,7 +71,13 @@ export const ROSTER: Member[] = [
   // Both already carry `docs`, which is the roster's existing statement that they are the
   // prose members, and both are schema-capable - the writing role still answers structured.
   { slug: "gemini36",  model: "google/gemini-3.6-flash",                roles: ["breadth", "docs", "techwriter", "code"], ms: 9028 },
-  { slug: "grok45",    model: "opencode-go/grok-4.5",                   roles: ["systems", "skeptic", "infrastructure"], ms: 7146 },
+  // Was `grok-4.5` until 2026-08-29, when a probe returned http 500 - the provider had
+  // retired it and the pin had been dead for an unknown stretch, silently costing `systems`,
+  // `skeptic` and `infrastructure` a member. Nothing caught it: a dead pin looks exactly like
+  // a model having a bad day, and failover covers for it rather than complaining. `4.6` is
+  // its replacement, measured 5741ms schema-valid the same day. This is the case
+  // `/council:models` exists to surface - run it when a lane looks thin.
+  { slug: "grok46",    model: "opencode-go/grok-4.6",                   roles: ["systems", "skeptic", "infrastructure"], ms: 5741 },
   // `ciso` carriers are mimo and minimax, and the choice is load-bearing rather than
   // spare-capacity: NEITHER CARRIES `security`.
   //
