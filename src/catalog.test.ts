@@ -1,9 +1,10 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { openCache, probeBudget, parseCatalog, successorOf } from "./catalog.ts"
+import { openCache, probeBudget, parseCatalog, successorOf, successorsOf, resolvePins } from "./catalog.ts"
 import { renderModelsProposal } from "./report.ts"
 
 test("the catalog flattens providers into provider/model ids", () => {
@@ -79,4 +80,73 @@ test("a retired pin is matched to its immediate successor, and nothing else", ()
   assert.equal(successorOf("zai-coding-plan/glm-5.3", offered), null, "already current")
   assert.equal(successorOf("opencode-go/grok-4.6", ["openai/grok-4.9"]), null,
     "never across providers")
+})
+
+test("successorsOf lists every higher version, lowest first", () => {
+  const offered = ["opencode-go/grok-4.6", "opencode-go/grok-5.0", "opencode-go/grok-4.5", "openai/gpt-5.7-sol"]
+  assert.deepEqual(successorsOf("opencode-go/grok-4.5", offered), ["opencode-go/grok-4.6", "opencode-go/grok-5.0"],
+    "ascending, so [0] is the conservative step and the tail is the newest")
+  assert.equal(successorOf("opencode-go/grok-4.5", offered), "opencode-go/grok-4.6", "successorOf stays the smallest step")
+  assert.deepEqual(successorsOf("openai/gpt-5.6-terra", offered), [], "a sibling tier is never a successor")
+})
+
+test("a newer version is adopted only once something has measured it", async () => {
+  // The hazard this guards: google/gemini-3.7-flash times out at 90s where 3.6 answers in
+  // 9s. A tool that adopted the higher number on sight would have taken a working lane out
+  // and called it an upgrade. Driven entirely from the cache here, so no model is called.
+  const dir = mkdtempSync(join(tmpdir(), "pins-"))
+  try {
+    const cache = openCache(join(dir, "cap.json"))
+    const offered = ["p/m-1.0", "p/m-1.1", "p/m-2.0"]
+    const ctx = { serverUrl: "http://127.0.0.1:1" } // never reached: every candidate is cached
+
+    // Newest measured good -> taken, major bump included.
+    cache.record("p/m-2.0", "schema", { ok: true, ms: 111 })
+    let r = await resolvePins(ctx as any, ["p/m-1.0"], offered, { cache, budget: 0 })
+    assert.equal(r.map.get("p/m-1.0"), "p/m-2.0")
+    assert.deepEqual(r.adopted, [{ from: "p/m-1.0", to: "p/m-2.0", ms: 111 }])
+
+    // Newest measured BAD -> falls to the next one down rather than to nothing.
+    cache.contradict("p/m-2.0", "schema")
+    cache.record("p/m-2.0", "schema", { ok: false, ms: 90_000 })
+    cache.record("p/m-1.1", "schema", { ok: true, ms: 50 })
+    r = await resolvePins(ctx as any, ["p/m-1.0"], offered, { cache, budget: 0 })
+    assert.equal(r.map.get("p/m-1.0"), "p/m-1.1", "a bad release costs one probe, not the lane")
+
+    // Every candidate measured bad -> the pin stands, and nothing is claimed.
+    cache.contradict("p/m-1.1", "schema")
+    cache.record("p/m-1.1", "schema", { ok: false, ms: 1 })
+    r = await resolvePins(ctx as any, ["p/m-1.0"], offered, { cache, budget: 0 })
+    assert.equal(r.map.size, 0, "the pin stands")
+    assert.deepEqual(r.adopted, [])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("an unmeasured candidate with no probe budget leaves the pin alone, and says so", async () => {
+  // Silently keeping the old model is right. Silently implying it was checked is not - that
+  // is the difference between "no upgrade found" and "no upgrade looked for".
+  const dir = mkdtempSync(join(tmpdir(), "pins-"))
+  try {
+    const cache = openCache(join(dir, "cap.json"))
+    const r = await resolvePins({ serverUrl: "http://127.0.0.1:1" } as any, ["p/m-1.0"], ["p/m-9.9"], {
+      cache,
+      budget: 0,
+    })
+    assert.equal(r.map.size, 0)
+    assert.deepEqual(r.unchecked, ["p/m-1.0"])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a probe never inherits the caller's timeout", () => {
+  // resolvePins runs on the first model call of the process, and that call may be the
+  // implementer's - whose ctx carries IMPLEMENT_TIMEOUT_MS (10 min). A dead candidate
+  // inheriting it would hold the entire run before the real work started.
+  const src = readFileSync(new URL("./catalog.ts", import.meta.url), "utf8")
+  const fn = src.slice(src.indexOf("export async function resolvePins"), src.indexOf("export function openCache"))
+  assert.match(fn, /const probeCtx: Ctx = \{ \.\.\.ctx, timeoutMs: 60_000/, "probes are bounded independently")
+  assert.match(fn, /probe\(probeCtx, candidate/, "and the bounded ctx is the one actually used")
 })

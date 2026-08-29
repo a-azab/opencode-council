@@ -56,6 +56,12 @@ export type Ctx = {
   timeoutMs?: number
   /** transient-failure retry. Defaults to DEFAULT_RETRY. */
   retry?: RetryPolicy
+  /**
+   * Told when a model call fails, so a cached capability that has stopped being true can be
+   * forgotten. A HOOK rather than a call into the cache, because the cache lives in
+   * catalog.ts and catalog.ts imports this module - engine stays the leaf.
+   */
+  onModelFailure?: (model: string, state: NodeState) => void
 }
 
 /**
@@ -207,10 +213,70 @@ export type AskOpts = {
 }
 
 /** Retrying wrapper. The single-attempt logic lives in askOnce. */
+/**
+ * Pinned model -> the model actually used, when auto-update has found a newer version that
+ * MEASURED as working. Applied at the single point every path funnels through, so lanes,
+ * chains, the implementer, skeptics and judges all resolve identically.
+ *
+ * Empty until `resolvePins` has run, so nothing changes until something has been measured.
+ */
+let PINS: Map<string, string> = new Map()
+
+export function setPins(m: Map<string, string>): void {
+  PINS = m
+}
+
+/**
+ * How the overlay gets built, injected rather than imported.
+ *
+ * The resolver lives in catalog.ts and catalog.ts imports THIS module, so engine takes a
+ * callback instead of reaching for it - engine stays the leaf and nothing has to reason
+ * about import order. It also means a suite that never registers an updater never touches
+ * the network, which is the rule this suite runs on.
+ */
+let updater: ((ctx: Ctx) => Promise<Map<string, string>>) | null = null
+let refreshed: Promise<void> | null = null
+let refreshing = false
+
+export function autoUpdate(fn: ((ctx: Ctx) => Promise<Map<string, string>>) | null): void {
+  updater = fn
+  refreshed = null
+}
+
+/**
+ * Build the overlay once per process, on the first model call rather than at startup.
+ *
+ * Lazy because opencode starts far more often than the council runs, and a refresh at boot
+ * would put a network round trip and up to three probes in front of every session that was
+ * never going to review anything.
+ *
+ * `refreshing` is the re-entrancy guard: the resolver probes candidate models, and a probe
+ * is an `ask`, so without it the first call would wait on itself forever.
+ */
+async function ensureFresh(ctx: Ctx): Promise<void> {
+  if (!updater || refreshing) return
+  refreshed ??= (async () => {
+    refreshing = true
+    try {
+      PINS = await updater!(ctx)
+    } catch {
+      // Auto-update is an optimisation over a roster that already works. A server that will
+      // not answer costs us the upgrade, never the run.
+    } finally {
+      refreshing = false
+    }
+  })()
+  await refreshed
+}
+
+/** What a pin resolves to right now. Exported so a report can say what it actually called. */
+export const pinnedAs = (model: string): string => PINS.get(model) ?? model
+
 export async function ask<T>(
   ctx: Ctx,
   opts: AskOpts,
 ): Promise<{ ok: true; value: T; ms: number } | { ok: false; state: NodeState; detail: string; ms: number }> {
+  await ensureFresh(ctx)
   const policy = ctx.retry ?? DEFAULT_RETRY
   const t0 = Date.now()
   let last: { ok: false; state: NodeState; detail: string; ms: number } | null = null
@@ -222,6 +288,11 @@ export async function ask<T>(
     if (attempt === policy.maxAttempts || !isRetryable(r.state, (r as any).error, policy)) break
     await sleep(backoffMs(attempt, policy, (r as any).retryAfter))
   }
+  // A model that has just failed for a deterministic reason contradicts whatever the
+  // capability cache believes about it. Timeouts and rate limits say nothing about
+  // capability, so they are not reported.
+  if (last && (last.state === "malformed" || last.state === "failed"))
+    ctx.onModelFailure?.(pinnedAs(opts.model), last.state)
   return { ...(last as any), ms: Date.now() - t0 }
 }
 
@@ -231,7 +302,9 @@ async function askOnce<T>(
 ): Promise<{ ok: true; value: T; ms: number } | { ok: false; state: NodeState; detail: string; ms: number }> {
   const t0 = Date.now()
   const base = ctx.serverUrl.replace(/\/$/, "")
-  const [providerID, ...rest] = opts.model.split("/")
+  // The overlay resolves here, not at every call site: one place means a lane, a chain and a
+  // skeptic can never disagree about which model a pin means.
+  const [providerID, ...rest] = pinnedAs(opts.model).split("/")
   const modelID = rest.join("/")
   const qs = opts.directory ? `?directory=${encodeURIComponent(opts.directory)}` : ""
   try {

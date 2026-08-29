@@ -9,7 +9,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
-import { ask, type Ctx } from "./engine.ts"
+import { ask, DEFAULT_RETRY, type Ctx } from "./engine.ts"
 
 export type Kind = "schema" | "agentic"
 export type Result = { ok: boolean; ms: number }
@@ -92,23 +92,30 @@ const higher = (a: number[], b: number[]) => {
  *   `4.6` even when `5.0` is on offer, because a major jump is a different model.
  * - a name with no parseable version gets no successor at all.
  */
-export function successorOf(model: string, offered: string[]): string | null {
+export function successorsOf(model: string, offered: string[]): string[] {
   const from = parseVersion(model)
-  if (!from) return null
-  const up = offered
+  if (!from) return []
+  return offered
     .map((o) => ({ model: o, p: parseVersion(o) }))
     .filter(
       (c): c is { model: string; p: NonNullable<ReturnType<typeof parseVersion>> } =>
         !!c.p &&
         c.p.provider === from.provider &&
         c.p.base === from.base &&
+        // The suffix must match exactly. `gpt-5.6-sol` and `gpt-5.6-terra` are sibling TIERS,
+        // not versions of one another, and swapping between them changes what the model is
+        // for. Those stay a human decision.
         c.p.suffix === from.suffix &&
         c.p.vp === from.vp &&
         higher(c.p.v, from.v),
     )
     .sort((a, b) => (higher(a.p.v, b.p.v) ? 1 : -1))
-  return up[0]?.model ?? null
+    .map((c) => c.model)
 }
+
+/** The immediate successor - the smallest step up. Used for reactive recovery of a dead pin. */
+export const successorOf = (model: string, offered: string[]): string | null =>
+  successorsOf(model, offered)[0] ?? null
 
 export function catalog(ctx: Ctx): Promise<string[]> {
   return (pending ??= fetchCatalog(ctx))
@@ -141,6 +148,78 @@ const DEFAULT_PATH = join(homedir(), ".cache", "opencode-council", "capability.j
  * Never throws. A cache is an optimisation, and one that can break a run is worse than no
  * cache at all - so a missing, corrupt or unwritable file is simply an empty one.
  */
+export type Adoption = { from: string; to: string; ms: number }
+
+/**
+ * What each pinned model should resolve to right now, given what the server offers.
+ *
+ * Newest first, including major versions - but **a probe decides, never the version number.**
+ * That is not caution for its own sake: `google/gemini-3.7-flash` times out at 90s where
+ * `3.6` answers in 9s, so a tool that adopted the higher number on sight would have taken a
+ * working lane out and called it an upgrade. "Newer" is a hypothesis; the probe is the test.
+ *
+ * A failed candidate falls to the next one down, so a bad release costs one probe and the
+ * roster keeps working. The result is a runtime overlay - `src/roster.ts` is never rewritten,
+ * because a source file edited by a background process is a diff nobody wrote and nobody
+ * reviewed.
+ *
+ * Cost is bounded twice: `budget` caps probes per run, and every result - pass OR fail - is
+ * cached on disk, so a model is measured once per machine rather than once per run.
+ */
+export async function resolvePins(
+  ctx: Ctx,
+  pins: string[],
+  offered: string[],
+  opts: { budget?: number; cache?: ReturnType<typeof openCache> } = {},
+): Promise<{ map: Map<string, string>; adopted: Adoption[]; unchecked: string[] }> {
+  const cache = opts.cache ?? openCache()
+  const budget = probeBudget(opts.budget ?? 3)
+  // A probe gets its OWN budget, never the caller's. This runs on the first model call of the
+  // process, and that call might be the implementer's - whose ctx carries a ten-minute
+  // timeout. Inheriting it would let a single dead candidate hold the whole run for ten
+  // minutes before the work it was asked to do had started. A trivial probe that has not
+  // answered in a minute has answered.
+  const probeCtx: Ctx = { ...ctx, timeoutMs: 60_000, retry: { ...DEFAULT_RETRY, maxAttempts: 1, retryTimeout: false } }
+  const map = new Map<string, string>()
+  const adopted: Adoption[] = []
+  const unchecked: string[] = []
+
+  for (const pin of pins) {
+    // Newest first: the user asked for major releases to be taken, not just point bumps.
+    const candidates = successorsOf(pin, offered).reverse()
+    if (!candidates.length) continue
+
+    let settled = false
+    for (const candidate of candidates) {
+      const known = cache.get(candidate, "schema")
+      if (known) {
+        if (!known.ok) continue // measured and dead - try the next one down
+        map.set(pin, candidate)
+        adopted.push({ from: pin, to: candidate, ms: known.ms })
+        settled = true
+        break
+      }
+      // Unmeasured. Spend a probe if there is one left, otherwise leave the pin alone and
+      // say so - silently keeping the old model is right, silently claiming it was checked
+      // is not.
+      if (!budget.take()) {
+        unchecked.push(pin)
+        settled = true
+        break
+      }
+      const r = await probe(probeCtx, candidate, "schema", cache)
+      if (r?.ok) {
+        map.set(pin, candidate)
+        adopted.push({ from: pin, to: candidate, ms: r.ms })
+        settled = true
+        break
+      }
+    }
+    if (!settled) continue // every candidate measured and dead: the pin stands
+  }
+  return { map, adopted, unchecked }
+}
+
 export function openCache(path: string = DEFAULT_PATH) {
   let data: Record<string, Partial<Record<Kind, Entry>>> = {}
   try {

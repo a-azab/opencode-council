@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import { dirname, join, basename } from "node:path"
 import { execFileSync } from "node:child_process"
 import { z } from "zod"
-import { runReview, runFix, runPlan, runIndependent, runTask, councilArgs } from "./engine.ts"
+import { runReview, runFix, runPlan, runIndependent, runTask, councilArgs, autoUpdate } from "./engine.ts"
 import { localMcpServers } from "./mcp.ts"
 import { activeTaskId } from "./beads.ts"
 import {
@@ -28,7 +28,10 @@ import { detectStack, closeWorktree } from "./lets.ts"
 import { fileEdges, schedule, MAX_TASKS, MAX_WAVE_WIDTH } from "./schedule.ts"
 import { recruitFloor, integrate, inferLanded, taskSlug, renderCrewReport, type CrewResult, type CrewTask } from "./crew-org.ts"
 import { ROSTER, type Role } from "./roster.ts"
-import { catalog, probe, probeBudget, upgradeCandidates, type Result } from "./catalog.ts"
+import {
+  catalog, probe, probeBudget, upgradeCandidates, resolvePins, openCache,
+  type Result, type Adoption,
+} from "./catalog.ts"
 import {
   renderReport,
   renderSummary,
@@ -116,12 +119,59 @@ function gitDiff(cwd: string, base: string) {
 }
 
 /** Where the engine sends model calls, and how it authenticates if the server wants it. */
+/**
+ * One capability cache for the process, shared by the auto-updater and the failure hook, so
+ * a model that dies mid-run is forgotten by the same store that adopted it.
+ */
+const CAPABILITY = openCache()
+
+/** What auto-update took this process, for the report to disclose. */
+let ADOPTED: Adoption[] = []
+let UNCHECKED: string[] = []
+
+export const adoptionNote = (): string =>
+  [
+    ...ADOPTED.map((a) => `auto-update: \`${a.from}\` → \`${a.to}\` (measured ${a.ms}ms)`),
+    UNCHECKED.length ? `auto-update: ${UNCHECKED.length} pin(s) had newer versions left unmeasured this run (probe budget)` : "",
+  ]
+    .filter(Boolean)
+    .join("\n")
+
+/**
+ * Keep the roster current without editing it.
+ *
+ * Runs once per process, on the first model call. Newer versions are ADOPTED only after a
+ * probe says they answer - `google/gemini-3.7-flash` times out at 90s where `3.6` answers in
+ * 9s, so a version number is a hypothesis rather than an upgrade. Sibling tiers
+ * (`gpt-5.6-sol` vs `-terra`) are never swapped: those change what the model is for, and
+ * stay a human decision.
+ *
+ * The overlay is runtime only. `src/roster.ts` is never rewritten, because a source file
+ * edited by a background process is a diff nobody wrote and nobody reviewed.
+ */
+autoUpdate(async (ctx) => {
+  const offered = await catalog(ctx)
+  const { map, adopted, unchecked } = await resolvePins(
+    ctx,
+    ROSTER.map((m) => m.model),
+    offered,
+    { cache: CAPABILITY },
+  )
+  ADOPTED = adopted
+  UNCHECKED = unchecked
+  return map
+})
+
 function ctxFor(input: any) {
   const user = process.env.OPENCODE_SERVER_USERNAME
   const pass = process.env.OPENCODE_SERVER_PASSWORD
   return {
     serverUrl: String(input?.serverUrl ?? "http://127.0.0.1:4096"),
     auth: user && pass ? "Basic " + Buffer.from(`${user}:${pass}`).toString("base64") : undefined,
+    // A model that fails deterministically contradicts whatever the cache believes about it.
+    // Without this an adoption made on one good probe would survive the model's death, and
+    // every later run would pay a wasted call before substituting.
+    onModelFailure: (model: string) => CAPABILITY.contradict(model, "schema"),
   }
 }
 
@@ -885,7 +935,7 @@ export const CouncilPlugin = async (input: any) => ({
         }
 
         writeFileSync(join(dir, "run.json"), JSON.stringify(result, null, 2))
-        return `${renderCrewReport(result)}\n\nStep log: ${logPath}`
+        return [renderCrewReport(result), adoptionNote(), `Step log: ${logPath}`].filter(Boolean).join("\n\n")
       },
     },
 
@@ -1084,7 +1134,9 @@ export const CouncilPlugin = async (input: any) => ({
         const path = join(dir, "report.md")
         writeFileSync(path, renderReport(review, { files, ms: Date.now() - t0 }))
         writeFileSync(join(dir, "findings.json"), JSON.stringify(review, null, 2))
-        return renderSummary(review, path)
+        // Disclosed, never silent: an auto-adopted model is a model you did not choose, and
+        // a regression traced back to one has to be traceable at all.
+        return [renderSummary(review, path), adoptionNote()].filter(Boolean).join("\n\n")
       },
     },
   },
