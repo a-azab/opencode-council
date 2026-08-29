@@ -20,6 +20,11 @@ Call the `crew` tool with mode: "status"
     independent, so they run alone. The absent files are listed. **Rebuild the graph and
     the run parallelises.**
   - `sequential` — no readable graph at all; everything runs alone.
+- **A run of this plan that stopped part-way**, when a checkpoint is on disk and its branches
+  still exist — the finished tasks with their branches, whatever was left, and the two ways
+  out, `resume: true` and `fresh: true`. A run that finished every task and then stopped
+  during integration, verify or review is reported too; that is the most expensive one to
+  repeat. Choosing between them is `/crew:execute`'s job; this command still starts nothing.
 - **Live worktrees**, each with the exact command to remove it.
 
 The schedule is computed fresh each time you ask, against the graph as it is now — so this
@@ -38,6 +43,7 @@ make automatically.
 
 - **Nothing planned yet** → `/crew:plan <directive>`
 - **A plan you are happy with** → `/crew:execute`
+- **A run that stopped part-way** → `/crew:execute` with `resume: true`, or `fresh: true` to start over
 - **Worktrees from the single-task pipeline too** → `/lets:worktree`
 
 ## Rules

@@ -30,6 +30,48 @@ In order, the tool:
 5. **Reviews** it once, with the recruited lanes.
 6. **Reports.**
 
+## When a previous run was interrupted
+
+A crew run is long and unattended, which makes it the thing that gets interrupted — a
+timeout, a dropped connection, a closed laptop. Every task that finished has already left
+its branch behind, so the work survives even when the run does not. The tool checkpoints to
+`state.json` after **every task**, not per wave and not at the end, because the end is
+exactly what an interrupted run never reaches.
+
+So a rerun of a plan that has a checkpoint **does not run**. It comes back naming the
+finished tasks, their branches, and what is still to do:
+
+```
+A previous run of this plan stopped part-way. 1 of 2 task(s) finished, and their branches
+are still here:
+  ✓ First — `lets/done-one`
+  · Second — not done
+
+`resume: true` keeps the finished branches and runs only what is left.
+`fresh: true` ignores them and runs the whole plan again.
+```
+
+**Show that to the user and ask which they want. Do not pick for them.** The two answers cost
+different things — `resume` skips work, `fresh` pays for it again — and the tool refuses
+precisely because neither is safe to assume on someone's behalf. Then call it again with the
+answer, `mode: "execute"` plus `resume: true` or `fresh: true`.
+
+A run interrupted *after* the last task — during integration, verify or review — refuses the
+same way with different wording: it "finished all N task(s) and then stopped", and `resume`
+goes straight to integrating, verifying and reviewing. That is the longest unattended stretch
+in a run, and the one most worth not repeating.
+
+Three things it will not do:
+
+- **Trust the record over the branch.** A finished task whose branch has since been deleted
+  runs again. The alternative is an integration that quietly misses that task's work while
+  the report calls it done.
+- **Resume across plans.** A checkpoint from a different `/crew:plan` is ignored — those
+  branches answer a different question, and being the newest file on disk is not evidence.
+- **Hide a carried-forward task.** Resumed branches are integrated with the rest and marked
+  in the report as **carried forward from an earlier run**. The record stands in for the
+  approval gate, so it must not claim a span of work this run did not perform.
+
 ## What you do while it runs
 
 Nothing. It is unattended by design. Progress is appended to the run log as it happens, so
@@ -91,6 +133,9 @@ Then push it, or `/lets:plan` the follow-up for whatever came back incomplete.
 - **Review the combined diff harder** → `/council:review`
 
 ## Rules
+
+- Never choose `resume` or `fresh` for the user. The tool refused because both answers are
+  wrong some of the time; picking one silently is the whole failure it exists to prevent.
 
 - Never re-plan here. Execute the recorded plan or report why you could not.
 - Never resolve an integration conflict on the user's behalf in this command.

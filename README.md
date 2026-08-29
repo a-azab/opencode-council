@@ -592,6 +592,36 @@ record, the review and a tailable step log land in
 `council-artifacts/<timestamp>-crew-org-{plan,run}/` — a tool call returns once, at the end,
 so tail the log if you want to watch a long run rather than guess whether it has hung.
 
+### An interrupted run carries forward
+
+A crew run is the longest unattended thing here, so it is the thing that gets interrupted.
+Every finished task has already committed to its own branch, and those branches outlive the
+process — but until recently nothing could say so, because each invocation minted a fresh run
+id and rebuilt the plan from scratch while the finished branches sat there unreferenced.
+
+`state.json` is now written into the run's artifact directory **after every task** — not per
+wave, and not at the end, since the end is precisely what an interrupted run never reaches.
+
+A rerun that finds one **refuses and names both ways out** rather than guessing:
+
+| | does |
+|---|---|
+| `resume: true` | keeps the finished branches and runs only what is left. With nothing left, goes straight to integrating, verifying and reviewing |
+| `fresh: true` | ignores the checkpoint and runs the whole plan again |
+
+Neither is a default, because both are wrong some of the time: resuming silently skips work
+nobody agreed to skip, and starting over silently is what wasted the interrupted afternoon in
+the first place.
+
+**The branch is the evidence, never the record alone.** A checkpointed task whose branch you
+have since deleted simply runs again — trusting the record there would drop its work out of
+the integration while the report still called it done. A checkpoint from a different plan is
+ignored for the same reason: those branches answer a different question. And a carried-forward
+task is marked in the report as **carried forward from an earlier run**, because with no
+approval gate the report must not claim a span of work this run did not perform.
+
+`/crew:status` reports an interrupted run too — it is where you look when one dies.
+
 ### Cost, honestly
 
 crew runs up to `MAX_WAVE_WIDTH` concurrent `lets` executions, so the per-task cost is a
