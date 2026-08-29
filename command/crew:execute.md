@@ -61,6 +61,12 @@ same way with different wording: it "finished all N task(s) and then stopped", a
 goes straight to integrating, verifying and reviewing. That is the longest unattended stretch
 in a run, and the one most worth not repeating.
 
+**A run with no checkpoint is still recoverable.** One interrupted before checkpointing
+existed, or whose `council-artifacts/` has been cleared, is matched against the `lets/crew-*`
+branches on disk instead. The refusal says so, because that evidence is weaker: a branch shows
+something was committed, not that the task finished. Read the branch list before choosing
+`resume` there.
+
 Three things it will not do:
 
 - **Trust the record over the branch.** A finished task whose branch has since been deleted

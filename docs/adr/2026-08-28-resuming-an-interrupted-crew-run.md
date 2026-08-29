@@ -38,6 +38,8 @@ allowed to assume**, given that both available assumptions are wrong some of the
 6. **A resumed task is labelled in the report** — `CrewTask.resumed`, rendered as
    `· **carried forward from an earlier run**`.
 7. **`resolveScope` no longer counts this tool's own output as the human's uncommitted work.**
+8. **With no checkpoint, the branches themselves are the fallback** — matched to planned tasks
+   by the title tail their names carry, and labelled as inferred wherever they surface.
 
 ## What this rests on
 
@@ -83,6 +85,35 @@ and rebuild all N tasks.
 was resumable by execute and invisible in the read-only view whose entire purpose is
 advertising that resuming is possible. No test covered it; it was found by the tech writer
 checking the prose against source, and fixed rather than documented as a limitation.
+
+### The checkpoint does not help the run that needed it
+
+A checkpoint written from now on covers every future interruption and none of the one that
+prompted this. The first user to hit the bug had a run with finished branches and no
+`state.json`, and would have been told to start over by the feature built for exactly their
+situation. The same hole reopens whenever someone clears `council-artifacts/` to reclaim space.
+
+The branches are still the work. `lets/crew-<runId>-<wave><index>-<title>` carries the task
+title as its tail, and the title is the one part stable across runs, so each planned task can
+be matched against the branches on disk with no recorded state at all.
+
+This is **weaker evidence than a checkpoint and is labelled as such** in the refusal, in
+`/crew:status` and in the report. A checkpoint records that a task *finished*; a branch only
+shows that something was *committed*, and a task that crashed after its second of three items
+leaves a branch indistinguishable from a complete one. So it feeds the same refuse-and-name
+path rather than resuming on its own — the human reading the branch list is the check that the
+record cannot be here.
+
+Two rules keep the inference from overclaiming:
+
+- **A branch with no commits ahead of base is not finished work**, whatever its name says.
+- **Two branches matching one task are ambiguous** — two runs of the plan each left one, and
+  nothing available here says which holds the work meant. Neither is claimed, so the task runs
+  again. Guessing would merge the wrong work silently, which is worse than repeating it.
+
+`taskSlug` is the single derivation, used by the execute path that writes the branch name and
+by the recovery that reads it. Two copies that drifted would make an interrupted run look like
+one that never started — silent, and in the unsafe direction.
 
 ### A record that outlives what it describes
 

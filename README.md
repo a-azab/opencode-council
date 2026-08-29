@@ -620,6 +620,13 @@ ignored for the same reason: those branches answer a different question. And a c
 task is marked in the report as **carried forward from an earlier run**, because with no
 approval gate the report must not claim a span of work this run did not perform.
 
+**A run with no checkpoint is still recoverable.** One interrupted before checkpointing
+shipped, or whose artifacts were cleared, is matched against the `lets/crew-*` branches on disk
+by the task title their names carry. That evidence is weaker and is labelled as such
+everywhere it appears: a branch shows work was committed, not that the task finished. A branch
+with no commits on it is not counted, and two branches matching one task are ambiguous, so
+neither is claimed.
+
 `/crew:status` reports an interrupted run too — it is where you look when one dies.
 
 ### Cost, honestly
