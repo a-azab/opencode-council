@@ -1031,7 +1031,7 @@ needed those two would be the one where deepseek was already down.
 than trusting the slugs, so a roster edit that invalidates a chain fails a test instead of a
 run.
 
-### A timeout falls through; a retired pin recovers to its own successor
+### The roster keeps itself current, on measurements rather than version numbers
 
 Every caller that has somewhere else to go — a council lane with a substitute waiting, the
 intake chain, the implement chain — treats a **timeout** as "this model did not fit the
@@ -1041,6 +1041,27 @@ retry, because those genuinely do pass.
 
 That distinction is worth real time: `timeoutFor` caps a review node at 300s, so a timing-out
 lane used to spend up to ten extra minutes before the stand-in it already had ran.
+
+**Newer versions are adopted automatically — after they are measured.** On the first model
+call of a process, the tool asks the server what it offers and looks for higher versions of
+each pinned model, newest first, major releases included. Nothing is adopted on the strength
+of a version number:
+
+> `google/gemini-3.7-flash` **times out at 90s** where `3.6` answers in 9s. Of 118 models
+> currently offered it is the only newer version of any pin — it was probed, it failed, and
+> the pin stood. A tool that took the higher number on sight would have removed a working
+> lane and called it an upgrade.
+
+A failed candidate falls to the next one down, so a bad release costs one probe rather than a
+lane. **Sibling tiers are never swapped**: `gpt-5.6-sol` will not become `gpt-5.6-terra`,
+because those change what the model is *for* — that stays your decision.
+
+It is a **runtime overlay, disclosed in the report**. `src/roster.ts` is never rewritten: a
+source file edited by a background process is a diff nobody wrote and nobody reviewed. Cost is
+bounded three ways — lazy (first model call, not startup), three probes per run, and every
+result cached on disk, so a model is measured once per machine rather than once per run. A
+deterministic failure forgets the cached measurement, so an adoption does not outlive the
+model.
 
 **A pin that fails is often retired rather than broken.** `opencode-go/grok-4.5` returned
 http 500 for an unknown stretch because the provider had replaced it with `4.6` — and nothing
