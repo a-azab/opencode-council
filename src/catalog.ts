@@ -51,6 +51,65 @@ export const upgradeCandidates = (roster: { model: string }[], offered: string[]
 /** Memoised per run: a review asks once, not once per lane that needs a stand-in. */
 let pending: Promise<string[]> | null = null
 
+/**
+ * `provider/name-<version><suffix>` split into its comparable parts, or null when the name
+ * carries no version this can reason about.
+ *
+ * Deliberately narrow. `kimi-k3` and `big-pickle` return null rather than being guessed at,
+ * because a wrong guess here swaps a working model for an unrelated one.
+ */
+function parseVersion(model: string): { provider: string; base: string; v: number[]; vp: string; suffix: string } | null {
+  const slash = model.indexOf("/")
+  if (slash === -1) return null
+  const provider = model.slice(0, slash)
+  const m = /^(.*?)-(v?)(\d+(?:\.\d+)*)(-.*)?$/.exec(model.slice(slash + 1))
+  if (!m) return null
+  return { provider, base: m[1], vp: m[2], v: m[3].split(".").map(Number), suffix: m[4] ?? "" }
+}
+
+const higher = (a: number[], b: number[]) => {
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (a[i] ?? 0) - (b[i] ?? 0)
+    if (d) return d > 0
+  }
+  return false
+}
+
+/**
+ * The next version up of the same model, from what the server currently offers.
+ *
+ * A pinned model that starts failing is usually not a broken model - it is a retired one.
+ * `opencode-go/grok-4.5` returned http 500 for an unknown stretch because the provider had
+ * replaced it with `4.6`, and nothing noticed: a dead pin looks exactly like a model having
+ * a bad day, and failover covers for it rather than complaining.
+ *
+ * Everything about the match is conservative, because the failure mode of getting it wrong
+ * is silently reviewing with a model nobody chose:
+ *
+ * - same provider, same base name, same suffix. `gpt-5.6-sol` will never match
+ *   `gpt-5.6-terra` - those are sibling tiers, not versions of each other.
+ * - strictly higher version, and the LOWEST such - the immediate successor. `4.5` takes
+ *   `4.6` even when `5.0` is on offer, because a major jump is a different model.
+ * - a name with no parseable version gets no successor at all.
+ */
+export function successorOf(model: string, offered: string[]): string | null {
+  const from = parseVersion(model)
+  if (!from) return null
+  const up = offered
+    .map((o) => ({ model: o, p: parseVersion(o) }))
+    .filter(
+      (c): c is { model: string; p: NonNullable<ReturnType<typeof parseVersion>> } =>
+        !!c.p &&
+        c.p.provider === from.provider &&
+        c.p.base === from.base &&
+        c.p.suffix === from.suffix &&
+        c.p.vp === from.vp &&
+        higher(c.p.v, from.v),
+    )
+    .sort((a, b) => (higher(a.p.v, b.p.v) ? 1 : -1))
+  return up[0]?.model ?? null
+}
+
 export function catalog(ctx: Ctx): Promise<string[]> {
   return (pending ??= fetchCatalog(ctx))
 }

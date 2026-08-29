@@ -14,6 +14,7 @@ import {
   type Finding, type Group, type Verdict, type Revision, type Score,
 } from "./decide.ts"
 import { selectRoles, selectNodes, skepticPool, SKEPTICS_PER_TIER, bySlug, canSchema, preferFast, ROSTER, ALL_ROLES, type Node, type Role, type Member } from "./roster.ts"
+import { successorOf } from "./catalog.ts"
 
 /**
  * Node outcomes are kept distinct on purpose. The council this replaces collapsed all of
@@ -505,6 +506,14 @@ export async function fanout(
   nodes: Node[],
   diff: string,
   bench: Bench = new Map(),
+  /**
+   * What the server offers right now, for matching a retired pin to its successor.
+   *
+   * A PARAMETER, never a fetch in here - the same rule `substitutesFor` states, for the same
+   * reason: this stays testable without a live server, and a server that will not answer
+   * costs recruitment rather than the review.
+   */
+  offered: string[] = [],
 ): Promise<NodeResult[]> {
   const settled = await Promise.allSettled(
     nodes.map(async (node): Promise<NodeResult> => {
@@ -514,7 +523,10 @@ export async function fanout(
 
       for (let attempt = 0; attempt <= MAX_SUBSTITUTIONS; attempt++) {
         tried.add(current.slug)
-        const r = await ask<{ findings: Finding[] }>(ctx, {
+        // A timing-out node has a substitute waiting, so retrying the same model twice more
+        // is up to 10 extra minutes (timeoutFor caps at 300s x 3) spent to reach the same
+        // answer before the stand-in it already had gets a turn.
+        const r = await ask<{ findings: Finding[] }>({ ...ctx, retry: ctx.retry ?? FALL_THROUGH_ON_TIMEOUT }, {
           model: current.model,
           agent: `council-${node.role}`,
           text: reviewPrompt(diff, node.role),
@@ -529,9 +541,18 @@ export async function fanout(
         if (why) bench.set(current.slug, why)
         substituted.push({ from: current.slug, state: r.state, detail: r.detail })
 
+        // A pinned model that fails is often RETIRED rather than broken, so ask what the
+        // server offers now before borrowing somebody else's. `opencode-go/grok-4.5` was dead
+        // for an unknown stretch precisely BECAUSE failover covered for it: the lane kept
+        // working, so nothing ever reported that the pin itself was gone. Taking the same
+        // model's next version up keeps the lane on the model it was actually given.
+        const newer = successorOf(current.model, offered)
+        const upgrade: Member | null =
+          newer && !tried.has(newer) ? { slug: newer, model: newer, roles: [node.role], ms: 0 } : null
+
         // The lane is only lost when the roster is genuinely out of stand-ins. Reporting a
         // dropped lane while eight unused models sit idle is the coverage gap this fixes.
-        const next = substitutesFor(node, nodes, bench, tried)[0]
+        const next = upgrade ?? substitutesFor(node, nodes, bench, tried)[0]
         if (!next || attempt === MAX_SUBSTITUTIONS)
           return { node: current, state: r.state, ms: r.ms, findings: [], detail: r.detail, substituted }
         current = { role: node.role, slug: next.slug, model: next.model }
@@ -691,6 +712,8 @@ export async function runReview(
      * make. `ALL_ROLES` is the full panel.
      */
     roles?: Role[]
+    /** what the server offers right now, for retiring-pin recovery. See `fanout`. */
+    offered?: string[]
   },
 ): Promise<Review> {
   const maxRounds = input.maxRounds ?? DEFAULT_MAX_ROUNDS
@@ -698,7 +721,7 @@ export async function runReview(
   ctx = { ...ctx, timeoutMs: ctx.timeoutMs ?? timeoutFor(input.diff.length) }
   const roles = input.roles ?? selectRoles(input.files, input.changedLines ?? 0)
   const nodes = selectNodes(roles)
-  const results = await fanout(ctx, nodes, input.diff)
+  const results = await fanout(ctx, nodes, input.diff, new Map(), input.offered ?? [])
 
   // LOOP 1 - debate. Runs only while reviewers actually disagree, and stops on a computed
   // fixed point rather than on a model announcing it is finished. Bounded twice over: by

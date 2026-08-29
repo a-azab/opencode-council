@@ -108,8 +108,19 @@ export const ROSTER: Member[] = [
   // the fastest reviewer that does NOT normally win a reviewer slot (the cap of 2 goes to
   // gpt56terra/gpt56luna on ms), so the lane costs a model that was otherwise idle.
   { slug: "minimax",   model: "opencode-go/minimax-m3",                 roles: ["reviewer", "skeptic", "ciso"],    ms: 4532, capability: ["schema", "agentic"] },
-  { slug: "nemoultra", model: "opencode/nemotron-3-ultra-free",         roles: ["reviewer", "systems", "breadth"], ms: 7307, free: true },
-  { slug: "nemolight", model: "opencode/nemotron-3.5-lightning-free",   roles: ["skeptic", "qa", "ops"],   ms: 4672, free: true },
+  // `nemoultra` and `nemolight` were here until 2026-08-29, when a census probe found both
+  // returning "[502] Upstream error" - 4 attempts each, persistent, and ~73s per failure.
+  // A 502 in the message body classifies as `failed` with no statusCode, so it does NOT
+  // retry; the cost was one slow failure per lane rather than three, which is why nothing
+  // surfaced it. They held `reviewer, systems, breadth` and `skeptic, qa, ops`; removing
+  // them left `breadth` and `ops` on a single carrier each, which is what this entry
+  // restores.
+  //
+  // `big-pickle` is measured, not assumed: schema-valid in 3097ms on 2026-08-29, the same
+  // bar every other member cleared to join. It is otherwise unproven, and it holds exactly
+  // the two lanes that lost their second carrier - assigned on coverage, not on any claim
+  // about what it is good at.
+  { slug: "bigpickle", model: "opencode/big-pickle",                  roles: ["breadth", "ops"],         ms: 3097, free: true },
   // Implementer class: chats and drives tools fine, 400s on a *named* tool_choice with
   // `only "auto" is supported`. Same cause as deepseek below. No lane, by measurement.
   { slug: "musespark", model: "opencode/muse-spark-1.2-contributor-free", roles: [],                       ms: 8000, free: true, capability: ["agentic"] },

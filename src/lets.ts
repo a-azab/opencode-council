@@ -13,6 +13,7 @@ import { existsSync, readFileSync, statSync, writeFileSync, symlinkSync, rmSync 
 import { join } from "node:path"
 import { selectRoles, bySlug, skepticPool, ROSTER, KNOWN_ROLES, type Role } from "./roster.ts"
 import { ask, runReview, FALL_THROUGH_ON_TIMEOUT, type Ctx, type NodeState } from "./engine.ts"
+import { catalog } from "./catalog.ts"
 import { localMcpServers, mcpTracker } from "./mcp.ts"
 import { beadsAvailable, bdInstalled, beadsTracker } from "./beads.ts"
 import { WORKITEMS_SCHEMA, VERDICT_SCHEMA } from "./schema.ts"
@@ -840,13 +841,19 @@ export async function runIntake(
 
   const askAny = async <T>(agent: string, text: string, schema?: unknown): Promise<T | null> => {
     let last = { state: "failed" as NodeState, detail: "no model in LETS_INTAKE_MODELS resolved" }
+    const chainErrors: string[] = []
     for (const slug of LETS_INTAKE_MODELS) {
       const member = bySlug(slug)
       if (!member) continue
       calls++
-      const r = await ask<T>(ctx, { model: member.model, agent, text, schema })
+      // Same reasoning as the implementer: there is a chain below this model, so a timeout
+      // should spend the next slot on the next model rather than on this one again.
+      const r = await ask<T>({ ...ctx, retry: FALL_THROUGH_ON_TIMEOUT }, { model: member.model, agent, text, schema })
       if (r.ok) return r.value
-      last = { state: r.state, detail: `${member.model}: ${r.detail}` }
+      // Every model's error, not just the last. A chain that exhausts otherwise reports
+      // whatever the final model said, which is how the 2026-08-29 incident was misdiagnosed.
+      chainErrors.push(`${member.model}: ${r.detail}`)
+      last = { state: r.state, detail: chainErrors.join(" · ") }
       // An auth failure is the server rejecting us, not this model failing. Every other
       // model will fail identically, so walking the rest of the roster just multiplies one
       // misconfiguration into five identical errors and hides the real cause.
@@ -1777,7 +1784,9 @@ async function reviewBranch(
 
   const files = git(input.worktree, ["diff", "--name-only", `${input.base}...HEAD`]).split("\n").filter(Boolean)
   const changedLines = diff.split("\n").filter((l) => /^[+-][^+-]/.test(l)).length
-  const review = await runReview(ctx, { diff, files, changedLines })
+  // Same recovery as the council path: a lane whose pinned model has been retired takes
+  // that model's next version rather than a different model entirely.
+  const review = await runReview(ctx, { diff, files, changedLines, offered: await catalog(ctx) })
 
   const blockers = review.kept.filter((f) => f.tier === "BLOCKER")
   return {

@@ -862,7 +862,12 @@ export const CouncilPlugin = async (input: any) => ({
             say(`verify: ${ok ? "passed" : "FAILED"}`)
             const { diff, files, changedLines } = gitDiff(vpath, cfg.base)
             if (diff.trim()) {
-              const review = await runReview(ctxFor(input), { diff, files, changedLines, roles })
+              // `offered` lets a retired pin recover to its own next version rather than to
+              // somebody else's model. Memoised per process, one local GET.
+              const review = await runReview(ctxFor(input), {
+                diff, files, changedLines, roles,
+                offered: await catalog(ctxFor(input)),
+              })
               result.review = {
                 blockers: review.verdictCounts.blockers,
                 suggestions: review.verdictCounts.suggestions,
@@ -1071,7 +1076,10 @@ export const CouncilPlugin = async (input: any) => ({
           ].join("\n")
         }
 
-        const review = await runReview(ctx, { diff, files, changedLines, ...councilArgs() })
+        const review = await runReview(ctx, {
+          diff, files, changedLines, ...councilArgs(),
+          offered: await catalog(ctx),
+        })
         const dir = artifactDir(cwd, "review")
         const path = join(dir, "report.md")
         writeFileSync(path, renderReport(review, { files, ms: Date.now() - t0 }))
