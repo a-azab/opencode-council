@@ -1,7 +1,7 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { substitutesFor, benchable, MAX_SUBSTITUTIONS, type Bench } from "./engine.ts"
-import { selectNodes, ALL_ROLES, ROSTER } from "./roster.ts"
+import { selectNodes, ALL_ROLES, ROSTER, bySlug } from "./roster.ts"
 
 // Measured 2026-08-21, full-panel review of lets: 24 of 56 lanes reported. `code` had
 // no working model at all (kimi quota exhausted) and four models returned `malformed` on
@@ -30,9 +30,19 @@ test("a benched model is never offered to any lane", () => {
 test("substitutes prefer diversity, then the role, then correlation", () => {
   const subs = substitutesFor(codeNode, round, new Map(), new Set(["kimik3"]))
   const inRound = new Set(round.map((n) => n.slug))
-  const firstBusy = subs.findIndex((m) => inRound.has(m.slug))
-  const lastFree = subs.map((m) => inRound.has(m.slug)).lastIndexOf(false)
-  if (firstBusy !== -1 && lastFree !== -1)
+
+  // The named cover is tier 0 and leads DELIBERATELY, busy or not: an operator who named a
+  // specific stand-in outranks the diversity heuristic. The free-before-busy invariant is
+  // about the tiers below it, so it is dropped before the check rather than smuggled into it.
+  const cover = bySlug(codeNode.slug)?.fallback
+  const tiered = subs.filter((m) => m.slug !== cover)
+
+  const firstBusy = tiered.findIndex((m) => inRound.has(m.slug))
+  const lastFree = tiered.map((m) => inRound.has(m.slug)).lastIndexOf(false)
+  // Not a vacuous pass: this assertion slept for months because the roster happened to have
+  // no unassigned model to offer, so `lastFree` was always -1. Fail loudly if that returns.
+  assert.ok(lastFree !== -1, "no unassigned model in the pool - this test proves nothing in that state")
+  if (firstBusy !== -1)
     assert.ok(lastFree < firstBusy, "every unassigned model must be offered before any busy one")
 })
 

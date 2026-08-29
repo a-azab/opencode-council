@@ -730,21 +730,27 @@ export const LETS_INTAKE_MODELS = ["opus5", "gpt56terra", "glm53", "minimax"] as
  */
 
 /**
- * The implementer. **opus5 leads** — user directive 2026-08-29.
+ * The implementer. **sonnet5 leads** — directive 2026-08-29.
  *
- * That directive was given while every model was returning 401, and the reason recorded at
- * the time — "deepseek's credential was 401ing" — was **wrong**. The incident report's own
- * root cause 2 establishes it: the opencode server requires basic auth, the plugin reads
- * those credentials from the environment, and a server started with them as CLI flags
- * rejected every session this tool opened. Anthropic 401'd identically. deepseek's
- * credential was never the problem and it answers today.
+ * Claude tokens are plentiful through **23 September 2026**, so the hottest paid path in the
+ * tool spends them rather than budget. This is a standing preference with an end date on it,
+ * not a measurement: revisit it deliberately rather than letting the date pass unnoticed.
  *
- * The lead is left as directed rather than silently reverted, but the standing directive
- * before it was deepseek-leads-on-cost, and the only evidence against that has been
- * withdrawn. Worth revisiting deliberately.
+ * Measured before being trusted, because the implementer's job is driving tools rather than
+ * answering: schema-valid in 5223ms, and it drove bash in a pinned worktree and returned the
+ * exact marker in 12412ms.
  *
- * The rest is the intake chain unchanged, and it is not decoration: a cheapest-first chain
- * is only safe if it still finishes when the cheapest is unavailable.
+ * **On deepseek, which this chain used to lead with.** It was demoted during the 2026-08-29
+ * incident on the recorded grounds that "deepseek's credential was 401ing". That was wrong,
+ * and the incident report's own root cause 2 establishes it: the opencode server requires
+ * basic auth, the plugin reads those credentials from the environment, and a server given
+ * them as CLI flags rejected every session this tool opened. **Anthropic 401'd identically** -
+ * which is what rules out any single provider's credential. deepseek answers today (measured
+ * 6838ms) and keeps its place in the chain. The note is here so the demotion is not
+ * re-litigated from the same false premise.
+ *
+ * The rest is the intake chain unchanged, and it is not decoration: a cheapest-first chain is
+ * only safe if it still finishes when the cheapest is unavailable.
  *
  * **Do not "fix" this by filtering the tail on `canAgentic`.** It would drop minimax, whose
  * `capability` is UNSET - which `canAgentic` reads as false by defaulting to `["schema"]`.
@@ -752,7 +758,7 @@ export const LETS_INTAKE_MODELS = ["opus5", "gpt56terra", "glm53", "minimax"] as
  * genuinely fail are flagged explicitly, because the roster records measurements rather than
  * assumptions.
  */
-export const LETS_IMPLEMENT_MODELS = ["opus5", "deepseek", ...LETS_INTAKE_MODELS.slice(1)] as const
+export const LETS_IMPLEMENT_MODELS = ["sonnet5", "opus5", "deepseek", ...LETS_INTAKE_MODELS.slice(1)] as const
 
 export type WorkItem = { title: string; detail: string; files: string[]; acceptance: string }
 

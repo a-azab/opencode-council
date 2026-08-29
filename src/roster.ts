@@ -140,6 +140,14 @@ export const ROSTER: Member[] = [
     ms: 6007, capability: ["schema", "agentic"] },
   // Implementer class: drives tools, refuses a named schema call.
   { slug: "deepseek", model: "deepseek/deepseek-v4-pro", roles: [], ms: 9459, capability: ["agentic"] },
+  // Implementer lead by directive (2026-08-29): Claude tokens are plentiful through
+  // 23 September 2026, so the hottest path in the tool spends them rather than budget.
+  //
+  // `capability` records what was MEASURED, not what is used: schema-valid in 5223ms, and it
+  // drove bash in a pinned worktree and returned the exact marker in 12412ms. `roles: []`
+  // because the directive is about implementing, not about reviewing - so it carries no
+  // council lane, while staying eligible as a stand-in for one.
+  { slug: "sonnet5", model: "anthropic/claude-sonnet-5", roles: [], ms: 5223, capability: ["schema", "agentic"] },
 ]
 
 export const canSchema = (m: Member) => (m.capability ?? ["schema"]).includes("schema")

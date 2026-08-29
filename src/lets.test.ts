@@ -1027,17 +1027,22 @@ test("the intake chain is entirely schema-capable", () => {
   }
 })
 
-test("the implementer chain leads with an agentic model — opus5 (user directive 2026-08-29)", () => {
-  // User directive: deepseek's credential 401s (autherror), which aborts the chain before
-  // any fallback, so Claude leads. `canAgentic` is asserted rather than assumed —
-  // leading with a model that cannot drive `edit`/`bash` would burn the first attempt of
-  // every item before falling through.
+test("the implementer chain leads with a model measured able to drive tools", () => {
+  // The durable half: leading with a model that cannot drive `edit`/`bash` would burn the
+  // first attempt of every item before falling through, so `canAgentic` is asserted rather
+  // than assumed - and `capability` records measurements, never intentions.
   const lead = bySlug(LETS_IMPLEMENT_MODELS[0])
   assert.ok(lead, `${LETS_IMPLEMENT_MODELS[0]} is not in the roster`)
   assert.ok(canAgentic(lead!), `${lead!.slug} leads the implementer but cannot drive tools`)
-  assert.equal(lead!.slug, "opus5", "claude leads the implementer per user directive")
-  // deepseek must remain reachable so a healthy credential costs less once fixed
-  assert.ok(LETS_IMPLEMENT_MODELS.includes("deepseek"))
+
+  // The changeable half: who leads is a directive with an end date, not a measurement.
+  // sonnet5 through 23 September 2026, while Claude tokens are plentiful.
+  assert.equal(lead!.slug, "sonnet5", "sonnet5 leads the implementer per directive 2026-08-29")
+
+  // deepseek stays reachable. It was demoted during the 2026-08-29 incident on the recorded
+  // grounds that its credential was 401ing; the incident's own root cause 2 disproves that -
+  // the server was rejecting the plugin's sessions, and anthropic 401'd identically.
+  assert.ok(LETS_IMPLEMENT_MODELS.includes("deepseek"), "deepseek keeps its place in the chain")
 })
 
 test("deepseek implements and never does intake", () => {

@@ -263,8 +263,11 @@ test("every schema-capable member gets at least one node in a full panel", () =>
   // The roster invariant that replaced a rejected `everyModel` option: "all models on one
   // task" must be true by construction, and fail loudly if a roster edit breaks it.
   const covered = new Set(selectNodes(ALL_ROLES).map((n) => n.slug))
-  for (const m of ROSTER.filter(canSchema))
-    assert.ok(covered.has(m.slug), `${m.slug} is in the roster but answers nothing`)
+  // Lane-carrying members only. A member with `roles: []` is deliberately not a lane model -
+  // it implements, or stands in - and demanding it hold a lane would push a roster edit into
+  // declaring a capability the model was never measured to have, just to keep this green.
+  for (const m of ROSTER.filter((m) => canSchema(m) && m.roles.length))
+    assert.ok(covered.has(m.slug), `${m.slug} carries a lane but answers nothing`)
 })
 
 test("an essential member holds its lane even when the cap would drop it", () => {

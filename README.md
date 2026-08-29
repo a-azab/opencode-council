@@ -832,7 +832,7 @@ applied by code — no model or role holds a veto.
 
 ## Roster
 
-Sixteen members: fourteen carry council lanes, two are implementer-class and carry none
+Seventeen members: fourteen carry council lanes, two are implementer-class and carry none
 (see below). `ms` is measured latency on a trivial structured task — for setting timeouts,
 **not a quality signal and never a tier**. Every member is smoke-tested on joining.
 
@@ -854,6 +854,7 @@ Sixteen members: fourteen carry council lanes, two are implementer-class and car
 | `gpt56luna` | openai/gpt-5.6-luna | reviewer, qa, skeptic | fast | schema, agentic |  | 4228 |
 | `glm53` | zai-coding-plan/glm-5.3 | systems, reviewer, infrastructure, security |  | schema, agentic |  | 6007 |
 | `deepseek` | deepseek/deepseek-v4-pro | *none — implementer-class* |  | agentic |  | 9459 |
+| `sonnet5` | anthropic/claude-sonnet-5 | *none — implementer-class* |  | schema, agentic |  | 5223 |
 
 **`capability` is measured, never read off a catalogue flag.** `schema` means the model can
 emit forced-tool-call structured output — every council lane needs it. `agentic` means it
