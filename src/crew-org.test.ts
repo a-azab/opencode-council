@@ -712,3 +712,21 @@ test("a resumed task is reported as carried forward, never as work this run did"
   const fresh = out.split("\n").find((l) => l.includes("Fresh"))!
   assert.doesNotMatch(fresh, /carried forward/, "work this run did must not be labelled as resumed")
 })
+
+test("crew:status also names a run that finished every task and then stopped", async () => {
+  // Found by the tech writer reviewing the docs against source, not by a test: status gated
+  // on `landed && remaining` while execute gates on `landed` alone, so the case worth the
+  // most - interrupted during integration, verify or review - was resumable by execute and
+  // invisible in the read-only view whose entire job is advertising that.
+  const dir = toolRepo()
+  try {
+    branchWith(dir, "lets/all-done", "a.ts", "1\n")
+    interrupted(dir, ["Only"], [{ title: "Only", branch: "lets/all-done" }])
+    const out = await (await crewTool()).execute({ mode: "status" }, { directory: dir })
+    assert.match(out, /finished every task and then stopped/)
+    assert.match(out, /lets\/all-done/)
+    assert.match(out, /resume: true/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

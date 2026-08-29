@@ -475,10 +475,16 @@ export const CouncilPlugin = async (input: any) => ({
                   (t: CrewTask) => t.run?.branch && branchExists(scope.root, t.run.branch),
                 )
                 const remaining = planned.filter((p: any) => !landed.some((l: CrewTask) => l.title === p.title))
-                if (landed.length && remaining.length)
+                // `landed` alone, matching execute. Gating on `remaining` too would hide the
+                // case worth the most: a run interrupted during integration, verify or review
+                // has every task done and nothing left, so it would be resumable by execute and
+                // invisible in the read-only view that exists to advertise resumability.
+                if (landed.length)
                   out.push(
                     "",
-                    `**A run of this plan stopped part-way** — ${landed.length}/${planned.length} task(s) finished, branches still here.`,
+                    remaining.length
+                      ? `**A run of this plan stopped part-way** — ${landed.length}/${planned.length} task(s) finished, branches still here.`
+                      : `**A run of this plan finished every task and then stopped** — during integration, verify or review. All ${landed.length} branch(es) still here.`,
                     ...landed.map((t: CrewTask) => `  ✓ ${t.title} — \`${t.run!.branch}\``),
                     ...remaining.map((t: any) => `  · ${t.title} — not done`),
                     "`/crew:execute` with `resume: true` finishes it; `fresh: true` starts over.",
