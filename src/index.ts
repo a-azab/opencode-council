@@ -21,6 +21,7 @@ import {
   availableTrackers,
   listWorktrees,
   renderWorktrees,
+  branchExists,
   type LetsConfig,
 } from "./lets.ts"
 import { detectStack, closeWorktree } from "./lets.ts"
@@ -414,9 +415,24 @@ export const CouncilPlugin = async (input: any) => ({
           .string()
           .default("")
           .describe("path to the ADR holding the interview Q&A, the research and the design (plan only)"),
+        resume: z
+          .boolean()
+          .default(false)
+          .describe("carry forward the finished branches of an interrupted run and do only what is left (execute only)"),
+        fresh: z
+          .boolean()
+          .default(false)
+          .describe("ignore an interrupted run's branches and execute the whole plan again (execute only)"),
       },
       async execute(
-        args: { mode?: "plan" | "execute" | "status"; directive?: string; tasks?: string; adr?: string },
+        args: {
+          mode?: "plan" | "execute" | "status"
+          directive?: string
+          tasks?: string
+          adr?: string
+          resume?: boolean
+          fresh?: boolean
+        },
         context: any,
       ) {
         const cwd = context?.directory ?? input?.directory ?? process.cwd()
@@ -447,6 +463,32 @@ export const CouncilPlugin = async (input: any) => ({
                 )
             }
           }
+          // An interrupted run is exactly when someone types `/crew:status`, so this is where
+          // the way out has to be visible. Nothing else on this path would ever mention it.
+          const prior = latestArtifact(scope.root, "crew-org-run", "state.json")
+          if (prior && last) {
+            try {
+              const st = JSON.parse(readFileSync(prior.path, "utf8"))
+              const planned = (JSON.parse(readFileSync(last.path, "utf8")).tasks ?? []) as any[]
+              if (st?.plan === last.dir) {
+                const landed = (st.tasks ?? []).filter(
+                  (t: CrewTask) => t.run?.branch && branchExists(scope.root, t.run.branch),
+                )
+                const remaining = planned.filter((p: any) => !landed.some((l: CrewTask) => l.title === p.title))
+                if (landed.length && remaining.length)
+                  out.push(
+                    "",
+                    `**A run of this plan stopped part-way** — ${landed.length}/${planned.length} task(s) finished, branches still here.`,
+                    ...landed.map((t: CrewTask) => `  ✓ ${t.title} — \`${t.run!.branch}\``),
+                    ...remaining.map((t: any) => `  · ${t.title} — not done`),
+                    "`/crew:execute` with `resume: true` finishes it; `fresh: true` starts over.",
+                  )
+              }
+            } catch {
+              /* an unreadable checkpoint is not worth failing a read-only view over */
+            }
+          }
+
           out.push("", renderWorktrees(listWorktrees(scope.root)))
           return out.join("\n")
         }
@@ -512,8 +554,60 @@ export const CouncilPlugin = async (input: any) => ({
         const found = latestArtifact(scope.root, "crew-org-plan", "plan.json")
         if (!found) return "No crew plan found. Run `/crew:plan <directive>` first."
         const saved = JSON.parse(readFileSync(found.path, "utf8"))
-        const planned = withFiles(saved.tasks ?? [])
+        let planned = withFiles(saved.tasks ?? [])
         if (!planned.length) return `The last crew plan (${found.dir}) had no tasks — nothing to run.`
+
+        // A crew run is long and unattended, which makes it exactly the thing that gets
+        // interrupted - a timeout, a dropped connection, a closed laptop. Every finished task
+        // has already left a branch behind, so the WORK survives even when the run does not.
+        // What was missing was any way to say "carry on from there": a rerun minted a fresh
+        // run id, so it rebuilt everything from scratch and the old branches just sat there.
+        const done: CrewTask[] = []
+        const prior = args?.fresh ? null : latestArtifact(scope.root, "crew-org-run", "state.json")
+        if (prior) {
+          let st: any = null
+          try {
+            st = JSON.parse(readFileSync(prior.path, "utf8"))
+          } catch {
+            /* an unreadable checkpoint is no checkpoint - fall through and run the plan */
+          }
+          // Only the SAME plan may be resumed. A checkpoint from another directive describes
+          // branches that answer a different question, and merging them would be silent.
+          if (st?.plan === found.dir) {
+            // The BRANCH is the evidence, never the record alone. A task whose branch the
+            // human has since deleted has to run again - otherwise integration would quietly
+            // miss its work while the report called it done.
+            const landed: CrewTask[] = (st.tasks ?? []).filter(
+              (t: CrewTask) => t.run?.branch && branchExists(scope.root, t.run.branch),
+            )
+            const remaining = planned.filter((p: any) => !landed.some((l) => l.title === p.title))
+            // `landed` alone, not `landed && remaining`: a run interrupted during integration,
+            // verify or review has every task done and nothing remaining, and that is the
+            // longest unattended stretch there is - exactly the one worth not repeating.
+            if (landed.length) {
+              // Refuse rather than guess. Resuming silently would skip work the human never
+              // agreed to skip; starting over silently is what just wasted their afternoon.
+              // Both are one word, and naming them is the whole fix for "I could not continue".
+              if (!args?.resume)
+                return [
+                  remaining.length
+                    ? `A previous run of this plan stopped part-way. ${landed.length} of ${planned.length} task(s) finished, and their branches are still here:`
+                    : `A previous run of this plan finished all ${landed.length} task(s) and then stopped - during integration, verify or review. The branches are still here:`,
+                  ...landed.map((t) => `  ✓ ${t.title} — \`${t.run!.branch}\``),
+                  ...remaining.map((t: any) => `  · ${t.title} — not done`),
+                  "",
+                  remaining.length
+                    ? "`resume: true` keeps the finished branches and runs only what is left."
+                    : "`resume: true` keeps them and goes straight to integrating, verifying and reviewing.",
+                  "`fresh: true` ignores them and runs the whole plan again.",
+                  "",
+                  `Prior run: ${prior.dir}`,
+                ].join("\n")
+              done.push(...landed.map((t) => ({ ...t, resumed: true })))
+              planned = remaining
+            }
+          }
+        }
 
         const dir = artifactDir(scope.root, "crew-org-run")
         const logPath = join(dir, "run.log")
@@ -539,12 +633,24 @@ export const CouncilPlugin = async (input: any) => ({
           ...new Set<Role>([...(saved.roles ?? []), ...recruitFloor(saved.directive ?? "", detectStack(scope.root))]),
         ]
         const runId = Date.now().toString(36)
-        const tasks: CrewTask[] = []
+        const tasks: CrewTask[] = [...done]
+        if (done.length) say(`resumed ${done.length} finished task(s) from a previous run`)
+        // Written after every task, not at the end: the end is precisely what an interrupted
+        // run never reaches. This file is what `resume` reads back.
+        const checkpoint = () => {
+          try {
+            writeFileSync(join(dir, "state.json"), JSON.stringify({ plan: found.dir, runId, tasks }, null, 2))
+          } catch {
+            /* a checkpoint is never worth failing the run over */
+          }
+        }
+        checkpoint()
         let abandon = ""
 
         for (const [wi, wave] of sched.waves.entries()) {
           if (abandon) {
             for (const t of wave) tasks.push({ title: t.title, slug: "", wave: wi + 1, skipped: abandon })
+            checkpoint()
             continue
           }
           say(`wave ${wi + 1}/${sched.waves.length}: ${wave.map((t: any) => t.title).join(", ")}`)
@@ -580,23 +686,31 @@ export const CouncilPlugin = async (input: any) => ({
                     mcp: cfg.mcp,
                   }),
                 })
-                return { title: t.title, slug, wave: wi + 1, run }
+                const record: CrewTask = { title: t.title, slug, wave: wi + 1, run }
+                tasks.push(record)
+                checkpoint()
+                return record
               } catch (e: any) {
                 // One task crashing must not lose the record of the others in its wave.
-                return {
+                const record: CrewTask = {
                   title: t.title,
                   slug,
                   wave: wi + 1,
                   skipped: `crashed: ${String(e?.message ?? e).slice(0, 200)}`,
                 }
+                tasks.push(record)
+                checkpoint()
+                return record
               }
             }),
           )
-          tasks.push(...settled)
+          // `settled` is already in `tasks` - each record registered itself as it finished so
+          // the checkpoint is current mid-wave. Sorted by wave at the end for the report.
           // A wave where nothing landed means the next wave builds on nothing. Stop and say so
           // rather than run work whose premise is already false.
           if (settled.every((t) => !t.run)) abandon = `wave ${wi + 1} produced no branch, so later waves were abandoned`
         }
+        tasks.sort((a, b) => a.wave - b.wave)
 
         const result: CrewResult = {
           directive: saved.directive ?? "",

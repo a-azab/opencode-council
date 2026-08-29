@@ -1064,3 +1064,24 @@ test("a spent kimi quota falls through to the other kimi route in both chains", 
     assert.equal(go, plan + 1, `${name}: the go route must sit directly behind the coding plan`)
   }
 })
+
+test("the tool's own output is not counted as your uncommitted work", () => {
+  // The trap this closes: a crew run writes council-artifacts/ and .worktrees/, so the tree
+  // it leaves behind is dirty by its own doing - and the dirty guard would then refuse the
+  // NEXT command, including the resume of the run that wrote them. `/lets:init` excludes
+  // both, but via `.git/info/exclude`, which is per-clone and never committed while the
+  // config in AGENTS.md is.
+  const dir = scratchRepo()
+  try {
+    mkdirSync(join(dir, "council-artifacts", "2026-01-01T00-00-00-lets-run"), { recursive: true })
+    writeFileSync(join(dir, "council-artifacts", "2026-01-01T00-00-00-lets-run", "run.log"), "x\n")
+    mkdirSync(join(dir, ".worktrees", "lets-abc"), { recursive: true })
+    writeFileSync(join(dir, ".worktrees", "lets-abc", "f.txt"), "x\n")
+    assert.deepEqual(resolveScope(dir).dirty, [], "our own artifacts are not the human's edits")
+
+    writeFileSync(join(dir, "theirs.txt"), "real work\n")
+    assert.deepEqual(resolveScope(dir).dirty, ["theirs.txt"], "a real edit still counts")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

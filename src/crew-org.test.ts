@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, readdirSync } from "node:fs"
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync, readdirSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
@@ -537,4 +537,178 @@ test("crew asks for one council on the integrated branch, not one per task", () 
   // ...and the pipeline must still honour it.
   const lets = readFileSync(join(PKG, "src/lets.ts"), "utf8")
   assert.match(lets, /input\.review === false/, "runExecute must act on the flag it accepts")
+})
+
+// ---------------------------------------------------------------- resume
+
+/**
+ * A plan on disk plus a checkpoint from a run that did not finish it.
+ *
+ * Both are written by hand rather than by running crew, because producing them for real
+ * needs model calls and this suite makes none. The shapes are the ones `latestArtifact`
+ * matches and `resume` reads.
+ */
+function interrupted(
+  dir: string,
+  titles: string[],
+  landed: { title: string; branch: string }[],
+  opts: { plan?: string } = {},
+) {
+  const planDir = "2026-01-01T00-00-00-crew-org-plan"
+  const runDir = "2026-01-01T00-00-01-crew-org-run"
+  for (const d of [planDir, runDir]) mkdirSync(join(dir, "council-artifacts", d), { recursive: true })
+  writeFileSync(
+    join(dir, "council-artifacts", planDir, "plan.json"),
+    JSON.stringify({
+      directive: "ship it",
+      adr: "docs/adr/x.md",
+      roles: ["reviewer"],
+      tasks: titles.map((title) => ({
+        title,
+        items: [{ title: "i", detail: "", files: ["x.ts"], acceptance: "ok" }],
+      })),
+    }),
+  )
+  writeFileSync(
+    join(dir, "council-artifacts", runDir, "state.json"),
+    JSON.stringify({
+      plan: opts.plan ?? planDir,
+      runId: "old",
+      tasks: landed.map((l, i) => ({
+        title: l.title,
+        slug: `crew-old-1${i + 1}-x`,
+        wave: 1,
+        run: { branch: l.branch },
+      })),
+    }),
+  )
+}
+
+const THIRTEEN = Array.from({ length: 13 }, (_, i) => `T${i}`)
+
+test("an interrupted run is refused, with both ways out named", async () => {
+  // The bug this closes: a rerun minted a fresh run id, so it rebuilt every task from
+  // scratch and the finished branches just sat there. There was no way to say "carry on".
+  const dir = toolRepo()
+  try {
+    branchWith(dir, "lets/done-one", "one.ts", "1\n")
+    interrupted(dir, ["First", "Second"], [{ title: "First", branch: "lets/done-one" }])
+    const out = await (await crewTool()).execute({ mode: "execute" }, { directory: dir })
+    assert.match(out, /stopped part-way/)
+    assert.match(out, /1 of 2 task/)
+    assert.match(out, /lets\/done-one/, "the surviving branch must be named, not just counted")
+    assert.match(out, /Second/, "and so must the work still to do")
+    assert.match(out, /resume: true/)
+    assert.match(out, /fresh: true/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a run that finished every task and then stopped resumes into integration", async () => {
+  // Integration, verify and review are the longest unattended stretch in a crew run, so an
+  // interruption there is the one most worth not repeating - and it leaves nothing remaining.
+  const dir = toolRepo()
+  try {
+    branchWith(dir, "lets/all-done", "a.ts", "1\n")
+    interrupted(dir, ["Only"], [{ title: "Only", branch: "lets/all-done" }])
+    const out = await (await crewTool()).execute({ mode: "execute" }, { directory: dir })
+    assert.match(out, /finished all 1 task/)
+    assert.match(out, /integration, verify or review/)
+    assert.match(out, /straight to integrating/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a finished task whose branch was deleted runs again", async () => {
+  // The branch is the evidence, never the record alone. Trusting a checkpoint that points at
+  // a branch the human has since deleted would drop that task's work out of the integration
+  // while the report still called it done.
+  const dir = toolRepo()
+  try {
+    interrupted(dir, THIRTEEN, [{ title: "T0", branch: "lets/deleted" }])
+    const out = await (await crewTool()).execute({ mode: "execute" }, { directory: dir })
+    assert.doesNotMatch(out, /stopped part-way/, "a checkpoint with no surviving branch is no checkpoint")
+    assert.match(out, /MAX_TASKS/, "so it went on to schedule the full plan")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a checkpoint from a different plan is not offered", async () => {
+  // Branches from another directive answer a different question. Merging them because the
+  // file happened to be the newest one on disk is exactly the silent wrong answer.
+  const dir = toolRepo()
+  try {
+    branchWith(dir, "lets/elsewhere", "b.ts", "1\n")
+    interrupted(dir, THIRTEEN, [{ title: "T0", branch: "lets/elsewhere" }], { plan: "2025-01-01T00-00-00-crew-org-plan" })
+    const out = await (await crewTool()).execute({ mode: "execute" }, { directory: dir })
+    assert.doesNotMatch(out, /stopped part-way/)
+    assert.match(out, /MAX_TASKS/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("fresh ignores a checkpoint that resume would have offered", async () => {
+  const dir = toolRepo()
+  try {
+    branchWith(dir, "lets/done-one", "one.ts", "1\n")
+    interrupted(dir, THIRTEEN, [{ title: "T0", branch: "lets/done-one" }])
+    const refused = await (await crewTool()).execute({ mode: "execute" }, { directory: dir })
+    assert.match(refused, /stopped part-way/, "without a flag it must refuse")
+
+    const out = await (await crewTool()).execute({ mode: "execute", fresh: true }, { directory: dir })
+    assert.doesNotMatch(out, /stopped part-way/)
+    assert.match(out, /MAX_TASKS/, "fresh went past the checkpoint to the whole plan")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("crew:status names an interrupted run and the way out of it", async () => {
+  // Where someone actually looks when a run dies. Nothing else on the read-only path would
+  // ever mention that resuming is possible.
+  const dir = toolRepo()
+  try {
+    branchWith(dir, "lets/done-one", "one.ts", "1\n")
+    interrupted(dir, ["First", "Second"], [{ title: "First", branch: "lets/done-one" }])
+    const out = await (await crewTool()).execute({ mode: "status" }, { directory: dir })
+    assert.match(out, /stopped part-way/)
+    assert.match(out, /lets\/done-one/)
+    assert.match(out, /resume: true/)
+    assert.match(out, /fresh: true/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a resumed task is reported as carried forward, never as work this run did", () => {
+  // The record stands in for the approval gate, so it must not claim a span of work it did
+  // not perform.
+  const base: CrewResult = {
+    directive: "d",
+    roles: ["reviewer"],
+    scheduling: { mode: "graph", ungraphed: [], waves: 1 },
+    tasks: [
+      {
+        title: "Carried",
+        slug: "crew-old-11-x",
+        wave: 1,
+        resumed: true,
+        run: { branch: "lets/old", outcomes: [], stoppedBy: "complete", seconds: 1, worktree: "/w", cycles: [], pushed: false } as any,
+      },
+      {
+        title: "Fresh",
+        slug: "crew-new-11-y",
+        wave: 1,
+        run: { branch: "lets/new", outcomes: [], stoppedBy: "complete", seconds: 1, worktree: "/w", cycles: [], pushed: false } as any,
+      },
+    ],
+  }
+  const out = renderCrewReport(base)
+  assert.match(out, /Carried.*carried forward from an earlier run/)
+  const fresh = out.split("\n").find((l) => l.includes("Fresh"))!
+  assert.doesNotMatch(fresh, /carried forward/, "work this run did must not be labelled as resumed")
 })

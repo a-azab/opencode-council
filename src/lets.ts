@@ -214,6 +214,20 @@ export type Scope =
  * rather than judged - refusing is the caller's decision, and it needs the list to offer
  * a stash (C9).
  */
+/**
+ * Paths this tool writes itself.
+ *
+ * They are never "your uncommitted work", and counting them as such is a trap that bites
+ * exactly when you can least afford it: a crew run writes `council-artifacts/` and
+ * `.worktrees/`, which makes the tree dirty, which makes the NEXT crew command refuse with
+ * "commit or stash first" - including the resume of the very run that wrote them.
+ *
+ * `/lets:init` does add both to `.git/info/exclude`, but that file is per-clone and never
+ * committed while the config in AGENTS.md is, so a fresh clone has the config and not the
+ * exclusion. Filtering here does not depend on a file that may not have travelled.
+ */
+const OURS = /^(council-artifacts|\.worktrees)(\/|$)/
+
 export function resolveScope(cwd: string): Scope {
   try {
     const root = git(cwd, ["rev-parse", "--show-toplevel"])
@@ -221,7 +235,7 @@ export function resolveScope(cwd: string): Scope {
     const dirty = git(root, ["status", "--porcelain"])
       .split("\n")
       .map((l) => l.slice(3).trim())
-      .filter(Boolean)
+      .filter((f) => f && !OURS.test(f))
     return { kind: "ok", root, branch, dirty }
   } catch {
     return { kind: "notrepo" }

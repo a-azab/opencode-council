@@ -189,6 +189,14 @@ export type CrewTask = {
   run?: RunResult
   /** why it never ran. Set only when `run` is absent - a task with neither is a bug */
   skipped?: string
+  /**
+   * Carried forward from an interrupted run rather than executed by this one.
+   *
+   * The report must say so. A resumed branch is real work and belongs in the integration,
+   * but presenting it as something THIS run did would make the record claim a span of work
+   * it never performed - and the record is the only thing standing in for the approval gate.
+   */
+  resumed?: boolean
 }
 
 export type CrewResult = {
@@ -262,7 +270,10 @@ export function renderCrewReport(r: CrewResult): string {
     }
     const bad = t.run.outcomes.filter((o) => o.state !== DONE)
     const mark = succeeded(t) ? "✓" : "⚠"
-    out.push(`- ${mark} **${t.title}** (wave ${t.wave}) — \`${t.run.branch}\`, stopped: ${t.run.stoppedBy}`)
+    out.push(
+      `- ${mark} **${t.title}** (wave ${t.wave}) — \`${t.run.branch}\`, stopped: ${t.run.stoppedBy}` +
+        (t.resumed ? " · **carried forward from an earlier run**" : ""),
+    )
     for (const o of bad) out.push(`    - ${o.state}: ${o.item.title}${o.detail ? ` — ${o.detail}` : ""}`)
     // An acceptance nobody independently judged is not an acceptance that passed.
     const unjudged = t.run.outcomes.filter((o) => o.state === DONE && !o.judged)
