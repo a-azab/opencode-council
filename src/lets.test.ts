@@ -49,6 +49,7 @@ import {
   IMPLEMENT_TIMEOUT_MS,
   LETS_IMPLEMENT_MODELS,
   requiresIndependentAcceptance,
+  implementPrompt,
 } from "./lets.ts"
 import { beadsAvailable, bdInstalled } from "./beads.ts"
 import { bySlug, canSchema, canAgentic, selectNodes, ALL_ROLES } from "./roster.ts"
@@ -189,6 +190,30 @@ test("paths this tool writes itself are never reported as the user's work", () =
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test("the worker is told the run's objective, as context and not as scope", () => {
+  // It was never told. A worker knew its item and nothing about what the item was for,
+  // so an ambiguous acceptance criterion got resolved by guesswork - independently, by
+  // each of five attempts. Found by an audit of this repo's own gaps, 2026-09-20.
+  const item = { title: "T", detail: "D", files: ["src/a.ts"], acceptance: "A" }
+  const withIt = implementPrompt(item, CFG, "", undefined, { directive: "SHIP THE EXPORT FLAG" })
+  assert.match(withIt, /SHIP THE EXPORT FLAG/)
+  assert.match(withIt, /CONTEXT, not your scope/, "a directive must not be read as permission to widen the item")
+
+  // And absent, the prompt is unchanged - no empty section, no dangling header.
+  const without = implementPrompt(item, CFG, "", undefined, {})
+  assert.doesNotMatch(without, /<directive>/)
+})
+
+test("selected conventions reach the worker, subordinated to the repo", () => {
+  const item = { title: "T", detail: "D", files: ["src/a.ts"], acceptance: "A" }
+  const p = implementPrompt(item, CFG, "", undefined, {
+    conventions: '<conventions source="ECC">\nPREFER CONST\nTHE REPO WINS\n</conventions>',
+  })
+  assert.match(p, /PREFER CONST/)
+  assert.match(p, /THE REPO WINS/)
+  assert.doesNotMatch(implementPrompt(item, CFG, "", undefined, {}), /conventions/)
 })
 
 test("detectStack recognises this repo as node", () => {

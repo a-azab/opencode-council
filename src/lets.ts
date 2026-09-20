@@ -17,6 +17,7 @@ import { catalog } from "./catalog.ts"
 import { localMcpServers, mcpTracker } from "./mcp.ts"
 import { beadsAvailable, bdInstalled, beadsTracker } from "./beads.ts"
 import { WORKITEMS_SCHEMA, VERDICT_SCHEMA } from "./schema.ts"
+import { conventionsFor } from "./rules.ts"
 import {
   findHarness,
   runAudit,
@@ -1733,18 +1734,45 @@ async function diagnose(
   return r.ok ? `A reviewer diagnosed the failure:\n\n${r.value}` : input.failure
 }
 
-const implementPrompt = (item: WorkItem, cfg: LetsConfig, instructions: string, feedback?: string) =>
+/** Exported so what a worker is actually told is a testable artifact. */
+export const implementPrompt = (
+  item: WorkItem,
+  cfg: LetsConfig,
+  instructions: string,
+  feedback?: string,
+  /**
+   * The run's directive, and the conventions for this item's files.
+   *
+   * The directive was previously never passed. A worker knew its item and nothing about
+   * the objective the item served, so it could not tell which of two readings of an
+   * ambiguous acceptance criterion was the one anybody wanted - and five attempts all
+   * guessed independently. It is context, not scope: the item is still the work.
+   */
+  context?: { directive?: string; conventions?: string },
+) =>
   `${instructions}
 
 You are in a git worktree created for this run. Everything you do stays here.
+${
+  context?.directive
+    ? `
+<directive>
+The overall objective this item serves:
+${context.directive}
 
+This is CONTEXT, not your scope. Implement the work item below and nothing more — but
+where the item is ambiguous, resolve it the way the directive implies.
+</directive>
+`
+    : ""
+}
 <work-item>
 TITLE: ${item.title}
 DETAIL: ${item.detail}
 DONE WHEN: ${item.acceptance}
 LIKELY FILES: ${item.files.join(", ") || "(not predicted — find them)"}
 </work-item>
-
+${context?.conventions ? `\n${context.conventions}\n` : ""}
 ${
   feedback
     ? `<previous-attempt-failed>
@@ -1790,6 +1818,14 @@ export async function runItem(
     onStep?: (msg: string) => void
     /** epoch ms after which no further attempt starts */
     deadline?: number
+    /**
+     * The run's objective, passed to the worker as context.
+     *
+     * Absent, a worker knows its item and nothing about what the item is for, so an
+     * ambiguous acceptance criterion is resolved by guesswork - independently, by each of
+     * five attempts.
+     */
+    directive?: string
     /** the scorer, when this repo has one. Absent means verify alone gates the item. */
     harness?: HarnessLocation | null
     /** the repo's score BEFORE this run, for the per-category no-downgrade comparison */
@@ -1857,7 +1893,17 @@ export async function runItem(
         {
           model: member.model,
           agent: "lets-dev",
-          text: implementPrompt(input.item, input.cfg, input.instructions, feedback),
+          text: implementPrompt(input.item, input.cfg, input.instructions, feedback, {
+            directive: input.directive,
+            // Selected per item from the files it declares, gated on evidence the repo
+            // actually uses that framework. Costs nothing when there is no ECC checkout.
+            conventions: conventionsFor(
+              input.cfg.harness === "none" ? undefined : findHarness(input.cfg.harness)?.root,
+              input.item.files,
+              undefined,
+              input.worktree,
+            ),
+          }),
           directory: input.worktree,
           allow: ["edit", "bash"],
         },
@@ -2240,6 +2286,7 @@ export async function runExecute(
           cfg: input.cfg,
           instructions: input.instructions,
           landed: outcomes.filter((o) => o.state === "done").map((o) => o.item.title),
+          directive: input.directive,
           onStep: say,
           harness,
           harnessBaseline: baseline(),

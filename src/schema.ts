@@ -193,3 +193,48 @@ export const PATCH_SCHEMA = {
   required: ["new_content", "explanation", "confident"],
   additionalProperties: false,
 } as const
+
+/**
+ * One round's handoff in a fresh-agent loop (`src/ralph.ts`).
+ *
+ * Every field is required and the object is closed, because the validation that makes
+ * this contract worth having is CROSS-FIELD: `complete` must carry evidence and no next
+ * steps, `continue` must carry next steps and no blocker. Optional fields would make
+ * "absent" and "empty" two ways of saying the same thing, and the checks could not
+ * distinguish a worker that finished from one that forgot to answer.
+ *
+ * Adapted from DeepSeek Harness's `tool-ralph` (packages/workflow/tool-ralph), whose
+ * schema this mirrors deliberately: the shape is the part worth copying.
+ */
+export const ROUND_REPORT_SCHEMA = {
+  type: "object",
+  properties: {
+    status: {
+      type: "string",
+      enum: ["continue", "complete", "blocked"],
+      description:
+        "continue = useful work remains; complete = the objective is met and you can point at " +
+        "what proves it; blocked = no further progress is possible without a human or an " +
+        "external change",
+    },
+    summary: { type: "string", description: "what you did this round, in one or two sentences" },
+    evidence: {
+      type: "array",
+      items: { type: "string" },
+      description:
+        "concrete proof the work landed - a file path you changed, a command you ran and its " +
+        "result. Required to claim complete. Not a restatement of intent",
+    },
+    next_steps: {
+      type: "array",
+      items: { type: "string" },
+      description: "what the next round should do. Required to continue, and must be empty to complete",
+    },
+    blocker: {
+      type: "string",
+      description: "what is stopping you, concretely. Empty unless status is blocked",
+    },
+  },
+  required: ["status", "summary", "evidence", "next_steps", "blocker"],
+  additionalProperties: false,
+} as const
