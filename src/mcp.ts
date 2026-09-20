@@ -1,4 +1,4 @@
-// The generic tracker: any local MCP server configured in opencode.json.
+// The generic tracker: any MCP server configured in opencode.json, local or remote.
 //
 // Linear was the first native implementation and stays as a fast path, but the seam was
 // never meant to end there — any tracker that ships an MCP server (Jira, GitHub Issues,
@@ -6,8 +6,15 @@
 // resolves servers from the opencode config the user already maintains, so lets adds
 // zero new configuration of its own for HOW to run a server — only WHAT to call on it.
 //
-// Deliberately stdio-only. Remote (HTTP) MCP servers are a different transport and
-// usually need OAuth; when someone actually needs one, that is the moment to write it.
+// Both transports, because the interesting trackers are remote. stdio servers are spawned;
+// remote ones are POSTed to over Streamable HTTP. The two share one `call()` surface so
+// mcpTracker never learns which it is talking to.
+//
+// Remote servers usually need OAuth, and we do NOT run an OAuth flow: the token is read
+// from whatever the machine already has (see `remoteAuth`). A remote server with no
+// resolvable credential is not offered as a tracker rather than offered and then failing
+// at the first call — an offered mirror that silently never mirrors is the failure the
+// whole tracker seam exists to avoid.
 import { spawn, type ChildProcess } from "node:child_process"
 import { existsSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
@@ -16,11 +23,64 @@ import type { ItemOutcome, McpConfig, RunResult, Tracker, WorkItem } from "./let
 
 // ------------------------------------------------------------------ server resolution
 
-export type McpServerSpec = {
-  name: string
-  command: string[]
-  environment?: Record<string, string>
-  cwd?: string
+export type McpServerSpec =
+  | {
+      transport: "local"
+      name: string
+      command: string[]
+      environment?: Record<string, string>
+      cwd?: string
+    }
+  | {
+      transport: "remote"
+      name: string
+      url: string
+      /** Ready-to-send Authorization header value, or undefined for an open server. */
+      auth?: string
+      headers?: Record<string, string>
+    }
+
+/**
+ * Authorization for a remote server, from credentials the machine already holds.
+ *
+ * Order is explicitness first: an env var the user set for this server, then a stored
+ * OAuth token, then nothing. We never run an OAuth flow and never prompt — a tracker is
+ * a side channel, and a mirror that blocks a run on an interactive login would be worse
+ * than no mirror.
+ *
+ * `MCP_TOKEN_<NAME>` uses the server's own name upper-cased with non-alphanumerics as
+ * underscores, so `linear` reads MCP_TOKEN_LINEAR and `github-issues` reads
+ * MCP_TOKEN_GITHUB_ISSUES.
+ *
+ * The OAuth path reads Hermes's token store, which is where an already-authorised remote
+ * MCP connection keeps its grant. Reading it is deliberate: the user authorised this
+ * server once, for this purpose, and asking them for a second personal API key to do the
+ * same job would be asking for a credential we already have.
+ */
+export function remoteAuth(
+  name: string,
+  env: NodeJS.ProcessEnv = process.env,
+  tokenDir = join(homedir(), ".hermes", "mcp-tokens"),
+): string | undefined {
+  const key = `MCP_TOKEN_${name.toUpperCase().replace(/[^A-Z0-9]+/g, "_")}`
+  const fromEnv = env[key]?.trim()
+  // Taken verbatim when it already names a scheme, so a user can supply `Basic abc` or a
+  // vendor's own prefix. A bare token is the common case and gets Bearer.
+  if (fromEnv) return /^\S+\s/.test(fromEnv) ? fromEnv : `Bearer ${fromEnv}`
+
+  const file = join(tokenDir, `${name}.json`)
+  if (!existsSync(file)) return undefined
+  try {
+    const t = JSON.parse(readFileSync(file, "utf8"))
+    if (typeof t?.access_token !== "string" || !t.access_token) return undefined
+    // An expired grant is treated as absent rather than sent and rejected: the caller
+    // then does not offer this server, which is a legible outcome. `expires_at` is
+    // seconds since epoch in this store.
+    if (typeof t.expires_at === "number" && t.expires_at * 1000 <= Date.now()) return undefined
+    return `${t.token_type || "Bearer"} ${t.access_token}`
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -70,10 +130,14 @@ export function parseJsonc(text: string): any | undefined {
 export function localMcpServers(
   repoRoot?: string,
   dirs?: { global?: string; repo?: string },
+  // Injected rather than read from the ambient environment so a test can exercise remote
+  // resolution without depending on — or reading — the real machine's token store.
+  env: NodeJS.ProcessEnv = process.env,
+  tokenDir = join(homedir(), ".hermes", "mcp-tokens"),
 ): Map<string, McpServerSpec> {
   // XDG_CONFIG_HOME is the config ROOT, not the opencode dir — the global config lives at
   // $XDG_CONFIG_HOME/opencode, exactly as it does at ~/.config/opencode when unset.
-  const globalDir = dirs?.global ?? join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "opencode")
+  const globalDir = dirs?.global ?? join(env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "opencode")
   const files = [
     join(globalDir, "opencode.json"),
     join(globalDir, "opencode.jsonc"),
@@ -92,9 +156,32 @@ export function localMcpServers(
     if (!servers || typeof servers !== "object") continue
     for (const [name, raw] of Object.entries<any>(servers)) {
       if (raw?.enabled === false) continue // present-but-disabled is a decision, not an oversight
+
+      // Remote first: opencode marks these `type: "remote"` with a `url`. Anything with a
+      // url and no command is treated as remote even when the type is missing, because a
+      // url is not spawnable and guessing "local" would only produce a confusing ENOENT.
+      const url = typeof raw?.url === "string" ? raw.url : undefined
+      if (url && (raw?.type === "remote" || !Array.isArray(raw?.command))) {
+        const auth = remoteAuth(name, env, tokenDir)
+        // Headers in the config win: a user who wrote an explicit Authorization there is
+        // overriding whatever we would have resolved, which is the point of writing it.
+        const headers =
+          typeof raw?.headers === "object" && raw.headers
+            ? Object.fromEntries(Object.entries<any>(raw.headers).map(([k, v]) => [k, String(v)]))
+            : undefined
+        const hasHeaderAuth = headers && Object.keys(headers).some((k) => k.toLowerCase() === "authorization")
+        // No credential, no offer. Listing a server we cannot authenticate to would put a
+        // tracker in front of the user that fails on its first call — the "offered but
+        // silently never mirrors" outcome this seam exists to prevent.
+        if (!auth && !hasHeaderAuth && raw?.requiresAuth !== false) continue
+        out.set(name, { transport: "remote", name, url, ...(auth ? { auth } : {}), ...(headers ? { headers } : {}) })
+        continue
+      }
+
       // `type` may be omitted when `command` is present; anything else is not spawnable
       if ((raw?.type && raw.type !== "local") || !Array.isArray(raw?.command)) continue
       out.set(name, {
+        transport: "local",
         name,
         command: raw.command.map(String),
         environment: typeof raw.environment === "object" && raw.environment ? raw.environment : undefined,
@@ -150,7 +237,7 @@ class McpSession {
     })
   }
 
-  static async spawn(spec: McpServerSpec): Promise<McpSession> {
+  static async spawn(spec: Extract<McpServerSpec, { transport: "local" }>): Promise<McpSession> {
     const child = spawn(spec.command[0], spec.command.slice(1), {
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env, ...spec.environment },
@@ -226,6 +313,129 @@ class McpSession {
   }
 }
 
+/**
+ * The same session, over Streamable HTTP, for remote servers.
+ *
+ * A separate class rather than a transport flag inside McpSession: the two share almost
+ * no mechanism. stdio is a long-lived child with newline framing and id correlation
+ * across one pipe; this is a POST per request, where the id only has to survive a single
+ * round trip. Forcing them into one class would mean a constructor that is half-empty
+ * whichever way it is built.
+ *
+ * Both expose `call(tool, args)` returning concatenated text, which is the entire surface
+ * mcpTracker uses — so the tracker never learns which transport it has.
+ */
+class McpHttpSession {
+  private nextId = 1
+  /** Servers may hand back a session id on initialize; it is echoed on later calls. */
+  private sessionId: string | null = null
+  // Plain fields assigned in the body, NOT constructor parameter properties: this file is
+  // executed unbuilt by node's strip-only TypeScript, which rejects `private readonly x`
+  // in a parameter list with ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX. tsc accepts it, so the
+  // typecheck passes and the plugin then fails to load at runtime.
+  private readonly url: string
+  private readonly headers: Record<string, string>
+
+  private constructor(url: string, headers: Record<string, string>) {
+    this.url = url
+    this.headers = headers
+  }
+
+  static async connect(spec: Extract<McpServerSpec, { transport: "remote" }>): Promise<McpHttpSession> {
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+      // Both, because the spec allows a server to answer either way and Linear answers
+      // with SSE. Sending only application/json gets a 406 from servers that stream.
+      accept: "application/json, text/event-stream",
+      ...(spec.auth ? { authorization: spec.auth } : {}),
+      ...(spec.headers ?? {}),
+    }
+    const s = new McpHttpSession(spec.url, headers)
+    await s.request(
+      "initialize",
+      { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "opencode-council", version: "0" } },
+      15_000,
+    )
+    // A notification: no id, no reply expected, and a failure here is not fatal to the
+    // session - some servers ignore it entirely.
+    await s.notify("notifications/initialized").catch(() => {})
+    return s
+  }
+
+  private async post(body: unknown, timeoutMs: number): Promise<{ status: number; text: string; sid: string | null }> {
+    const h = { ...this.headers, ...(this.sessionId ? { "mcp-session-id": this.sessionId } : {}) }
+    const r = await fetch(this.url, {
+      method: "POST",
+      headers: h,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    return { status: r.status, text: await r.text(), sid: r.headers.get("mcp-session-id") }
+  }
+
+  private async notify(method: string, params: unknown = {}): Promise<void> {
+    await this.post({ jsonrpc: "2.0", method, params }, 10_000)
+  }
+
+  /**
+   * One request/response.
+   *
+   * The body may be plain JSON or an SSE stream carrying the same JSON-RPC envelope in a
+   * `data:` line - Linear returns the latter. Parsing both here keeps that detail out of
+   * every caller.
+   */
+  private async request(method: string, params: unknown, timeoutMs: number): Promise<any> {
+    const id = this.nextId++
+    let res: { status: number; text: string; sid: string | null }
+    try {
+      res = await this.post({ jsonrpc: "2.0", id, method, params }, timeoutMs)
+    } catch (e: any) {
+      // A timeout arrives as an AbortError, which says nothing useful on its own.
+      throw new Error(
+        e?.name === "TimeoutError" || e?.name === "AbortError"
+          ? `MCP ${method} timed out after ${timeoutMs}ms`
+          : `MCP ${method} failed: ${String(e?.message ?? e).slice(0, 200)}`,
+      )
+    }
+    if (res.sid) this.sessionId = res.sid
+    if (res.status >= 300)
+      throw new Error(`MCP ${method} http ${res.status}: ${res.text.slice(0, 200) || "(empty body)"}`)
+
+    let msg: any
+    const line = res.text.split("\n").find((l) => l.startsWith("data:"))
+    try {
+      msg = JSON.parse(line ? line.slice(5).trim() : res.text)
+    } catch {
+      throw new Error(`MCP ${method} returned an unparseable body: ${res.text.slice(0, 200)}`)
+    }
+    if (msg?.error) throw new Error(msg.error.message ?? JSON.stringify(msg.error).slice(0, 200))
+    return msg?.result
+  }
+
+  /** Call a tool; resolves to the concatenated text of its result content. */
+  async call(tool: string, args: Record<string, unknown>, timeoutMs = 15_000): Promise<string> {
+    const r = await this.request("tools/call", { name: tool, arguments: args }, timeoutMs)
+    if (r?.isError) throw new Error(`tool ${tool} reported an error: ${JSON.stringify(r).slice(0, 200)}`)
+    return (r?.content ?? [])
+      .filter((c: any) => c?.type === "text" && typeof c.text === "string")
+      .map((c: any) => c.text)
+      .join("\n")
+      .trim()
+  }
+
+  stop() {
+    /* nothing to kill: every call is its own request */
+  }
+}
+
+/** What both sessions provide, and all the tracker needs. */
+type McpClient = { call(tool: string, args: Record<string, unknown>, timeoutMs?: number): Promise<string>; stop(): void }
+
+/** Connect by transport. The only place either class is named. */
+export function openMcp(spec: McpServerSpec): Promise<McpClient> {
+  return spec.transport === "remote" ? McpHttpSession.connect(spec) : McpSession.spawn(spec)
+}
+
 // ------------------------------------------------------------------ the tracker
 
 /** Substitute `${issue}` `${directive}` `${branch}` `${text}` `${state}` in template strings. */
@@ -258,8 +468,8 @@ export function mcpTracker(
   issueRef: string | null | undefined,
   onStep: (m: string) => void,
 ): Tracker {
-  let session: Promise<McpSession> | null = null
-  const ensure = () => (session ??= McpSession.spawn(spec))
+  let session: Promise<McpClient> | null = null
+  const ensure = () => (session ??= openMcp(spec))
 
   // Spread order is the contract: built-in defaults < per-call values < user templates.
   // Templates win because the server's argument names are the ones that must match — a

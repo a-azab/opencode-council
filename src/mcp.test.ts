@@ -62,7 +62,7 @@ test("parseJsonc survives comments, trailing commas, and URLs in strings", () =>
   assert.equal(parseJsonc("{ not json"), undefined, "garbage is undefined, not a crash")
 })
 
-test("localMcpServers reads opencode.json, tolerates jsonc, repo overrides global, skips remote", () => {
+test("localMcpServers reads opencode.json, tolerates jsonc, repo overrides global, skips uncredentialed remote", () => {
   const dir = scratch()
   try {
     const globalDir = join(dir, "global")
@@ -81,15 +81,26 @@ test("localMcpServers reads opencode.json, tolerates jsonc, repo overrides globa
       `{"mcpServers": {"jira": {"type": "local", "command": ["node", "jira-override.mjs"]}}}`,
     )
 
-    const merged = localMcpServers(repo, { global: join(globalDir, "opencode") })
+    // Empty env and a token dir that does not exist: the remote entry has no resolvable
+    // credential, so it must not be offered. Injected rather than ambient so this never
+    // depends on - or reads - the real machine's token store.
+    const noCreds = {} as NodeJS.ProcessEnv
+    const noTokens = join(dir, "no-such-token-dir")
+    const merged = localMcpServers(repo, { global: join(globalDir, "opencode") }, noCreds, noTokens)
     assert.deepEqual([...merged.keys()], ["jira"], "repo overrides global by name")
-    assert.equal(merged.get("jira")!.command[1], "jira-override.mjs", "repo overrides global by name")
+    const jira = merged.get("jira")!
+    assert.equal(jira.transport, "local")
+    assert.equal(jira.transport === "local" && jira.command[1], "jira-override.mjs", "repo overrides global by name")
 
-    const globalOnly = localMcpServers(undefined, { global: join(globalDir, "opencode") })
+    const globalOnly = localMcpServers(undefined, { global: join(globalDir, "opencode") }, noCreds, noTokens)
     assert.ok(globalOnly.has("jira"))
-    assert.ok(!globalOnly.has("github"), "remote-only entries are not offered for spawning")
+    assert.ok(
+      !globalOnly.has("github"),
+      "a remote server with no resolvable credential must not be offered - it would fail on its first call",
+    )
     assert.ok(!globalOnly.has("off"), "enabled: false is a decision, not an oversight")
-    assert.equal(globalOnly.get("jira")!.environment!.TOKEN, "t")
+    const g = globalOnly.get("jira")!
+    assert.equal(g.transport === "local" && g.environment!.TOKEN, "t")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -109,7 +120,7 @@ test("the mcp tracker calls the configured tools with substituted arguments", as
     }
     const lines: string[] = []
     const t = mcpTracker(
-      { name: "jira", command: fake.command },
+      { transport: "local" as const, name: "jira", command: fake.command },
       cfg,
       "ENG-7",
       (m) => lines.push(m),
@@ -145,7 +156,7 @@ test("a tracker with only a finish tool only calls finish", async () => {
   try {
     const fake = fakeServer(dir, "minimal")
     const t = mcpTracker(
-      { name: "minimal", command: fake.command },
+      { transport: "local" as const, name: "minimal", command: fake.command },
       { server: "minimal", finish: "post_summary" },
       null,
       () => {},
