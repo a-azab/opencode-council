@@ -929,6 +929,16 @@ Rules:
 - **\`acceptance\` is inherited from the CPO's criteria**, narrowed to this item. Something
   independent will later read this item's diff and judge it against exactly this text, so
   write it to be judged.
+- **The judge sees the DIFF and nothing else.** No CI run, no deployed service, no GitHub
+  Actions tab, no browser, no network. A criterion phrased as "opening a PR produces a
+  green check" or "the dashboard shows the new row" cannot be satisfied by any diff, so
+  the item fails, gets retried, and fails identically - the worker has already written the
+  right code and has nothing left to change. Measured 2026-09-20: a correct CI workflow
+  was rejected twice for criteria that required reading the Actions tab, and the run ended
+  \`no-change\` with the perfect file sitting in the worktree.
+  Write what a reader of the diff can check: the file exists, it declares these triggers,
+  install and test are separate named steps. Where the CPO's outcome genuinely needs a
+  live system, say so in \`detail\` as a manual follow-up and keep it OUT of \`acceptance\`.
 - **Smallest set of items that delivers the outcomes.** Do not invent scaffolding,
   migrations, abstractions or config that the directive did not ask for. An item you cannot
   justify from the outcomes should not exist.
@@ -1867,8 +1877,19 @@ export async function runItem(
       return {
         ...last,
         state: "no-change",
+        // The second message is the common one and it is NOT the worker's fault often
+        // enough to say so. Measured 2026-09-20: an item whose acceptance required
+        // reading a CI dashboard was rejected twice by the judge, the worker having
+        // already written the correct file both times, and the run ended here with the
+        // right code sitting in the worktree. "The worker changed nothing" was true and
+        // pointed at entirely the wrong thing, so the report now names the other
+        // possibility rather than assigning blame it cannot establish.
         detail: changed.length
-          ? "the worker reported success but changed nothing since the previous attempt"
+          ? "the worker reported success but changed nothing since the previous attempt" +
+            (last.state === "unmet"
+              ? " — the previous attempt was rejected on acceptance, so either the criteria" +
+                " are not checkable from a diff, or the worker cannot see what is missing"
+              : "")
           : "the worker reported success but changed nothing",
       }
     }
