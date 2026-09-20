@@ -78,6 +78,21 @@ export const percent = (a: Pick<HarnessAudit, "score" | "max">) =>
   a.max > 0 ? Math.round((a.score / a.max) * 100) : 0
 
 /**
+ * The interpreter used to run the scorer.
+ *
+ * NOT `process.execPath`. This plugin runs on opencode's bundled runtime, so inside a real
+ * run `execPath` is the opencode BINARY - invoking it with a script path prints opencode's
+ * own help text and exits, which the parser then reports as "not JSON". Measured on the
+ * first live `/lets:execute`, 2026-09-20: every audit came back `unavailable` with an
+ * ASCII-art opencode banner as the reason. Under `node --test` it passed, because there
+ * `execPath` really is node - so the test suite could never have caught this.
+ *
+ * `node` from PATH is what the scorer needs (ECC's script is plain CommonJS). An absent
+ * node degrades to `unavailable`, which is the correct outcome and already handled.
+ */
+const NODE = process.env.HARNESS_NODE || "node"
+
+/**
  * Run the scorer against `target`.
  *
  * Never throws. An audit that cannot run is a missing signal, not a failed run: the caller
@@ -92,7 +107,7 @@ export function runAudit(
   let raw: string
   try {
     raw = execFileSync(
-      process.execPath,
+      NODE,
       [loc.script, "repo", "--format", "json", "--root", target],
       { cwd: loc.root, encoding: "utf8", timeout: timeoutMs, stdio: ["pipe", "pipe", "pipe"], maxBuffer: 16 * 1024 * 1024 },
     )

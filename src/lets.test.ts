@@ -18,6 +18,8 @@ import {
   renderInitProposal,
   applyInit,
   readLetsConfig,
+  addPathspecs,
+  SECRETS,
   commitMessage,
   runVerify,
   installIfDepsChanged,
@@ -255,6 +257,84 @@ function scratchRepo(): string {
   execFileSync("git", ["commit", "-qm", "init"], { cwd: dir })
   return dir
 }
+
+test("staging survives a repo that gitignores node_modules", () => {
+  // Found on the first live /lets:execute, 2026-09-20. `git add` REFUSES with exit 1 when
+  // a pathspec names a path .gitignore already excludes — even an exclusion pathspec. The
+  // item's code was written and `npm test` passed; the run then CRASHED at the staging
+  // step before the acceptance judge ran. Every repo that gitignores node_modules hit it
+  // the moment an item ran `npm ci` and turned our symlink into a real directory.
+  const dir = scratchRepo()
+  try {
+    writeFileSync(join(dir, ".gitignore"), "node_modules/\n")
+    execFileSync("git", ["add", "-A"], { cwd: dir })
+    execFileSync("git", ["commit", "-qm", "ignore deps"], { cwd: dir })
+    mkdirSync(join(dir, "node_modules"), { recursive: true })
+    writeFileSync(join(dir, "node_modules", "dep.js"), "module.exports = 1")
+    writeFileSync(join(dir, "feature.ts"), "export const x = 1\n")
+
+    // Both staging calls the run makes, in order. Either throwing is the crash.
+    assert.doesNotThrow(() =>
+      execFileSync("git", ["add", "--intent-to-add", "--", ".", ...addPathspecs(dir)], {
+        cwd: dir, stdio: ["pipe", "pipe", "pipe"],
+      }),
+    )
+    assert.doesNotThrow(() =>
+      execFileSync("git", ["add", "-A", "--", ".", ...addPathspecs(dir)], {
+        cwd: dir, stdio: ["pipe", "pipe", "pipe"],
+      }),
+    )
+    const staged = execFileSync("git", ["diff", "--cached", "--name-only"], { cwd: dir, encoding: "utf8" })
+    assert.match(staged, /feature\.ts/, "the actual work must be staged")
+    assert.doesNotMatch(staged, /node_modules/, "deps must never enter the commit")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a vendored node_modules is still kept out of the commit", () => {
+  // The other half: when node_modules is NOT gitignored, the exclusion pathspec is doing
+  // real work and dropping it would commit the whole tree. addPathspecs must return it.
+  const dir = scratchRepo()
+  try {
+    mkdirSync(join(dir, "node_modules"), { recursive: true })
+    writeFileSync(join(dir, "node_modules", "dep.js"), "module.exports = 1")
+    writeFileSync(join(dir, "feature.ts"), "export const x = 1\n")
+    execFileSync("git", ["add", "-A", "--", ".", ...addPathspecs(dir)], { cwd: dir, stdio: ["pipe", "pipe", "pipe"] })
+    const staged = execFileSync("git", ["diff", "--cached", "--name-only"], { cwd: dir, encoding: "utf8" })
+    assert.match(staged, /feature\.ts/)
+    assert.doesNotMatch(staged, /node_modules/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a repo-root .env never reaches the diff handed to the judge", () => {
+  // A real leak, measured 2026-09-20. A git pathspec beginning with a doublestar directory
+  // component does not match a TOP-LEVEL file, so a leading-doublestar pathspec missed the repo-root `.env`
+  // — the likeliest place for one — and intent-to-add put its CONTENTS into the diff sent
+  // to the acceptance judge. The docblock claimed the opposite, which is what made it
+  // worth proving rather than assuming.
+  const dir = scratchRepo()
+  try {
+    mkdirSync(join(dir, "sub"), { recursive: true })
+    writeFileSync(join(dir, ".env"), "ROOT_SECRET=aaa\n")
+    writeFileSync(join(dir, "sub", ".env"), "NESTED_SECRET=bbb\n")
+    writeFileSync(join(dir, "id_rsa"), "PRIVATE_KEY_aaa\n")
+    writeFileSync(join(dir, "feature.ts"), "export const x = 1\n")
+
+    execFileSync("git", ["add", "--intent-to-add", "--", ".", ...addPathspecs(dir), ...SECRETS.map((g) => `:!${g}`)], {
+      cwd: dir, stdio: ["pipe", "pipe", "pipe"],
+    })
+    const diff = execFileSync("git", ["diff", "HEAD"], { cwd: dir, encoding: "utf8" })
+    assert.match(diff, /feature\.ts/, "fixture: real work must be in the diff")
+    assert.doesNotMatch(diff, /ROOT_SECRET/, "a repo-root .env leaked into the judge's prompt")
+    assert.doesNotMatch(diff, /NESTED_SECRET/)
+    assert.doesNotMatch(diff, /PRIVATE_KEY/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
 
 test("applyInit writes both files and is idempotent", () => {
   const dir = scratchRepo()

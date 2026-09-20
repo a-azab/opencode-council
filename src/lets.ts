@@ -1442,6 +1442,36 @@ export function renderWorktrees(list: LetsWorktree[]): string {
  */
 const NOT_WORK = ":(exclude)node_modules"
 
+/**
+ * `NOT_WORK`, but only where git will accept it.
+ *
+ * `git add` REFUSES, with exit 1 and "The following paths are ignored by one of your
+ * .gitignore files", when a pathspec names a path that .gitignore already excludes - even
+ * an exclusion pathspec, and even though the intent is identical to what .gitignore is
+ * doing. Measured 2026-09-20 on the first live `/lets:execute`: the item's code was
+ * written, `npm test` passed, and the run then CRASHED at the intent-to-add before the
+ * acceptance judge ever ran. Every repo that gitignores node_modules - which is every
+ * repo - hit it the moment an item ran `npm ci` and turned our symlink into a real tree.
+ *
+ * So: ask git. Ignored means .gitignore already handles it and naming it is what breaks;
+ * not ignored (a vendored tree, or our symlink) means the pathspec is doing real work and
+ * has to stay. Verified in both shapes - with the pathspec omitted under .gitignore, and
+ * present without it, node_modules is absent from the index either way.
+ *
+ * `status` is unaffected and keeps the constant: it never refuses on an ignored pathspec.
+ */
+export function addPathspecs(worktree: string): string[] {
+  try {
+    execFileSync("git", ["check-ignore", "-q", "node_modules"], {
+      cwd: worktree,
+      stdio: ["pipe", "pipe", "pipe"],
+    })
+    return [] // exit 0 = ignored = .gitignore has it; naming it would make git refuse
+  } catch {
+    return [NOT_WORK] // exit 1 = not ignored = our symlink or a vendored tree; exclude it
+  }
+}
+
 /** Real changes in the worktree, symlinked deps excluded. */
 export function worktreeChanges(worktree: string): string[] {
   return git(worktree, ["status", "--porcelain", "--", ".", NOT_WORK])
@@ -1505,8 +1535,19 @@ export function installIfDepsChanged(worktree: string, files: string[]): Install
 /**
  * Secret-file globs. The PATHS are told to the implementer as an exclusion list; the
  * CONTENTS are never read, logged, or put in any prompt - that is the actual rule.
+ *
+ * Leading `*`, not a leading doublestar-slash. Measured 2026-09-20, and the difference is
+ * a real leak rather than a style point: a git pathspec whose glob begins with a
+ * doublestar directory component does NOT match a top-level file, because that component
+ * requires at least one directory to be present. So the repo-root `.env` - the single most
+ * likely place for one - was staged by intent-to-add and its contents went into the diff
+ * handed to the acceptance judge. A leading `*` matches at every depth, root included.
+ *
+ * Verified both ways in a scratch repo: with these globs, a root `.env` and a `sub/.env`
+ * are both absent from `git diff HEAD`; with the previous ones, the root file appeared
+ * with its values in the diff.
  */
-const SECRETS = ["**/.env", "**/.env.*", "**/*.pem", "**/*.key", "**/id_rsa*", "**/*.p12", "**/*.keystore"]
+export const SECRETS = ["*.env", "*.env.*", "*.pem", "*.key", "*id_rsa*", "*.p12", "*.keystore"]
 
 export type ItemOutcome = {
   item: WorkItem
@@ -1901,7 +1942,7 @@ export async function runItem(
     // anything; the real `git add -A` further down upgrades the intent entries.
     // Secret globs are excluded here as everywhere else: intent-to-add would otherwise
     // pull a worker-created .env's CONTENTS into the prompt sent to the judge.
-    git(input.worktree, ["add", "--intent-to-add", "--", ".", NOT_WORK, ...SECRETS.map((g) => `:!${g}`)])
+    git(input.worktree, ["add", "--intent-to-add", "--", ".", ...addPathspecs(input.worktree), ...SECRETS.map((g) => `:!${g}`)])
     const verdict = await checkAcceptance(ctx, {
       item: input.item,
       diff: git(input.worktree, ["diff", "HEAD"]),
@@ -1921,7 +1962,7 @@ export async function runItem(
     // A commit failure is an outcome, not a crash: a crashing run reports nothing, while
     // this reports the item as check-passed but uncommittable, with the git error as detail.
     try {
-      git(input.worktree, ["add", "-A", "--", ".", NOT_WORK])
+      git(input.worktree, ["add", "-A", "--", ".", ...addPathspecs(input.worktree)])
     } catch (e: any) {
       return { ...last, state: "failed-check", detail: `staging failed: ${String(e?.message ?? e).slice(0, 200)}` }
     }
