@@ -155,6 +155,40 @@ test("dirty paths survive the status-code strip, including the first line", () =
   }
 })
 
+test("paths this tool writes itself are never reported as the user's work", () => {
+  // Found on a real /lets:plan, 2026-09-20: every plan calls graphQuery, which rewrites
+  // graphify-out/cache/last_query_stamp — a TRACKED file in this repo. So the command
+  // dirtied the tree and then refused because of it, on a tree the user had left clean.
+  // Same trap the council-artifacts/.worktrees filter already existed to prevent.
+  const dir = scratchRepo()
+  try {
+    for (const p of ["council-artifacts", ".worktrees", join("graphify-out", "cache")])
+      mkdirSync(join(dir, p), { recursive: true })
+    writeFileSync(join(dir, "graphify-out", "cache", "last_query_stamp"), "committed")
+    // Real graph output is NOT ours to hide — someone may want to commit it.
+    writeFileSync(join(dir, "graphify-out", "graph.json"), "{}")
+    // Committed first, because that is the situation that bit: the stamp is TRACKED in
+    // this repo, so graphQuery's rewrite shows as a modification. Left untracked, git
+    // collapses the whole directory into one `graphify-out/` entry and the per-path
+    // filter is never exercised.
+    execFileSync("git", ["add", "-A"], { cwd: dir })
+    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "graph"], { cwd: dir })
+
+    writeFileSync(join(dir, "graphify-out", "cache", "last_query_stamp"), "rewritten by graphQuery")
+    writeFileSync(join(dir, "graphify-out", "graph.json"), '{"nodes":1}')
+    writeFileSync(join(dir, "council-artifacts", "run.log"), "x")
+    writeFileSync(join(dir, ".worktrees", "scratch"), "x")
+    writeFileSync(join(dir, "theirs.md"), "the user's actual work")
+
+    const scope = resolveScope(dir)
+    assert.equal(scope.kind, "ok")
+    if (scope.kind !== "ok") return
+    assert.deepEqual(scope.dirty.sort(), ["graphify-out/graph.json", "theirs.md"])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("detectStack recognises this repo as node", () => {
   const root = new URL("..", import.meta.url).pathname
   assert.ok(detectStack(root).includes("node"))

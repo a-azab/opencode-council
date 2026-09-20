@@ -272,8 +272,15 @@ export type Scope =
  * `/lets:init` does add both to `.git/info/exclude`, but that file is per-clone and never
  * committed while the config in AGENTS.md is, so a fresh clone has the config and not the
  * exclusion. Filtering here does not depend on a file that may not have travelled.
+ *
+ * `graphify-out/cache/` is here for the same reason and was found the same way. Every
+ * `/lets:plan` calls graphQuery, which rewrites `cache/last_query_stamp` - a file that is
+ * TRACKED in this repo, so the write dirties the tree. The result was a command that
+ * refused because of a file it had just written itself, on a tree the user had left clean.
+ * Only the cache is filtered: `graph.json` and the dated reports are real output someone
+ * may want to commit, and hiding those would be the opposite error.
  */
-const OURS = /^(council-artifacts|\.worktrees)(\/|$)/
+const OURS = /^(council-artifacts|\.worktrees|graphify-out\/(cache|cost\.json))(\/|$)/
 
 export function resolveScope(cwd: string): Scope {
   try {
@@ -462,7 +469,7 @@ export function graphState(root: string): GraphState {
 // ------------------------------------------------------------------ ignores
 
 /** Lets scratch that must never reach the user's team. */
-export const LETS_IGNORES = [".worktrees/", "council-artifacts/", "graphify-out/cost.json"]
+export const LETS_IGNORES = [".worktrees/", "council-artifacts/", "graphify-out/cache/", "graphify-out/cost.json"]
 
 /**
  * Lines missing from `.git/info/exclude`.
