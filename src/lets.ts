@@ -697,7 +697,17 @@ export function renderInitProposal(p: InitProposal): string {
   if (p.existing.tracker) out.push(`  \`${p.existing.tracker}\` (already recorded)`)
   else {
     const others = availableTrackers(p.env, p.root).filter((t) => t !== "none")
-    const servers = [...localMcpServers(p.root).keys()]
+    // Remote servers first, then insertion order. A remote server is here because it
+    // resolved a live credential, which makes it far likelier to be the project tracker
+    // someone wants than a browser-automation server that happens to share the seam.
+    // Ordering matters because the list below is capped: `linear` was resolving correctly
+    // and then being truncated away behind four browser/k8s servers, so a tracker that
+    // WAS on offer could not be seen - which is the same outcome as not offering it.
+    const all = localMcpServers(p.root)
+    const servers = [...all.keys()].sort((a, b) => {
+      const rank = (n: string) => (all.get(n)!.transport === "remote" ? 0 : 1)
+      return rank(a) - rank(b)
+    })
     // beads is the recommendation wherever it can actually be honoured: it is local, needs
     // no token and no server, and the repo has already opted into it by having `.beads/`.
     // Where it cannot, `none` carries the default - a recommendation must be something the
