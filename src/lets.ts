@@ -959,7 +959,20 @@ export async function runIntake(
       calls++
       // Same reasoning as the implementer: there is a chain below this model, so a timeout
       // should spend the next slot on the next model rather than on this one again.
-      const r = await ask<T>({ ...ctx, retry: FALL_THROUGH_ON_TIMEOUT }, { model: member.model, agent, text, schema })
+      // Pinned to the repo being planned. Without this the session inherits the SERVER's
+      // cwd - `/root/code` on this machine - so the lane can read every sibling repo and
+      // has no way to know which one it is planning for. Measured 2026-09-20: the CTO
+      // reported "verified against the real manifest at /root/code/AI/ECC/package.json"
+      // and grounded an entire work item in a DIFFERENT PROJECT's package.json, engines
+      // field and test script. Every path in that plan was confidently wrong.
+      //
+      // The implementer has always pinned (`directory: input.worktree`); intake was simply
+      // missed, and a plan sourced from the wrong repo fails no check - it just produces a
+      // gate the human approves on false evidence.
+      const r = await ask<T>(
+        { ...ctx, retry: FALL_THROUGH_ON_TIMEOUT },
+        { model: member.model, agent, text, schema, directory: input.root },
+      )
       if (r.ok) return r.value
       // Every model's error, not just the last. A chain that exhausts otherwise reports
       // whatever the final model said, which is how the 2026-08-29 incident was misdiagnosed.
