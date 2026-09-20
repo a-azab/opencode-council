@@ -301,6 +301,31 @@ export type CrewResult = {
 
 const DONE = "done"
 
+/**
+ * The whole crew run's wall clock, in seconds.
+ *
+ * Crew previously had none. It never passed `maxSeconds` into runExecute, so every task
+ * inherited that function's own 1-hour default independently - and 12 tasks at width 4 is
+ * three waves, so the arithmetic ceiling was THREE HOURS of waves before integration,
+ * verify and the council, none of which were timed either.
+ *
+ * Two hours is the budget for everything: waves, integration, verify, review. It is the
+ * number a human can plan around, which is the only property that matters for a ceiling -
+ * an unattended run whose end time cannot be stated is indistinguishable from one that
+ * has hung.
+ */
+export const CREW_MAX_SECONDS = 2 * 60 * 60
+
+/**
+ * Held back from the waves for integrating, verifying and reviewing what they produced.
+ *
+ * Without a reserve the run can spend its final second starting a task and leave nothing
+ * for the steps that turn branches into a result. A crew run that produced twelve
+ * unintegrated branches has produced homework, not an outcome - and crew has no approval
+ * gate, so there is no human mid-run to notice and stop it.
+ */
+export const CREW_CLOSING_RESERVE_SECONDS = 15 * 60
+
 /** Did this task finish with its acceptance met? */
 const succeeded = (t: CrewTask) => !!t.run && t.run.outcomes.length > 0 && t.run.outcomes.every((o) => o.state === DONE)
 

@@ -7,6 +7,9 @@ import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { recruitFloor, integrate, inferLanded, taskSlug, renderCrewReport, type CrewResult, type CrewTask } from "./crew-org.ts"
 import type { HarnessAudit } from "./harness.ts"
+import { CREW_MAX_SECONDS, CREW_CLOSING_RESERVE_SECONDS } from "./crew-org.ts"
+import { MAX_RUN_SECONDS } from "./lets.ts"
+import { MAX_TASKS, MAX_WAVE_WIDTH } from "./schedule.ts"
 import plugin from "./index.ts"
 
 const PKG = join(dirname(fileURLToPath(import.meta.url)), "..")
@@ -194,6 +197,30 @@ const base = (over: Partial<CrewResult> = {}): CrewResult => ({
   verify: { ok: true, output: "ok" },
   adr: "docs/adr/x.md",
   ...over,
+})
+
+test("a crew run has a wall clock, and it is shorter than its own worst case", () => {
+  // The bug this pins: crew never passed maxSeconds into runExecute, so every task
+  // independently inherited that function's 1-hour default. MAX_TASKS 12 at MAX_WAVE_WIDTH
+  // 4 is three waves, so the arithmetic ceiling was three hours of waves BEFORE
+  // integration, verify and the council - none of which were timed either.
+  const waves = Math.ceil(MAX_TASKS / MAX_WAVE_WIDTH)
+  const uncappedWorstCase = waves * MAX_RUN_SECONDS
+  assert.ok(
+    CREW_MAX_SECONDS < uncappedWorstCase,
+    `the run budget (${CREW_MAX_SECONDS}s) must bound the uncapped worst case (${uncappedWorstCase}s)`,
+  )
+})
+
+test("the closing reserve is real and cannot swallow the run", () => {
+  // Waves must not be able to spend the whole budget: a crew run that produced twelve
+  // unintegrated branches produced homework, not an outcome, and there is no approval
+  // gate and so no human mid-run to notice.
+  assert.ok(CREW_CLOSING_RESERVE_SECONDS > 0, "integration and review need a budget of their own")
+  assert.ok(
+    CREW_CLOSING_RESERVE_SECONDS < CREW_MAX_SECONDS / 2,
+    "a reserve at or above half the budget would starve the work it exists to protect",
+  )
 })
 
 test("renderCrewReport calls a complete run complete", () => {

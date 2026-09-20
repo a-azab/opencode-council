@@ -28,7 +28,11 @@ import {
 import { detectStack, closeWorktree } from "./lets.ts"
 import { findHarness, runAudit, auditLine, renderAudit, type HarnessAudit } from "./harness.ts"
 import { fileEdges, schedule, MAX_TASKS, MAX_WAVE_WIDTH } from "./schedule.ts"
-import { recruitFloor, integrate, inferLanded, taskSlug, renderCrewReport, type CrewResult, type CrewTask } from "./crew-org.ts"
+import {
+  recruitFloor, integrate, inferLanded, taskSlug, renderCrewReport,
+  CREW_MAX_SECONDS, CREW_CLOSING_RESERVE_SECONDS,
+  type CrewResult, type CrewTask,
+} from "./crew-org.ts"
 import { ROSTER, type Role } from "./roster.ts"
 import {
   catalog, probe, probeBudget, upgradeCandidates, resolvePins, openCache,
@@ -868,6 +872,28 @@ export const CouncilPlugin = async (input: any) => ({
         const runId = Date.now().toString(36)
         const tasks: CrewTask[] = [...done]
         if (done.length) say(`resumed ${done.length} finished task(s) from a previous run`)
+
+        // ---- the run's wall clock
+        //
+        // Crew had NO ceiling of its own. It never passed `maxSeconds`, so every task
+        // independently inherited runExecute's 1-hour default: 12 tasks at width 4 is
+        // three waves, and three waves of an hour each is a THREE-HOUR run before
+        // integration, verify and the council — none of which were timed either.
+        //
+        // Measured from the constants rather than observed, because nobody waits out the
+        // bad case to confirm it: MAX_TASKS 12 (schedule.ts) / MAX_WAVE_WIDTH 4 = 3 waves
+        // x MAX_RUN_SECONDS 3600.
+        //
+        // The budget is the RUN's, and each wave is given what is left rather than a fresh
+        // hour. Tasks inside a wave run concurrently, so the wave costs its slowest member,
+        // not the sum — dividing the remainder per task would under-fund every one of them.
+        const crewStart = Date.now()
+        const crewBudgetMs = CREW_MAX_SECONDS * 1000
+        // Reserved so the run cannot spend its last second on a task and leave nothing for
+        // the steps that turn task branches into a reviewed, integrated result. An
+        // unintegrated crew run has produced branches, not an outcome.
+        const closingReserveMs = Math.min(CREW_CLOSING_RESERVE_SECONDS * 1000, crewBudgetMs / 4)
+        const remainingMs = () => crewBudgetMs - (Date.now() - crewStart)
         // Written after every task, not at the end: the end is precisely what an interrupted
         // run never reaches. This file is what `resume` reads back.
         const checkpoint = () => {
@@ -898,12 +924,27 @@ export const CouncilPlugin = async (input: any) => ({
         }
 
         for (const [wi, wave] of sched.waves.entries()) {
+          // The run's own ceiling, checked before each wave. Tasks are abandoned with a
+          // recorded reason rather than dropped: a task that never ran is part of the
+          // record, and crew's report is the only account anyone gets.
+          if (!abandon && remainingMs() <= closingReserveMs)
+            abandon =
+              `the run's ${Math.round(CREW_MAX_SECONDS / 60)}-minute budget was spent before this wave, with ` +
+              `${Math.round(CREW_CLOSING_RESERVE_SECONDS / 60)} minutes held back to integrate and review what landed`
           if (abandon) {
             for (const t of wave) tasks.push({ title: t.title, slug: "", wave: wi + 1, skipped: abandon })
             checkpoint()
             continue
           }
-          say(`wave ${wi + 1}/${sched.waves.length}: ${wave.map((t: any) => t.title).join(", ")}`)
+          // What this wave may spend: everything left except the closing reserve. Given
+          // per task rather than divided between them because a wave's tasks run
+          // concurrently - the wave costs its slowest member, so splitting the remainder
+          // would under-fund every task by the width of the wave.
+          const waveBudgetSeconds = Math.max(60, Math.floor((remainingMs() - closingReserveMs) / 1000))
+          say(
+            `wave ${wi + 1}/${sched.waves.length}: ${wave.map((t: any) => t.title).join(", ")}` +
+              ` · ${Math.round(waveBudgetSeconds / 60)}m budget, ${Math.round(remainingMs() / 60000)}m left of ${Math.round(CREW_MAX_SECONDS / 60)}m`,
+          )
           const settled = await Promise.all(
             wave.map(async (t: any, ti: number): Promise<CrewTask> => {
               // Distinct per task AND per run: runExecute's slug derivation is a race for N
@@ -920,6 +961,9 @@ export const CouncilPlugin = async (input: any) => ({
                   cfg,
                   instructions: readInstructions(scope.root).text,
                   directive: t.title,
+                  // The run's remaining budget, not a fresh hour each. Without this every
+                  // task inherited runExecute's own 1-hour default independently.
+                  maxSeconds: waveBudgetSeconds,
                   slug,
                   // N tasks must not open N competing PRs before anything is integrated.
                   openPr: false,
