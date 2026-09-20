@@ -43,8 +43,26 @@ Then resolve, in this order, asking only about what is genuinely ambiguous:
 
    Never enable a tracker they did not ask for.
 
+6. **Harness scorecard** — the proposal reports whether an ECC checkout was found (via the
+   `harness:` key, then `$ECC_HOME`, then the default path) and, if so, this repo's score
+   right now with its weakest categories and the scorer's own top actions.
+
+   - If a score came back, it proposes **today's percentage as the floor**. State it and
+     invite a correction. It is a floor, not a target: nothing has to improve, but a run
+     that drops a category below where it started fails that item and retries it with the
+     scorer's named findings as the brief. This is a second deterministic gate alongside
+     `verify` — `verify` says nothing broke, this says the repo is not measurably worse to
+     hand to the next unattended session.
+   - If the user does not want it, pass `harness: "none"`. That is a recorded decision and
+     is never re-asked, exactly like `tracker: none`.
+   - If no checkout was found, say so plainly and move on. Verify-only is a real answer,
+     not a degraded one. Do not go looking for ECC or offer to install it.
+   - **Never propose a floor from a score that could not be measured.** If the audit failed
+     to run, the proposal says why; carry that through rather than guessing a number.
+
 Once the user has confirmed, call `lets` again with `write: true` and the confirmed
-`verify`, `base`, `lanes` and `tracker`.
+`verify`, `base`, `lanes`, `tracker`, and — when they accepted one — `harness` and
+`harnessFloor`.
 
 Report which files changed. Only two ever do: the `lets` fenced block in `AGENTS.md`, and
 `.git/info/exclude` — which is per-clone and never committed, so nothing here reaches the

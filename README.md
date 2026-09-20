@@ -231,6 +231,10 @@ The answers land in a fenced `lets` block in your `AGENTS.md`. Editing it by han
 intended way to change your mind; re-running init only ever rewrites that block, never
 prose you wrote.
 
+It also probes for an **ECC** checkout — the `harness:` key, then `$ECC_HOME`, then a
+default path — and if it finds one, scores this repo and offers today's score as a floor.
+See [the harness scorecard](#the-harness-scorecard--verifys-second-half).
+
 ### `/lets:plan <directive>` — intake, then a gate
 
 Two lanes, in sequence, handing an artifact to each other:
@@ -291,6 +295,53 @@ never ran are listed as `not-attempted` with the reason — a plan that stopped 
 6 reports "1/6", not "1/2". An item that passed its checks without an independent judge
 says **"NOT independently judged — checks only"**. That is enforced by tests, because the
 one lie that would matter is the report that hides what happened.
+
+### The harness scorecard — `verify`'s second half
+
+`verify` answers *"did I break anything?"*. That is the right question and it is blind to
+the other one: a run can leave every test green and the repo measurably worse to hand to
+the next unattended session — CI deleted, a guardrail dropped, instructions gone stale.
+
+So when an [ECC](https://github.com/pchalasani/everything-claude-code) checkout is
+reachable, each item passes a **second deterministic gate**: ECC's `harness-audit.js`
+scores the worktree, and the score is compared against the same repo before the run.
+
+```lets
+verify: npm test
+base: master
+lanes: code, docs, qa, reviewer
+harness: /path/to/ecc
+harness-floor: 71
+```
+
+Both keys are optional; `harness: none` is a recorded decision and is never re-asked, the
+same distinction `tracker` draws. Nothing is reimplemented here — ECC's rubric is versioned
+and reproducible per commit, and a second copy of someone else's rubric would drift from
+theirs silently. The whole value of the number is that it is not our judgement.
+
+Four rules keep the gate from being worse than no gate:
+
+| rule | why |
+|---|---|
+| **compare per category, never the total** | `max_score` moves when a category becomes applicable. Adding a `fly.toml` scores Fly Integration 0 and drops the total while breaking nothing. |
+| **never subtract across rubric versions** | ECC rescores categories between versions. A "regression" measured across an upgrade is an artefact, and failing an item for it punishes work that did nothing. |
+| **an unavailable audit is its own verdict** | "the harness held" and "nobody looked" must stay distinguishable — the same reason `/council:fix` keeps verified and unverified patches in separate buckets. |
+| **a new category is not a loss** | A category that was not applicable before is new information about the repo, not damage. |
+
+A drop fails the item as `harness-regressed` — its own state, not `failed-check`, because
+the two mean different things: one says the code is broken, the other says the code is fine
+and the repo is worse. The retry gets the named categories and the scorer's own file paths,
+and is told explicitly not to weaken a check to raise the number.
+
+The scorer's standing findings also reach `/lets:plan` as **background, labelled as
+background**. A planner that quietly expands scope to chase a score has turned the gate into
+a source of unrequested work.
+
+`/crew` runs the same gate per item, and then scores the **integrated** branch against a
+baseline taken before the first wave. Two tasks can each hold their ground and still add up
+to a loss, and nothing but the combined measurement can see that. A crew run that shipped
+every task and lowered the score reports **INCOMPLETE** on its first line — with no approval
+gate, a finding further down the report is a finding nobody reads.
 
 ### The work loop — `/lets:commit`, `/lets:done`, `/lets:backlog`
 
@@ -808,6 +859,7 @@ did not raise the finding — self-verification is not verification.
 | a fix is resolved | an independent model's verdict on the patched content, not the fixer's |
 | which plan or task answer wins | mean of cross-scores; ties escalate rather than resolve |
 | who scores whose task answer | cyclic over roster order — every member scores exactly 3, never its own |
+| an item regressed the repo | per-category comparison of ECC's rubric-versioned scorecard, same rubric both sides |
 
 A model may summarise the report, but cannot add, remove, or re-tier a finding.
 
@@ -853,8 +905,9 @@ Seventeen members: fourteen carry council lanes, two are implementer-class and c
 | `gpt56terra` | openai/gpt-5.6-terra | product, reviewer, docs, techwriter | standard | schema, agentic |  | 2664 |
 | `gpt56luna` | openai/gpt-5.6-luna | reviewer, qa, skeptic | fast | schema, agentic |  | 4228 |
 | `glm53` | zai-coding-plan/glm-5.3 | systems, reviewer, infrastructure, security |  | schema, agentic |  | 6007 |
-| `deepseek` | deepseek/deepseek-v4-pro | *none — implementer-class* |  | agentic |  | 9459 |
+| `deepseek` | deepseek/deepseek-flash | *none — implementer-class* |  | agentic |  | 7411 |
 | `sonnet5` | anthropic/claude-sonnet-5 | *none — implementer-class* |  | schema, agentic |  | 5223 |
+| `gpt6astra` | openai/gpt-6-astra | architect |  | schema, agentic |  | 10330 |
 
 **`capability` is measured, never read off a catalogue flag.** `schema` means the model can
 emit forced-tool-call structured output — every council lane needs it. `agentic` means it
@@ -975,7 +1028,7 @@ Two members chat and drive tools perfectly well, and 400 on a *named* tool call.
 errors name the cause:
 
 ```
-deepseek/deepseek-v4-pro
+deepseek/deepseek-flash (V4.1 Flash — and v4-pro before it, same 400)
   400  Thinking mode does not support this tool_choice
 
 opencode/muse-spark-1.2-contributor-free
@@ -986,8 +1039,10 @@ opencode/muse-spark-1.2-contributor-free
 That is a capability class, not a quirk of one model, and it falls exactly on the boundary
 between an implementer and a council lane: `tool_choice: auto` works, a forced named call
 does not. Both are in the roster with `capability: ["agentic"]` and no roles.
-`deepseek/deepseek-v4-pro` is verified agentic — drove bash, returned an exact marker,
-9459ms — and is the designated implementer for build work.
+`deepseek/deepseek-flash` is verified agentic — drove bash, returned an exact marker,
+7411ms — and is the designated implementer for build work. (It inherited the slot from
+`deepseek-v4-pro`, which the provider retired 2026-09-09; the probe reproduced the exact
+400 above, confirming the successor is the same capability class.)
 
 They still answer `/council:independent`, which sends no schema. The limit is structured
 output, not inference.

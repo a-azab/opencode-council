@@ -12,6 +12,7 @@ import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { selectRoles, type Role } from "./roster.ts"
 import type { RunResult } from "./lets.ts"
+import { renderDelta, type HarnessAudit } from "./harness.ts"
 
 // ------------------------------------------------------------------ recruiting
 
@@ -282,6 +283,15 @@ export type CrewResult = {
   integration?: Integration
   /** verify on the integrated branch - the only check that covers the tasks combined */
   verify?: { ok: boolean; output: string }
+  /**
+   * The harness scorecard on the integrated branch, against the pre-run baseline recorded
+   * in the ADR.
+   *
+   * Crew has no approval gate, so the ADR and this report are the entire safety story. A
+   * run that shipped every task and left the repo measurably worse is a finding, and it is
+   * one no per-task outcome can show — each task only ever saw its own attempt.
+   */
+  harness?: { before?: HarnessAudit; after?: HarnessAudit; unavailable?: string }
   review?: { blockers: number; suggestions: number; nits: number; convergence: string; dropped: number }
   /** path to the ADR holding the interview, the research and the design */
   adr?: string
@@ -321,6 +331,16 @@ export function renderCrewReport(r: CrewResult): string {
   if (r.integration && !r.integration.ok)
     problems.push(`integration stopped at \`${r.integration.conflicted}\``)
   if (r.verify && !r.verify.ok) problems.push("verify failed on the integrated branch")
+  // A shipped-but-degraded run is not a clean run. Crew has no human gate, so if this does
+  // not reach the first line nobody will read far enough to find it.
+  const harnessDrops =
+    r.harness?.before && r.harness?.after && r.harness.before.rubric === r.harness.after.rubric
+      ? Object.entries(r.harness.before.categories).filter(
+          ([k, v]) => typeof r.harness!.after!.categories[k] === "number" && r.harness!.after!.categories[k] < v,
+        )
+      : []
+  if (harnessDrops.length)
+    problems.push(`the harness scorecard regressed in ${harnessDrops.length} category/categories`)
   if (!r.integration) problems.push("nothing was integrated")
   if (r.integration?.ok && !r.verify) problems.push("the integrated branch was never verified")
   if (r.review?.blockers) problems.push(`${r.review.blockers} blocker(s) from review`)
@@ -391,6 +411,12 @@ export function renderCrewReport(r: CrewResult): string {
     )
   }
   if (r.verify) out.push(`- Verify on the integrated branch: ${r.verify.ok ? "passed" : "FAILED"}`)
+  if (r.harness) {
+    out.push(`- ${renderDelta(r.harness.before ?? null, r.harness.after ?? null)}`)
+    // An audit that could not run is reported, not omitted. Silence here would be read as
+    // "it held", which is the one thing the record must never imply without evidence.
+    if (r.harness.unavailable) out.push(`  - the scorer did not run cleanly: ${r.harness.unavailable}`)
+  }
   if (r.review)
     out.push(
       `- Review of the integrated branch: ${r.review.blockers} blocker(s), ${r.review.suggestions} suggestion(s), ${r.review.nits} nit(s) — ${r.review.convergence}` +

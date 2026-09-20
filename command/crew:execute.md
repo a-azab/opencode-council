@@ -148,4 +148,11 @@ Then push it, or `/lets:plan` the follow-up for whatever came back incomplete.
 - Never report a run as successful when the tool reported it incomplete, and never soften
   the wording. Sequential runs reported as parallel, or partial runs reported as done, are
   lies about what happened.
+- **Report the harness delta exactly as the tool gives it.** A run that shipped every task
+  and left the repo measurably worse is INCOMPLETE, and the first line of the report says
+  so. "Every task landed" is not the same claim as "the repo is no worse", and collapsing
+  the two is the same lie as reporting a sequential run as parallel. Three states stay
+  distinct: a clean delta (the gate held), `not comparable` (ECC's rubric changed between
+  measurements — an unmeasurable interval, neither pass nor fail), and the scorer not
+  running (nobody looked). Never present the last two as the gate holding.
 - Respond in the user's language.

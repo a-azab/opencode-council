@@ -6,6 +6,7 @@ import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
 import { recruitFloor, integrate, inferLanded, taskSlug, renderCrewReport, type CrewResult, type CrewTask } from "./crew-org.ts"
+import type { HarnessAudit } from "./harness.ts"
 import plugin from "./index.ts"
 
 const PKG = join(dirname(fileURLToPath(import.meta.url)), "..")
@@ -201,6 +202,51 @@ test("renderCrewReport calls a complete run complete", () => {
   assert.doesNotMatch(out, /INCOMPLETE/)
 })
 
+// ---- harness scorecard in the report
+
+const aud = (categories: Record<string, number>, over: Partial<HarnessAudit> = {}): HarnessAudit => ({
+  target: "/repo", rubric: "2026-05-19", mode: "consumer",
+  score: 20, max: 40, categories, actions: [], ...over,
+})
+
+test("a run that shipped everything but degraded the repo is INCOMPLETE", () => {
+  // Crew has no approval gate. A regression that only appears further down the report is
+  // a regression nobody reads — it has to reach the first line.
+  const out = renderCrewReport(
+    base({ harness: { before: aud({ "Quality Gates": 8 }), after: aud({ "Quality Gates": 3 }) } }),
+  )
+  assert.match(out, /INCOMPLETE/)
+  assert.match(out, /harness scorecard regressed/)
+})
+
+test("a rubric change is never reported as a regression", () => {
+  // ECC rescores categories between rubric versions. Failing a run for a measurement
+  // artefact would punish work that did nothing wrong.
+  const out = renderCrewReport(
+    base({
+      harness: {
+        before: aud({ A: 10 }, { rubric: "2026-01-01" }),
+        after: aud({ A: 1 }, { rubric: "2026-05-19" }),
+      },
+    }),
+  )
+  assert.doesNotMatch(out, /INCOMPLETE/)
+  assert.match(out, /not comparable/)
+})
+
+test("an audit that could not run is reported, never omitted", () => {
+  // Silence here reads as "it held", which is the one thing the record must not imply
+  // without evidence.
+  const out = renderCrewReport(base({ harness: { before: aud({ A: 5 }), unavailable: "ENOENT" } }))
+  assert.match(out, /did not run cleanly: ENOENT/)
+})
+
+test("a clean scorecard is still reported, so silence never means unchecked", () => {
+  const out = renderCrewReport(base({ harness: { before: aud({ A: 5 }), after: aud({ A: 5 }) } }))
+  assert.doesNotMatch(out, /INCOMPLETE/)
+  assert.match(out, /no category regressed/)
+})
+
 test("renderCrewReport says INCOMPLETE when a task never ran, and says why", () => {
   // The property the whole design rests on: with no approval gate, the report is the only
   // thing between the user and a bad decision.
@@ -363,6 +409,10 @@ function toolRepo(withCfg = true): string {
   g("config", "user.email", "t@t")
   g("config", "user.name", "t")
   writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { test: "true" } }))
+  mkdirSync(join(dir, "docs", "adr"), { recursive: true })
+  writeFileSync(join(dir, "docs", "adr", "1.md"), "# ADR 1\n\nDecision record.\n")
+  writeFileSync(join(dir, "docs", "adr", "x.md"), "# ADR X\n\nDecision record.\n")
+  writeFileSync(join(dir, "a.md"), "# ADR\n")
   if (withCfg)
     writeFileSync(join(dir, "AGENTS.md"), "# AGENTS\n\n```lets\nverify: npm test\nbase: main\nlanes: reviewer\n```\n")
   g("add", "-A")

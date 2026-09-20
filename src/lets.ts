@@ -9,7 +9,7 @@
 // stop rules, and how a result is reported.
 import { execFileSync, execSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { existsSync, readFileSync, statSync, writeFileSync, symlinkSync, rmSync } from "node:fs"
+import { existsSync, readFileSync, statSync, writeFileSync, cpSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { selectRoles, bySlug, skepticPool, ROSTER, KNOWN_ROLES, type Role } from "./roster.ts"
 import { ask, runReview, FALL_THROUGH_ON_TIMEOUT, type Ctx, type NodeState } from "./engine.ts"
@@ -17,6 +17,20 @@ import { catalog } from "./catalog.ts"
 import { localMcpServers, mcpTracker } from "./mcp.ts"
 import { beadsAvailable, bdInstalled, beadsTracker } from "./beads.ts"
 import { WORKITEMS_SCHEMA, VERDICT_SCHEMA } from "./schema.ts"
+import {
+  findHarness,
+  runAudit,
+  judge,
+  percent,
+  auditLine,
+  renderAudit,
+  renderDelta,
+  regressionFeedback,
+  planContext as harnessPlanContext,
+  type HarnessAudit,
+  type HarnessLocation,
+  type HarnessResult,
+} from "./harness.ts"
 import {
   findIssue,
   createSessionOnIssue,
@@ -62,6 +76,24 @@ export type LetsConfig = {
    * names differ per server (`issueKey` vs `issue`), so `args` templates override ours.
    */
   mcp?: McpConfig
+  /**
+   * Where the ECC harness scorer lives, or `none`.
+   *
+   * Absent is NOT the same as `none`, for the same reason `tracker` draws that line: absent
+   * means init never asked, so it offers once; `none` means the human declined and is never
+   * re-asked. A path is used verbatim; findHarness falls back to $ECC_HOME and the known
+   * checkout when this is absent.
+   */
+  harness?: string
+  /**
+   * Percent of the applicable maximum this repo must not fall below, recorded by init from
+   * the repo's score AT INIT TIME.
+   *
+   * A floor, never a target. It exists so a run cannot quietly leave the repo worse than it
+   * found it; raising it is a human decision, because a floor the tool moves itself is not
+   * a floor.
+   */
+  harnessFloor?: number
 }
 
 export type McpConfig = {
@@ -154,6 +186,18 @@ export function parseLetsBlock(markdown: string): Partial<LetsConfig> | undefine
     out.mcp = mcp
     out.tracker ??= "mcp"
   }
+
+  // The harness path is taken verbatim, including `none` — that is a recorded decision, not
+  // a missing value, and findHarness reads it as one.
+  if (raw.harness) out.harness = raw.harness
+  // A floor that is not a number in 0..100 fails the whole parse, like an unknown lane.
+  // Silently dropping it would turn a typo into a disabled gate with no signal — and the
+  // gate's entire job is to notice things nobody is watching.
+  if (raw["harness-floor"]) {
+    const n = Number(raw["harness-floor"])
+    if (!Number.isFinite(n) || n < 0 || n > 100) return undefined
+    out.harnessFloor = n
+  }
   return out
 }
 
@@ -177,6 +221,8 @@ export function renderLetsBlock(cfg: LetsConfig): string {
           ...(cfg.mcp.args ? [`mcp-args: ${JSON.stringify(cfg.mcp.args)}`] : []),
         ]
       : []),
+    ...(cfg.harness ? [`harness: ${cfg.harness}`] : []),
+    ...(typeof cfg.harnessFloor === "number" ? [`harness-floor: ${cfg.harnessFloor}`] : []),
     "```",
   ].join("\n")
 }
@@ -235,7 +281,13 @@ export function resolveScope(cwd: string): Scope {
     const branch = git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])
     const dirty = git(root, ["status", "--porcelain"])
       .split("\n")
-      .map((l) => l.slice(3).trim())
+      // Strip the two-column status code and its separator by MATCHING it, not by slicing
+      // a fixed 3. `git()` trims the whole output, which removes the leading space of the
+      // FIRST line only - so a worktree-clean-but-index-dirty entry (` M AGENTS.md`) lost
+      // a character and was reported to the user as `GENTS.md`. Every other line kept its
+      // space and was fine, which is exactly why it read as a rendering glitch rather than
+      // a parse bug. Found on the first real run, 2026-09-20.
+      .map((l) => l.replace(/^.{0,2}\s/, "").trim())
       .filter((f) => f && !OURS.test(f))
     return { kind: "ok", root, branch, dirty }
   } catch {
@@ -528,6 +580,10 @@ export type InitProposal = {
   lanes: Role[]
   graph: GraphState
   ignores: string[]
+  /** where the scorer was found, or null when there is none to offer */
+  harness: HarnessLocation | null
+  /** this repo's score right now — the number init offers to record as the floor */
+  harnessAudit: HarnessResult | null
   /** what is already configured, if this is a re-init */
   existing: Partial<LetsConfig>
 }
@@ -538,14 +594,21 @@ const AGENTS = "AGENTS.md"
 export function readLetsConfig(root: string): LetsConfig | null {
   const path = join(root, AGENTS)
   if (!existsSync(path)) return null
-  const c = parseLetsBlock(readFileSync(path, "utf8"))
+  const c = parseLetsBlock(readFileSync(path, "utf8")) ?? {}
   if (!c.verify?.length || !c.base || !c.lanes?.length) return null
+  const verify = c.verify
+  const base = c.base
+  const lanes = c.lanes
   // `mcp` rides along with its tracker: dropping it here meant a written tracker: mcp
   // config came back as "mcp" with no server, which runCmd then reports as unrecorded —
   // the config existed end to end except where it was read back.
   return {
-    verify: c.verify, base: c.base, lanes: c.lanes,
+    verify, base, lanes,
     ...(c.tracker ? { tracker: c.tracker } : {}), ...(c.mcp ? { mcp: c.mcp } : {}),
+    // Same trap as `mcp` above: dropping these on read meant a recorded gate was read back
+    // as never configured, and the run silently had no floor.
+    ...(c.harness ? { harness: c.harness } : {}),
+    ...(typeof c.harnessFloor === "number" ? { harnessFloor: c.harnessFloor } : {}),
   }
 }
 
@@ -556,6 +619,12 @@ export function proposeInit(
 ): InitProposal {
   const bases = detectBaseCandidates(root)
   const agentsPath = join(root, AGENTS)
+  const existing = existsSync(agentsPath) ? (parseLetsBlock(readFileSync(agentsPath, "utf8")) ?? {}) : {}
+  // Probed with the existing config's answer, so a re-init on a repo that said `none`
+  // neither re-probes nor re-offers. The audit is run here rather than at first use so the
+  // human sees the actual number before being asked to make it a floor — a floor proposed
+  // without showing the score is a number to rubber-stamp, not a decision.
+  const harness = findHarness(existing.harness, env)
   return {
     root,
     branch,
@@ -566,7 +635,9 @@ export function proposeInit(
     lanes: proposeLanes(root),
     graph: graphState(root),
     ignores: missingIgnores(root),
-    existing: existsSync(agentsPath) ? parseLetsBlock(readFileSync(agentsPath, "utf8")) : {},
+    harness,
+    harnessAudit: harness ? runAudit(harness, root) : null,
+    existing,
   }
 }
 
@@ -659,6 +730,33 @@ export function renderInitProposal(p: InitProposal): string {
       // tracker they already have would be advice to ignore.
       out.push(
         "  to mirror runs into a tracker: add an MCP server to opencode.json (`mcpServers`), or set LINEAR_API_TOKEN",
+      )
+  }
+
+  out.push("", "**Harness scorecard**:")
+  if (p.existing.harness === "none")
+    out.push("  `none` (already declined) — runs are gated on `verify` alone")
+  else if (!p.harness)
+    out.push(
+      "  no ECC checkout found — looked at the `harness:` key, `$ECC_HOME`, then the default path.",
+      "  Runs will be gated on `verify` alone, which is a real answer. Set `harness: <path>` to add the scorecard.",
+    )
+  else if (!p.harnessAudit?.ok)
+    out.push(
+      `  found at \`${p.harness.root}\` (${p.harness.from}) but it did not run:`,
+      `  ${p.harnessAudit?.reason ?? "no audit attempted"}`,
+      "  I will not record a floor from a score I could not measure.",
+    )
+  else {
+    const a = p.harnessAudit.audit
+    out.push(`  scorer at \`${p.harness.root}\` (${p.harness.from})`)
+    out.push(renderAudit(a))
+    if (typeof p.existing.harnessFloor === "number")
+      out.push(`  floor already recorded: ${p.existing.harnessFloor}% (now ${percent(a)}%)`)
+    else
+      out.push(
+        `  proposed floor: **${percent(a)}%** — today's score, so a run cannot leave the repo worse than it found it.`,
+        "  It is a floor, not a target: nothing has to improve, but a per-category drop fails the item and is retried.",
       )
   }
 
@@ -840,7 +938,7 @@ Rules:
  */
 export async function runIntake(
   ctx: Ctx,
-  input: { root: string; directive: string; instructions: string },
+  input: { root: string; directive: string; instructions: string; harnessAudit?: HarnessAudit | null },
 ): Promise<Intake> {
   const dropped: Intake["dropped"] = []
   let calls = 0
@@ -880,9 +978,15 @@ export async function runIntake(
   const outcomes = cpo ?? ""
 
   const graph = graphContext(input.root, input.directive)
+  // Appended to the graph slot rather than given its own: both are repo facts the planner
+  // may use, and neither is an instruction. The text says explicitly not to invent items
+  // from it — a planner that quietly expands scope to chase a score has made the gate into
+  // a source of unrequested work, which is worse than no gate.
+  const scorecard = input.harnessAudit ? harnessPlanContext(input.harnessAudit) : ""
+  const planningContext = scorecard ? `${graph}\n\n${scorecard}` : graph
   const plan = await askAny<{ items: WorkItem[] }>(
     "lets-cto",
-    ctoPrompt(input.directive, outcomes || input.directive, graph, input.instructions),
+    ctoPrompt(input.directive, outcomes || input.directive, planningContext, input.instructions),
     WORKITEMS_SCHEMA,
   )
 
@@ -1248,7 +1352,7 @@ export function openWorktree(
   const deps = join(root, "node_modules")
   if (existsSync(deps) && !existsSync(join(path, "node_modules"))) {
     try {
-      symlinkSync(deps, join(path, "node_modules"), "dir")
+      cpSync(deps, join(path, "node_modules"), { recursive: true })
     } catch {
       /* best effort */
     }
@@ -1389,9 +1493,23 @@ export type ItemOutcome = {
   state:
     | "done" | "failed-check" | "unmet" | "no-change" | "model-failed" | "not-attempted"
     | "out-of-time"
+    // Verify passed and the change is real, but the repo's harness scorecard came back
+    // worse than it went in. Its own state rather than `failed-check`, because the two
+    // point at different things: `failed-check` means the code is broken, this means the
+    // code is fine and the repo is worse. Reporting them as one would hide a whole class
+    // of damage behind a label that reads as "tests failed".
+    | "harness-regressed"
   attempts: number
   /** last verify output, kept whether it passed or failed - a pass is evidence too */
   checkOutput?: string
+  /**
+   * What the harness scorecard said on the last attempt, and whether it gated.
+   *
+   * `unavailable` is recorded rather than dropped: "the harness held" and "nobody looked"
+   * must stay distinguishable in the report, exactly as `/council:fix` keeps verified and
+   * unverified patches in separate buckets.
+   */
+  harness?: { verdict: string; detail?: string; score?: number; max?: number }
   commit?: string
   detail?: string
   /** who judged the acceptance criteria, so the judgement is attributable */
@@ -1436,7 +1554,11 @@ async function checkAcceptance(
   input: { item: WorkItem; diff: string; exclude: string[]; landed: string[] },
 ): Promise<{ met: boolean; reason: string; judge?: string }> {
   const judge = skepticPool(input.exclude, 1)[0]
-  if (!judge) return { met: true, reason: "no independent judge available; accepted on the checks alone" }
+  if (!judge) {
+    return requiresIndependentAcceptance(input.item)
+      ? { met: false, reason: "independent acceptance is required for sensitive work, but no judge is available" }
+      : { met: true, reason: "no independent judge available; accepted on the checks alone" }
+  }
 
   /*
    * Without this the judge sees an incremental diff with no idea what preceded it.
@@ -1480,8 +1602,18 @@ something as undefined merely because its definition is not in this diff.
   // Deliberately fails OPEN - a judge that cannot be reached must not block work - but it
   // must NOT report a judge. Returning `judge: judge.slug` here made an unjudged item
   // render as "accepted by fable", which is the precise lie renderRun exists to prevent.
-  if (!v.ok) return { met: true, reason: `no independent judgement: ${judge.slug} did not run (${v.detail})` }
+  if (!v.ok) {
+    return requiresIndependentAcceptance(input.item)
+      ? { met: false, reason: `independent acceptance is required for sensitive work: ${judge.slug} did not run (${v.detail})` }
+      : { met: true, reason: `no independent judgement: ${judge.slug} did not run (${v.detail})` }
+  }
   return { met: v.value.real === false, reason: v.value.reason, judge: judge.slug }
+}
+
+/** Sensitive changes must not be marked complete without an independent acceptance judge. */
+export function requiresIndependentAcceptance(item: Pick<WorkItem, "title" | "acceptance" | "files">): boolean {
+  const text = [item.title, item.acceptance, ...item.files].join(" ").toLowerCase()
+  return /security|auth|credential|secret|token|password|oauth|jwt|permission|iam|rbac|terraform|k8s|kubernetes|migration|database|payment|compliance|pii|personal data|infrastructure/.test(text)
 }
 
 /**
@@ -1577,6 +1709,10 @@ export async function runItem(
     onStep?: (msg: string) => void
     /** epoch ms after which no further attempt starts */
     deadline?: number
+    /** the scorer, when this repo has one. Absent means verify alone gates the item. */
+    harness?: HarnessLocation | null
+    /** the repo's score BEFORE this run, for the per-category no-downgrade comparison */
+    harnessBaseline?: HarnessAudit | null
   },
 ): Promise<ItemOutcome> {
   const maxAttempts = input.maxAttempts ?? MAX_ATTEMPTS
@@ -1704,6 +1840,41 @@ export async function runItem(
       continue
     }
 
+    // The second deterministic gate. Verify says nothing broke; this says the repo is not
+    // measurably worse to hand to the next unattended session. Run only when the repo has
+    // a scorer — no scorer is not a failure, it is one fewer signal, and the outcome says so.
+    //
+    // Placed after verify and before the judge on purpose: a change that does not compile
+    // should fail on that, not on a scorecard, and there is no point paying a model to judge
+    // acceptance on work that is going to be retried anyway.
+    if (input.harness) {
+      const after = runAudit(input.harness, input.worktree)
+      const verdict = judge(input.harnessBaseline ?? null, after, input.cfg.harnessFloor)
+      if (!after.ok || verdict.kind === "unavailable") {
+        // Degrade loudly, never silently. An audit that could not run must not read as one
+        // that passed — that is the unverified-as-verified move the fix loop refuses.
+        const reason = after.ok ? "no score returned" : after.reason
+        last.harness = { verdict: "unavailable", detail: reason }
+        say(`  harness audit unavailable: ${reason}`)
+      } else if (verdict.kind !== "pass") {
+        const detail =
+          verdict.kind === "regressed"
+            ? verdict.regressions.map((d) => `${d.category} ${d.before}→${d.after}`).join(", ")
+            : `${verdict.breach.actual}% < floor ${verdict.breach.floor}%`
+        say(`  harness regressed: ${detail}`)
+        // The scorer's own actions carry exact paths, so the retry gets something to do
+        // rather than a number to feel bad about.
+        feedback = regressionFeedback(verdict, after.audit)
+        last.state = "harness-regressed"
+        last.detail = detail
+        last.harness = { verdict: verdict.kind, detail, score: after.audit.score, max: after.audit.max }
+        continue
+      } else {
+        last.harness = { verdict: "pass", score: after.audit.score, max: after.audit.max }
+        say(`  harness held (${percent(after.audit)}%)`)
+      }
+    }
+
     // Green checks say nothing broke. They do not say the item was delivered (C8).
     // `git diff HEAD` omits untracked files, so an item delivered entirely in NEW files
     // handed the judge an empty diff. Intent-to-add puts them in the diff without staging
@@ -1773,6 +1944,13 @@ export type RunResult = {
   stoppedBy: "complete" | "item-stuck" | "review-cycles" | "wall-clock" | "crashed"
   /** set only when stoppedBy is "crashed" */
   error?: string
+  /**
+   * The repo's score before the run and after the last item, when it has a scorer.
+   *
+   * Both are kept rather than a delta: a delta is only meaningful within one rubric
+   * version, and the reader needs the raw pair to see when it is not.
+   */
+  harness?: { before?: HarnessAudit; after?: HarnessAudit; unavailable?: string }
 }
 
 /**
@@ -1898,6 +2076,36 @@ export async function runExecute(
   const outcomes: ItemOutcome[] = []
   await tracker.start({ directive: input.directive, items: input.items, branch })
 
+  // Resolved once per run, not once per item. The scorer does not move mid-run, and
+  // re-probing would let a run start gated and silently finish ungated.
+  const harness = findHarness(input.cfg.harness)
+  // The baseline is taken in the WORKTREE, not the repo root, and before any item runs.
+  // Taking it from the root would compare the worktree's score against a different tree —
+  // every difference between base and branch would read as this run's doing.
+  //
+  // Lazy, and memoised: a run that is already out of wall clock, or whose queue is empty,
+  // never reaches an item and must not pay for an audit it will not use. Eager, it also
+  // put a line in the log before the stop reason, which is the wrong first thing to read.
+  let harnessBefore: HarnessAudit | null = null
+  let harnessUnavailable: string | undefined
+  let baselineTaken = false
+  const baseline = (): HarnessAudit | null => {
+    if (baselineTaken || !harness) return harnessBefore
+    baselineTaken = true
+    const base = runAudit(harness, worktree)
+    if (base.ok) {
+      harnessBefore = base.audit
+      say(`harness baseline: ${auditLine(base.audit)}`)
+    } else {
+      harnessUnavailable = base.reason
+      // No baseline means no per-category comparison is possible. The floor still applies
+      // if one is recorded — it is absolute, not relative — so the run is not ungated, but
+      // it is less gated and the report has to say which.
+      say(`harness baseline unavailable: ${base.reason}`)
+    }
+    return harnessBefore
+  }
+
   const cycles: RunResult["cycles"] = []
   let stoppedBy: RunResult["stoppedBy"] = "complete"
 
@@ -1941,6 +2149,8 @@ export async function runExecute(
           instructions: input.instructions,
           landed: outcomes.filter((o) => o.state === "done").map((o) => o.item.title),
           onStep: say,
+          harness,
+          harnessBaseline: baseline(),
           // Checked between attempts as well as between items. Sampled only at the top of
           // this loop, one item with five attempts and a long verify could overrun the
           // whole budget several times over and the ceiling would never notice.
@@ -1990,6 +2200,17 @@ export async function runExecute(
     }
 
     const landed = outcomes.filter((o) => o.state === "done")
+
+    // The closing score, taken once on the finished branch. Per-item gating already ran,
+    // but each item only ever saw its own attempt: this is the only measurement of the run
+    // as a whole, which is what the PR reviewer and the crew report are reading.
+    let harnessAfter: HarnessAudit | undefined
+    if (harness && landed.length) {
+      const final = runAudit(harness, worktree)
+      if (final.ok) harnessAfter = final.audit
+      else harnessUnavailable ??= final.reason
+    }
+
     let prUrl: string | undefined
     let prError: string | undefined
     let pushed = false
@@ -2007,6 +2228,15 @@ export async function runExecute(
     const result: RunResult = {
       branch, worktree, outcomes, cycles, prUrl, prError, pushed, stoppedBy,
       ...(input.openPr === false && { prSkipped: true }),
+      ...(harness
+        ? {
+            harness: {
+              ...(harnessBefore ? { before: harnessBefore } : {}),
+              ...(harnessAfter ? { after: harnessAfter } : {}),
+              ...(harnessUnavailable ? { unavailable: harnessUnavailable } : {}),
+            },
+          }
+        : {}),
       seconds: (Date.now() - t0) / 1000,
     }
     await tracker.finish(result)
@@ -2127,6 +2357,15 @@ export function renderRun(r: RunResult, cfg: LetsConfig): string {
     for (const c of r.cycles) out.push(`- cycle ${c.cycle}: ${c.note}`)
   }
 
+  // Reported whether it held or not. A gate that is only mentioned when it fires teaches
+  // the reader that silence means "not checked", which is the opposite of what it means.
+  if (r.harness) {
+    out.push("", "## Harness")
+    out.push(renderDelta(r.harness.before ?? null, r.harness.after ?? null))
+    if (r.harness.unavailable) out.push(`The scorer did not run cleanly: ${r.harness.unavailable}`)
+  } else if (findHarness(cfg.harness))
+    out.push("", "## Harness", "Not scored — no item reached the gate.")
+
   if (stuck.length) {
     const last = stuck.find((o) => o.checkOutput)
     out.push("", "The run stopped rather than build on a broken base.")
@@ -2238,6 +2477,14 @@ export function renderGate(intake: Intake, cfg: LetsConfig, scope: { root: strin
     "---",
     `Repo \`${scope.root}\` on \`${scope.branch}\` → PR into \`${cfg.base}\``,
     `Verify: ${cfg.verify.map((v) => `\`${v}\``).join(" && ")}`,
+    // Said at the gate, not discovered at the first failure. The human is being asked to
+    // approve a plan, and which gates that plan will have to pass is part of what they are
+    // approving.
+    findHarness(cfg.harness)
+      ? `Harness: scored each item${typeof cfg.harnessFloor === "number" ? `, floor ${cfg.harnessFloor}%` : ""} — a category that regresses fails the item and is retried.`
+      : cfg.harness === "none"
+        ? "Harness: declined for this repo — verify alone gates the run."
+        : "Harness: no scorer found — verify alone gates the run.",
     `Intake cost: ${intake.calls} call(s), ${humanBytes(intake.instructionBytes)} of repo instructions per prompt`,
     cfg.tracker && cfg.tracker !== "none"
       ? `Tracking: ${cfg.tracker}`

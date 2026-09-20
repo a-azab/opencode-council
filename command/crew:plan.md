@@ -82,6 +82,22 @@ It contains:
 3. The research findings, **including the source URLs consulted** and the dead ends
 4. The design decision, the alternatives rejected and why, the risks
 5. What would make this the wrong call
+6. **The repo's harness scorecard as it stands right now**, when this repo has a scorer
+   configured. Run it before you write the ADR:
+
+   ```bash
+   node <ecc>/scripts/harness-audit.js repo --format json --root <repo>
+   ```
+
+   Record `rubric_version`, `overall_score`/`max_score`, and the per-category scores. This
+   is the baseline the post-run report is measured against, and it only means anything if
+   it was taken **before** the waves ran — afterwards, the run's own damage is inside the
+   baseline and the delta is always zero. `/crew:execute` takes its own baseline too; the
+   one in the ADR is the human-readable record of the state this run inherited.
+
+   Treat the scorer's `top_actions` as **background, not scope**. They are standing repo
+   weaknesses, and an unattended run that quietly expands to chase a score has invented
+   work nobody asked for. Only decompose them into tasks if the directive asked for them.
 
 **It is written before decomposition, not after.** A record written after the tasks exist is
 a justification for them; written before, it is the decision the tasks come out of. Anything

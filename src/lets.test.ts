@@ -17,6 +17,7 @@ import {
   proposeInit,
   renderInitProposal,
   applyInit,
+  readLetsConfig,
   commitMessage,
   runVerify,
   installIfDepsChanged,
@@ -45,6 +46,7 @@ import {
   MAX_RUN_SECONDS,
   IMPLEMENT_TIMEOUT_MS,
   LETS_IMPLEMENT_MODELS,
+  requiresIndependentAcceptance,
 } from "./lets.ts"
 import { beadsAvailable, bdInstalled } from "./beads.ts"
 import { bySlug, canSchema, canAgentic, selectNodes, ALL_ROLES } from "./roster.ts"
@@ -130,6 +132,27 @@ test("resolveScope finds the enclosing repo from a subdirectory", () => {
   assert.equal(scope.root, expected)
   assert.ok(existsSync(join(scope.root, "package.json")))
   assert.ok(Array.isArray(scope.dirty))
+})
+
+test("dirty paths survive the status-code strip, including the first line", () => {
+  // Regression, found on the first real run: `git()` trims the whole output, so the
+  // leading space of the FIRST line only is removed. A fixed `slice(3)` then ate a real
+  // character — ` M AGENTS.md` was shown to the user as `GENTS.md`, while every later
+  // line was correct. A path the tool reports wrongly is a path the human cannot act on.
+  const dir = scratchRepo()
+  try {
+    // Index-clean, worktree-dirty gives the ` M path` form that triggered it.
+    writeFileSync(join(dir, "AGENTS.md"), "# changed\n")
+    writeFileSync(join(dir, "zzz.md"), "second\n")
+    execFileSync("git", ["add", "zzz.md"], { cwd: dir })
+    const scope = resolveScope(dir)
+    assert.equal(scope.kind, "ok")
+    if (scope.kind !== "ok") return
+    assert.ok(scope.dirty.includes("AGENTS.md"), `got ${JSON.stringify(scope.dirty)}`)
+    assert.ok(scope.dirty.includes("zzz.md"), `got ${JSON.stringify(scope.dirty)}`)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test("detectStack recognises this repo as node", () => {
@@ -245,15 +268,66 @@ test("a tracker is only offered once it can actually be honoured", () => {
 test("an unrecognised tracker name is dropped, not silently honoured", () => {
   // A typo must read as "never asked" so init asks again. Accepting `tracker: jyra` would
   // disable tracking with no signal at all.
-  assert.equal(parseLetsBlock("```crew\nverify: x\nbase: m\nlanes: qa\ntracker: jyra\n```").tracker, undefined)
-  assert.equal(parseLetsBlock("```crew\nverify: x\nbase: m\nlanes: qa\ntracker: none\n```").tracker, "none")
+  assert.equal(parseLetsBlock("```crew\nverify: x\nbase: m\nlanes: qa\ntracker: jyra\n```")?.tracker, undefined)
+  assert.equal(parseLetsBlock("```crew\nverify: x\nbase: m\nlanes: qa\ntracker: none\n```")?.tracker, "none")
 })
 
 test("absent and 'none' are different states", () => {
   // Absent means init never asked. `none` means the human said no. Re-asking someone who
   // already declined is the behaviour this distinction exists to prevent.
-  assert.equal(parseLetsBlock(renderLetsBlock({ ...CFG, tracker: "none" })).tracker, "none")
-  assert.equal(parseLetsBlock(renderLetsBlock(CFG)).tracker, undefined)
+  assert.equal(parseLetsBlock(renderLetsBlock({ ...CFG, tracker: "none" }))?.tracker, "none")
+  assert.equal(parseLetsBlock(renderLetsBlock(CFG))?.tracker, undefined)
+})
+
+test("the harness keys survive a render/parse round trip", () => {
+  const cfg: LetsConfig = { ...CFG, harness: "/opt/ecc", harnessFloor: 71 }
+  assert.deepEqual(parseLetsBlock(renderLetsBlock(cfg)), cfg)
+})
+
+test("`harness: none` round-trips as a recorded decision, not as absence", () => {
+  // Same rule as the tracker: a human who declined the scorecard must not be asked again,
+  // and findHarness reads `none` as "stop", not as "go probing".
+  assert.equal(parseLetsBlock(renderLetsBlock({ ...CFG, harness: "none" }))?.harness, "none")
+  assert.equal(parseLetsBlock(renderLetsBlock(CFG))?.harness, undefined)
+})
+
+test("a floor of 0 is written and read back, not treated as absent", () => {
+  // `0` is falsy, and an `if (cfg.harnessFloor)` anywhere in the chain would silently
+  // drop it. A deliberate floor of zero means "never regress below nothing" and is a
+  // legitimate, if weak, recorded answer.
+  const cfg: LetsConfig = { ...CFG, harness: "/opt/ecc", harnessFloor: 0 }
+  assert.equal(parseLetsBlock(renderLetsBlock(cfg))?.harnessFloor, 0)
+})
+
+test("a nonsense floor fails the parse rather than disabling the gate quietly", () => {
+  // Same reasoning as an unknown lane: a typo that turns a safety gate off with no signal
+  // is worse than one that refuses to load.
+  for (const bad of ["abc", "-1", "101"])
+    assert.equal(parseLetsBlock(`\`\`\`lets\nverify: x\nbase: m\nlanes: qa\nharness-floor: ${bad}\n\`\`\``), undefined)
+})
+
+test("recorded harness config survives readLetsConfig, not just the parser", () => {
+  // The mcp key was once dropped exactly here: parsed fine, read back as unconfigured, so
+  // the mirror never ran. A floor lost on read-back would mean a run that reports a gate
+  // it does not have.
+  const dir = scratchRepo()
+  try {
+    const cfg: LetsConfig = { ...CFG, harness: "/opt/ecc", harnessFloor: 42 }
+    applyInit(dir, cfg)
+    const back = readLetsConfig(dir)
+    assert.equal(back?.harness, "/opt/ecc")
+    assert.equal(back?.harnessFloor, 42)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("the plan gate states which gates the approved plan will face", () => {
+  // The human is approving a plan; which checks it must pass is part of what they are
+  // approving, and finding out at the first failure is too late.
+  const intake = { outcomes: "", items: [], dropped: [], instructionBytes: 0, calls: 1 }
+  const scope = { root: "/repo", branch: "main" }
+  assert.match(renderGate(intake, { ...CFG, harness: "none" }, scope), /Harness: declined/)
 })
 
 test("the default tracker reports progress rather than staying silent", () => {
@@ -361,21 +435,19 @@ test("dependency install only fires when a manifest actually changed", () => {
     "no lockfile present means nothing to install")
 })
 
-test("the symlinked node_modules counts as neither a change nor work to commit", () => {
-  // Measured before this guard existed: the symlink showed as untracked, `git add -A`
-  // committed it, and the no-change check read it as real work — so a worker that changed
-  // nothing was indistinguishable from one that did.
+test("isolated node_modules counts as neither a change nor work to commit", () => {
+  // Shared symlinks can write back into the parent checkout, so openWorktree copies deps.
   const dir = scratchRepo()
   try {
-    // openWorktree only symlinks node_modules when the parent has one.
+    // openWorktree copies node_modules when the parent has one.
     mkdirSync(join(dir, "node_modules"), { recursive: true })
 
     const { path: wt, branch } = openWorktree(dir, "excl")
     try {
-      assert.match(
+      assert.equal(
         execFileSync("git", ["status", "--porcelain"], { cwd: wt, encoding: "utf8" }),
-        /node_modules/,
-        "precondition: git does see the symlink",
+        "",
+        "isolated dependencies must not appear as work",
       )
       assert.deepEqual(worktreeChanges(wt), [], "but lets must not")
 
@@ -610,7 +682,7 @@ test("a verify command containing a comma survives the round trip", () => {
   // could not represent it, and a back-compat shim that still split on commas re-broke the
   // exact case the fix existed for.
   const cfg: LetsConfig = { verify: ["npx nx affected -t lint,test", "npm run check"], base: "main", lanes: ["qa"] }
-  assert.deepEqual(parseLetsBlock(renderLetsBlock(cfg)).verify, cfg.verify)
+  assert.deepEqual(parseLetsBlock(renderLetsBlock(cfg))?.verify, cfg.verify)
 })
 
 test("config survives replacement-string metacharacters", () => {
@@ -618,8 +690,8 @@ test("config survives replacement-string metacharacters", () => {
   // a verify command containing any of them was silently mangled on write.
   const cfg: LetsConfig = { verify: ["echo $& $1 $` $'"], base: "main", lanes: ["qa"] }
   const once = upsertLetsBlock("# A\n\nprose\n", cfg)
-  assert.deepEqual(parseLetsBlock(once).verify, cfg.verify)
-  assert.deepEqual(parseLetsBlock(upsertLetsBlock(once, cfg)).verify, cfg.verify)
+  assert.deepEqual(parseLetsBlock(once)?.verify, cfg.verify)
+  assert.deepEqual(parseLetsBlock(upsertLetsBlock(once, cfg))?.verify, cfg.verify)
 })
 
 test("a base that exists only on the remote is named so it resolves", () => {
@@ -716,7 +788,7 @@ test("the worktree branches from the configured base, not session HEAD", () => {
     }).toString().trim()
     assert.equal(merged, "0", `base...branch must contain only lets work, found ${merged} commits`)
   } finally {
-    execFileSync("git", ["worktree", "remove", "--force", join(dir, ".worktrees", "base-probe")], { cwd: dir }).catch?.(() => {})
+    try { execFileSync("git", ["worktree", "remove", "--force", join(dir, ".worktrees", "base-probe")], { cwd: dir }) } catch {}
     rmSync(dir, { recursive: true, force: true })
   }
 })
@@ -742,11 +814,16 @@ test("a done item that no judge assessed says so in the report", () => {
   assert.match(out, /NOT independently judged/)
 })
 
+test("sensitive work requires independent acceptance", () => {
+  assert.equal(requiresIndependentAcceptance(item({ title: "rotate OAuth credentials" })), true)
+  assert.equal(requiresIndependentAcceptance(item({ title: "rename a local helper", files: [], acceptance: "the helper is renamed" })), false)
+})
+
 test("a CPO lane that no model answered is visible in the gate, not silent", () => {
   // Half the intake quietly producing the whole plan reads as fully-working.
   const gate = renderGate(
     {
-      outcomes: "", items: [item({ title: "x" })], instructionBytes: 10,
+      outcomes: "", calls: 0, items: [item({ title: "x" })], instructionBytes: 10,
       dropped: [{ lane: "cpo", state: "failed", detail: "no model answered; plan built by the CTO alone" }],
     },
     CFG,
@@ -816,9 +893,9 @@ test("origin/HEAD naming a deleted remote branch is not offered", () => {
 test("a CPO lane failure is reported once, by askAny", () => {
   // The round-4 fix pushed a second `dropped` entry on top of the one askAny already
   // records, so the gate said the lane failed twice under two names.
-  const dropped = [{ lane: "lets-cpo", state: "failed", detail: "all models exhausted" }]
+  const dropped = [{ lane: "lets-cpo", state: "failed" as const, detail: "all models exhausted" }]
   const gate = renderGate(
-    { outcomes: "", items: [item({ title: "x" })], instructionBytes: 10, dropped },
+    { outcomes: "", calls: 0, items: [item({ title: "x" })], instructionBytes: 10, dropped },
     CFG,
     { root: "/repo", branch: "main" },
   )
@@ -1110,10 +1187,14 @@ test("the tool's own output is not counted as your uncommitted work", () => {
     writeFileSync(join(dir, "council-artifacts", "2026-01-01T00-00-00-lets-run", "run.log"), "x\n")
     mkdirSync(join(dir, ".worktrees", "lets-abc"), { recursive: true })
     writeFileSync(join(dir, ".worktrees", "lets-abc", "f.txt"), "x\n")
-    assert.deepEqual(resolveScope(dir).dirty, [], "our own artifacts are not the human's edits")
+    const scope = resolveScope(dir)
+    assert.equal(scope.kind, "ok")
+    if (scope.kind === "ok") assert.deepEqual(scope.dirty, [], "our own artifacts are not the human's edits")
 
     writeFileSync(join(dir, "theirs.txt"), "real work\n")
-    assert.deepEqual(resolveScope(dir).dirty, ["theirs.txt"], "a real edit still counts")
+    const scope2 = resolveScope(dir)
+    assert.equal(scope2.kind, "ok")
+    if (scope2.kind === "ok") assert.deepEqual(scope2.dirty, ["theirs.txt"], "a real edit still counts")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

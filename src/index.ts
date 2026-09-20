@@ -1,11 +1,12 @@
-import { readdirSync, readFileSync, existsSync, mkdirSync, writeFileSync, appendFileSync } from "node:fs"
+import { readdirSync, readFileSync, existsSync, mkdirSync, writeFileSync, appendFileSync, realpathSync } from "node:fs"
 import { fileURLToPath } from "node:url"
-import { dirname, join, basename } from "node:path"
+import { dirname, join, basename, relative, resolve } from "node:path"
 import { execFileSync } from "node:child_process"
 import { z } from "zod"
 import { runReview, runFix, runPlan, runIndependent, runTask, councilArgs, autoUpdate } from "./engine.ts"
 import { localMcpServers } from "./mcp.ts"
 import { activeTaskId } from "./beads.ts"
+import { issueIdentifierIn } from "./linear.ts"
 import {
   resolveScope,
   proposeInit,
@@ -25,6 +26,7 @@ import {
   type LetsConfig,
 } from "./lets.ts"
 import { detectStack, closeWorktree } from "./lets.ts"
+import { findHarness, runAudit, auditLine, renderAudit, type HarnessAudit } from "./harness.ts"
 import { fileEdges, schedule, MAX_TASKS, MAX_WAVE_WIDTH } from "./schedule.ts"
 import { recruitFloor, integrate, inferLanded, taskSlug, renderCrewReport, type CrewResult, type CrewTask } from "./crew-org.ts"
 import { ROSTER, type Role } from "./roster.ts"
@@ -43,6 +45,37 @@ import {
 } from "./report.ts"
 
 const PKG = dirname(dirname(fileURLToPath(import.meta.url)))
+
+export function validateAdrPath(repoRoot: string, adr: string): { ok: true; path: string } | { ok: false; reason: string } {
+  const input = adr.trim()
+  if (!input) return { ok: false, reason: "ADR path is empty" }
+  try {
+    const root = realpathSync(repoRoot)
+    const candidate = realpathSync(resolve(root, input))
+    const rel = relative(root, candidate)
+    if (!rel || rel === ".." || rel.startsWith("../") || resolve(root, rel) !== candidate)
+      return { ok: false, reason: "ADR must resolve to a file inside the repository" }
+    return { ok: true, path: rel }
+  } catch {
+    return { ok: false, reason: `ADR does not exist: ${input}` }
+  }
+}
+
+function validateTaskPaths(repoRoot: string, tasks: any[]): string | undefined {
+  const root = realpathSync(repoRoot)
+  for (const [ti, task] of tasks.entries()) {
+    for (const [ii, item] of (task.items ?? []).entries()) {
+      for (const file of item.files ?? []) {
+        if (typeof file !== "string" || !file.trim()) return `task ${ti + 1} item ${ii + 1} contains an invalid file path`
+        const candidate = resolve(root, file)
+        const rel = relative(root, candidate)
+        if (rel === ".." || rel.startsWith("../") || resolve(root, rel) !== candidate)
+          return `task ${ti + 1} item ${ii + 1} contains a path outside the repository: ${file}`
+      }
+    }
+  }
+  return undefined
+}
 
 /**
  * Flat `key: value` frontmatter only.
@@ -284,6 +317,24 @@ export const CouncilPlugin = async (input: any) => ({
           .string()
           .default("")
           .describe("where to mirror runs: 'none', or 'linear' when LINEAR_API_TOKEN is set (write only)"),
+        mcpServer: z.string().default(""),
+        mcpStart: z.string().default(""),
+        mcpStep: z.string().default(""),
+        mcpItem: z.string().default(""),
+        mcpFinish: z.string().default(""),
+        mcpArgs: z.string().default(""),
+        harness: z
+          .string()
+          .default("")
+          .describe(
+            "path to an ECC checkout whose scripts/harness-audit.js scores this repo, or 'none' to decline the scorecard permanently (write only)",
+          ),
+        harnessFloor: z
+          .number()
+          .optional()
+          .describe(
+            "percent of the applicable maximum this repo must not fall below; a run that drops a category below it fails the item and retries (write only)",
+          ),
       },
       async execute(
         args: {
@@ -294,6 +345,14 @@ export const CouncilPlugin = async (input: any) => ({
           base?: string
           lanes?: string
           tracker?: string
+          mcpServer?: string
+          mcpStart?: string
+          mcpStep?: string
+          mcpItem?: string
+          mcpFinish?: string
+          mcpArgs?: string
+          harness?: string
+          harnessFloor?: number
         },
         context: any,
       ) {
@@ -391,10 +450,15 @@ export const CouncilPlugin = async (input: any) => ({
               .join("\n")
 
           const instructions = readInstructions(scope.root)
+          // Planning context only, never a source of work items — harnessPlanContext says
+          // so in the prompt. An unavailable audit is simply absent context.
+          const planHarness = findHarness(cfg.harness)
+          const planAudit = planHarness ? runAudit(planHarness, scope.root) : null
           const intake = await runIntake(ctxFor(input), {
             root: scope.root,
             directive,
             instructions: instructions.text,
+            harnessAudit: planAudit?.ok ? planAudit.audit : null,
           })
           const dir = artifactDir(scope.root, "lets-plan")
           writeFileSync(join(dir, "plan.json"), JSON.stringify({ directive, ...intake }, null, 2))
@@ -454,14 +518,30 @@ export const CouncilPlugin = async (input: any) => ({
                 ...(args.mcpArgs?.trim() ? { args: JSON.parse(args.mcpArgs) } : {}),
               }
             : undefined
+        const harness = (args.harness ?? "").trim()
+        // A floor with no scorer is a gate that can never run. Refusing is better than
+        // writing a config whose safety property is silently absent.
+        if (typeof args.harnessFloor === "number") {
+          if (args.harnessFloor < 0 || args.harnessFloor > 100)
+            return `harnessFloor must be a percentage between 0 and 100, got ${args.harnessFloor}.`
+          if (harness === "none")
+            return "`harness: none` and a harnessFloor contradict each other — a floor needs a scorer to measure it."
+          if (!findHarness(harness || undefined))
+            return `No ECC checkout found${harness ? ` at \`${harness}\`` : ""} (looked at the harness path, $ECC_HOME, then the default). A floor with no scorer would never be checked.`
+        }
+        if (harness && harness !== "none" && !findHarness(harness))
+          return `\`${harness}\` has no \`scripts/harness-audit.js\`. Point harness at an ECC checkout, or pass 'none' to decline the scorecard.`
+
         const cfg: LetsConfig = {
           verify, base, lanes,
           ...(tracker ? { tracker: tracker as any } : {}),
           ...(mcp ? { mcp } : {}),
+          ...(harness ? { harness } : {}),
+          ...(typeof args.harnessFloor === "number" ? { harnessFloor: args.harnessFloor } : {}),
         }
         const written = applyInit(scope.root, cfg)
         return written.length
-          ? `Wrote ${written.join(", ")}.\n\nverify: ${verify.join(", ")}\nbase: ${base}\nlanes: ${lanes.join(", ")}${tracker ? `\ntracker: ${tracker}` : ""}`
+          ? `Wrote ${written.join(", ")}.\n\nverify: ${verify.join(", ")}\nbase: ${base}\nlanes: ${lanes.join(", ")}${tracker ? `\ntracker: ${tracker}` : ""}${harness ? `\nharness: ${harness}` : ""}${typeof args.harnessFloor === "number" ? `\nharness-floor: ${args.harnessFloor}%` : ""}`
           : "Nothing to write — config already matches."
       },
     },
@@ -617,6 +697,8 @@ export const CouncilPlugin = async (input: any) => ({
           const adr = (args.adr ?? "").trim()
           if (!adr)
             return "crew:plan needs `adr` — the path to the ADR holding the interview, the research and the design. With no approval gate that record is the only trace of what you asked for; write it before planning."
+          const adrPath = validateAdrPath(scope.root, adr)
+          if (!adrPath.ok) return `That ADR cannot be recorded — ${adrPath.reason}`
           let tasks: any
           try {
             tasks = JSON.parse(args.tasks || "[]")
@@ -638,12 +720,14 @@ export const CouncilPlugin = async (input: any) => ({
           } catch (e: any) {
             return `That plan cannot be recorded — ${String(e?.message ?? e)}`
           }
+          const badPath = validateTaskPaths(scope.root, checked)
+          if (badPath) return `That plan cannot be recorded — ${badPath}`
 
           const roles = recruitFloor(directive, detectStack(scope.root))
           const dir = artifactDir(scope.root, "crew-org-plan")
           writeFileSync(
             join(dir, "plan.json"),
-            JSON.stringify({ directive, adr, roles, tasks: checked }, null, 2),
+            JSON.stringify({ directive, adr: adrPath.path, roles, tasks: checked }, null, 2),
           )
           const edges = fileEdges(join(scope.root, "graphify-out", "graph.json"))
           const sched = schedule(checked, edges)
@@ -677,6 +761,8 @@ export const CouncilPlugin = async (input: any) => ({
             "Fix `files` in that plan.json to be a list of paths, or re-run `/crew:plan`.",
           ].join("\n")
         }
+        const badPath = validateTaskPaths(scope.root, planned)
+        if (badPath) return `The recorded plan cannot be scheduled — ${badPath}`
         if (!planned.length) return `The last crew plan (${found.dir}) had no tasks — nothing to run.`
 
         // A crew run is long and unattended, which makes it exactly the thing that gets
@@ -794,6 +880,23 @@ export const CouncilPlugin = async (input: any) => ({
         checkpoint()
         let abandon = ""
 
+        // The pre-run baseline, taken on the repo as it stands before any wave. This is the
+        // number the ADR's record is compared against; taking it after the waves would make
+        // the run's own damage part of the baseline and the delta would always be zero.
+        const crewHarness = findHarness(cfg.harness)
+        let crewBefore: HarnessAudit | undefined
+        let crewHarnessNote: string | undefined
+        if (crewHarness) {
+          const base = runAudit(crewHarness, scope.root)
+          if (base.ok) {
+            crewBefore = base.audit
+            say(`harness baseline: ${auditLine(base.audit)}`)
+          } else {
+            crewHarnessNote = base.reason
+            say(`harness baseline unavailable: ${base.reason}`)
+          }
+        }
+
         for (const [wi, wave] of sched.waves.entries()) {
           if (abandon) {
             for (const t of wave) tasks.push({ title: t.title, slug: "", wave: wi + 1, skipped: abandon })
@@ -910,6 +1013,28 @@ export const CouncilPlugin = async (input: any) => ({
             }
             result.verify = { ok, output }
             say(`verify: ${ok ? "passed" : "FAILED"}`)
+
+            // Scored on the integrated tree, in the same worktree verify just ran in. This
+            // is the only measurement of the waves COMBINED — each task gated on its own
+            // attempt against the same baseline, so two tasks could each hold their ground
+            // and still add up to a loss here.
+            if (crewHarness) {
+              const after = runAudit(crewHarness, vpath)
+              if (after.ok) {
+                result.harness = {
+                  ...(crewBefore && { before: crewBefore }),
+                  after: after.audit,
+                  ...(crewHarnessNote && { unavailable: crewHarnessNote }),
+                }
+                say(`harness: ${auditLine(after.audit)}`)
+              } else {
+                result.harness = {
+                  ...(crewBefore && { before: crewBefore }),
+                  unavailable: crewHarnessNote ?? after.reason,
+                }
+                say(`harness audit unavailable: ${after.reason}`)
+              }
+            }
             const { diff, files, changedLines } = gitDiff(vpath, cfg.base)
             if (diff.trim()) {
               // `offered` lets a retired pin recover to its own next version rather than to

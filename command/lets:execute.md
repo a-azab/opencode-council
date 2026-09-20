@@ -27,3 +27,22 @@ When it finishes, report:
 If the run stopped early, the last failing check's output is included. Read it before
 suggesting a next step: an item that failed because the verify command is wrong needs a
 different fix than one that failed because the code is wrong.
+
+## The harness gate
+
+When this repo has a harness scorer configured, each item passes **two** deterministic
+gates: `verify` (nothing broke) and the scorecard (the repo is not measurably worse). An
+item whose state is `harness-regressed` passed the project's own checks — the code is
+fine, the repo got worse — and was retried with the regressed categories and the scorer's
+file paths as the brief.
+
+Report the `## Harness` section as given. Three states, and they must not be blurred:
+
+- **a delta with no regression** — the gate ran and held
+- **`not comparable`** — ECC's rubric version changed between the two measurements, so no
+  delta is claimed. This is not a pass and not a failure; it is an unmeasurable interval.
+- **the scorer did not run cleanly** — nobody looked. Never report this as the gate holding.
+
+If an item is stuck on `harness-regressed`, the fix is to restore what the change removed,
+never to lower `harness-floor` or weaken a check to make the number go up. If the user
+wants the gate off, that is `harness: none` via `/lets:init`, as a deliberate decision.

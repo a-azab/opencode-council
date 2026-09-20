@@ -38,5 +38,28 @@ Things worth pointing out if the gate shows them:
 - **A stale or missing graph** — offer `graphify extract . --code-only --max-workers 16`.
   It is local tree-sitter AST, no LLM calls, and takes seconds. Planning against a stale
   graph is worse than planning against none: it is confidently wrong.
+- **Which gates the plan will face** — the footer says whether the harness scorecard runs
+  and what floor applies. The user is approving a plan; the checks it must pass are part
+  of what they are approving, and finding out at the first failure is too late.
+
+## Acceptance criteria are evals
+
+Each item's `acceptance` is read later by a model that did not write the diff, and judged
+against exactly that text. That makes it an eval, and the eval-driven framing is the useful
+one when reviewing a plan before approving it:
+
+- **Capability** — what this item makes possible that was not possible before. That is what
+  `acceptance` states, and it must be checkable by someone who did not write the item.
+  "Handles errors" is not checkable; "a duplicate submit returns the first result rather
+  than creating a second record" is.
+- **Regression** — what must still work afterwards. `verify` covers this for anything the
+  suite already tests; the harness scorecard covers the repo's own checks and guardrails.
+  If an item puts something at risk that **neither** covers, say so at the gate — that is a
+  gap in the evidence, and it is cheaper to name now than to discover in review.
+
+The run's retry budget is the reliability bound: 2 attempts then 3 escalations per item,
+and an item that lands on attempt 3 is a weaker result than one that landed first time even
+though both report `done`. The run output gives the attempt count per item; do not average
+it away when you summarise.
 
 If the repo has no lets config, the tool says so — run `/lets:init` first.
