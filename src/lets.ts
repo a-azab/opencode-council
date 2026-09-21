@@ -20,6 +20,7 @@ import { WORKITEMS_SCHEMA, VERDICT_SCHEMA } from "./schema.ts"
 import { conventionsFor } from "./rules.ts"
 import { skillsFor, skillRoots } from "./skills.ts"
 import { judgePanel, type RoundVerdict } from "./ralph.ts"
+import * as guard from "./guard.ts"
 import {
   findHarness,
   runAudit,
@@ -1892,6 +1893,10 @@ export async function runItem(
   // a failed attempt the worktree is already dirty, so a worker that then did nothing at
   // all looked like one that worked.
   let lastFingerprint = ""
+  /** Chain of identical attempts. Reset whenever the worker receives genuinely new input. */
+  let chain: guard.Repeat | undefined
+  /** A loop-guard nudge to fold into the next attempt's brief, if one is due. */
+  let nudgeText: string | undefined
 
   for (let attempt = 1; attempt <= total; attempt++) {
     if (input.deadline && Date.now() > input.deadline) {
@@ -1942,7 +1947,7 @@ export async function runItem(
         {
           model: member.model,
           agent: "lets-dev",
-          text: implementPrompt(input.item, input.cfg, input.instructions, feedback, {
+          text: implementPrompt(input.item, input.cfg, input.instructions, nudgeText ? `${feedback ?? ""}\n\n${nudgeText}`.trim() : feedback, {
             directive: input.directive,
             // Selected per item from the files it declares, gated on evidence the repo
             // actually uses that framework. Costs nothing when there is no ECC checkout.
@@ -1969,6 +1974,7 @@ export async function runItem(
       )
       if (r.ok) {
         answered = true
+        nudgeText = undefined
         if (!wrote.includes(slug)) wrote.push(slug)
         break
       }
@@ -1986,7 +1992,27 @@ export async function runItem(
     // done, and returned a confident summary is indistinguishable from one that worked -
     // except in the diff. Committing nothing and calling it done is the worst outcome.
     const changed = worktreeChanges(input.worktree)
-    const fingerprint = createHash("sha256").update(git(input.worktree, ["diff", "HEAD"])).digest("hex")
+    const currentDiff = git(input.worktree, ["diff", "HEAD"])
+    const fingerprint = createHash("sha256").update(currentDiff).digest("hex")
+
+    // The loop guard, ported from dsh's repeat-tool-reminder. The old check compared this
+    // attempt's diff to the PREVIOUS one only, so an oscillation - A, B, A, B - never
+    // tripped it: no two consecutive attempts matched, and the item burned every attempt
+    // making the same two changes. A chain counts identical attempts wherever they repeat,
+    // and a worker that has produced the same diff twice is told so before it spends a
+    // third.
+    if (changed.length) {
+      chain = guard.observe(chain, "diff", currentDiff)
+      if (guard.exhausted(chain)) {
+        say(`  ${guard.stopReason(chain, "attempt")}`)
+        return { ...last, state: "no-change", detail: guard.stopReason(chain, "attempt") }
+      }
+      if (guard.shouldNudge(chain)) {
+        say(`  same diff ${chain.count}× — nudging`)
+        nudgeText = guard.nudge(chain, "diff")
+      }
+    }
+
     if (!changed.length || fingerprint === lastFingerprint) {
       say("  no files changed")
       return {
@@ -2021,6 +2047,8 @@ export async function runItem(
       say(`  ${install.note}`)
       if (!install.ok) {
         feedback = `The dependency install failed after your change:\n\n${install.output.slice(-2000)}`
+      // New information for the worker: repetition across it is not a loop.
+      chain = guard.reset()
         last.state = "failed-check"
         last.detail = install.note
         continue
@@ -2033,6 +2061,8 @@ export async function runItem(
     if (!check.ok) {
       say(`  check failed`)
       feedback = check.output
+      // New information for the worker: repetition across it is not a loop.
+      chain = guard.reset()
       last.state = "failed-check"
       continue
     }
@@ -2062,6 +2092,8 @@ export async function runItem(
         // The scorer's own actions carry exact paths, so the retry gets something to do
         // rather than a number to feel bad about.
         feedback = regressionFeedback(verdict, after.audit)
+      // New information for the worker: repetition across it is not a loop.
+      chain = guard.reset()
         last.state = "harness-regressed"
         last.detail = detail
         last.harness = { verdict: verdict.kind, detail, score: after.audit.score, max: after.audit.max }
@@ -2090,6 +2122,8 @@ export async function runItem(
     if (!verdict.met) {
       say(`  checks pass but acceptance not met: ${verdict.reason.slice(0, 120)}`)
       feedback = `The project's checks pass, but an independent reviewer says this item is not delivered:\n\n${verdict.reason}\n\nThe acceptance criteria are: ${input.item.acceptance}`
+      // New information for the worker: repetition across it is not a loop.
+      chain = guard.reset()
       last.state = "unmet"
       last.detail = verdict.reason
       continue

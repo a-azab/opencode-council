@@ -34,6 +34,7 @@ export type Member = {
    *  A cap is a cost control; an essential reviewer is a correctness requirement, so the
    *  pin wins. */
   essential?: Role[]
+  fallback?: string
 }
 
 /**
@@ -138,8 +139,12 @@ export const ROSTER: Member[] = [
     ms: 4228, tier: "fast",     capability: ["schema", "agentic"] },
   { slug: "glm53", model: "zai-coding-plan/glm-5.3", roles: ["systems", "reviewer", "infrastructure", "security"],
     ms: 6007, capability: ["schema", "agentic"] },
+  // deepseek/deepseek-v4-pro was retired by the provider 2026-09-09: docs now say the
+  // legacy name is still accepted but "requests are served by DeepSeek-V4.1-Flash and
+  // billed at" that price - so the pin named a model that no longer exists and paid a
+  // surprise price for its replacement. Re-pinned to the current name (measured below).
   // Implementer class: drives tools, refuses a named schema call.
-  { slug: "deepseek", model: "deepseek/deepseek-v4-pro", roles: [], ms: 9459, capability: ["agentic"] },
+  { slug: "deepseek", model: "deepseek/deepseek-flash", roles: [], ms: 7411, capability: ["agentic"] },
   // Implementer lead by directive (2026-08-29): Claude tokens are plentiful through
   // 23 September 2026, so the hottest path in the tool spends them rather than budget.
   //
@@ -148,6 +153,19 @@ export const ROSTER: Member[] = [
   // because the directive is about implementing, not about reviewing - so it carries no
   // council lane, while staying eligible as a stand-in for one.
   { slug: "sonnet5", model: "anthropic/claude-sonnet-5", roles: [], ms: 5223, capability: ["schema", "agentic"] },
+  // `gpt56sol` holds `systems`/`architect`/`infrastructure` as the deep OpenAI tier; astra
+  // (2026-09-10) joins as a second architect voice rather than a tier swap - sibling tiers
+  // are never swapped, and a new model is not a rename of an old one.
+  //
+  // MEASURED 2026-09-10: drove bash and returned the exact marker, 10330ms - that is the
+  // `ms` below and the agentic flag. The schema probe did NOT complete: the account
+  // answered 429 "usage limit has been reached" (codex plus plan, credits 0, primary
+  // window reset ~7078s). A spent quota is a temporary state that reads exactly like a
+  // permanent one (the kimik3 lesson), so this is recorded as UNMEASURED rather than
+  // failed: re-probe - one-line ask, or `/council:models` - before trusting it on a large
+  // review. The `schema` flag and the lane are USER DIRECTIVE (sonnet5 precedent: a
+  // standing preference, not a measurement), pending that re-probe.
+  { slug: "gpt6astra", model: "openai/gpt-6-astra", roles: ["architect"], ms: 10330, capability: ["schema", "agentic"] },
 ]
 
 export const canSchema = (m: Member) => (m.capability ?? ["schema"]).includes("schema")
@@ -316,10 +334,48 @@ export function selectNodes(roles: Role[]): Node[] {
  * fast tier exists for. The slice is what makes the order matter: it decides who runs, not
  * merely who runs first.
  */
+/**
+ * The vendor a model is reached through — the part before the first `/`.
+ *
+ * Not the lab that trained it. `opencode-go/grok-4.6` and `opencode-go/minimax-m3` are
+ * different models from different labs, but one gateway outage or one bad API key takes
+ * BOTH out simultaneously, so for availability purposes they are one basket.
+ */
+export const vendorOf = (model: string): string => model.split("/")[0] ?? model
+
+/**
+ * Skeptics for a panel, spread across vendors before depth within one.
+ *
+ * Vendor spread is not a nicety here. Measured 2026-09-20, the plain fast-first ordering
+ * returned gpt-5.6-luna, minimax-m3 and grok-4.6 for a three-judge panel: three distinct
+ * models, but TWO of them behind `opencode-go`. That panel reads as independent and is
+ * not — one gateway incident removes a two-thirds majority, and correlated training
+ * lineage means correlated blind spots on exactly the subtle bugs a panel exists to
+ * catch.
+ *
+ * So: one pass taking the best unused vendor each time, then fill from what is left if
+ * the roster cannot cover the count. Falling back rather than returning a short panel is
+ * deliberate — three judges from two vendors still beats two judges.
+ */
 export function skepticPool(excludeSlugs: string[], count: number): Member[] {
-  return preferFast(
+  const eligible = preferFast(
     ROSTER.filter((m) => m.roles.includes("skeptic") && canSchema(m) && !excludeSlugs.includes(m.slug)),
-  ).slice(0, count)
+  )
+  const picked: Member[] = []
+  const usedVendors = new Set<string>()
+  for (const m of eligible) {
+    if (picked.length >= count) break
+    const v = vendorOf(m.model)
+    if (usedVendors.has(v)) continue
+    picked.push(m)
+    usedVendors.add(v)
+  }
+  // Roster could not supply `count` distinct vendors: top up in the original order.
+  for (const m of eligible) {
+    if (picked.length >= count) break
+    if (!picked.includes(m)) picked.push(m)
+  }
+  return picked
 }
 
 export const SKEPTICS_PER_TIER = { BLOCKER: 3, SUGGESTION: 2, NIT: 0 } as const

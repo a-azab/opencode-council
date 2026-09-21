@@ -17,10 +17,21 @@ import {
   preferFast,
   PRAGMATIST_LINE_THRESHOLD,
   MODELS_PER_ROLE,
+  vendorOf,
 } from "./roster.ts"
 import { substitutesFor, type Bench } from "./engine.ts"
 
 const PKG = dirname(dirname(fileURLToPath(import.meta.url)))
+test("GPT-6 Astra participates in the architecture council", () => {
+  const astra = ROSTER.find((m) => m.slug === "gpt6astra")
+  assert.equal(astra?.model, "openai/gpt-6-astra")
+  assert.ok(astra && canSchema(astra))
+  // Not on a bare `selectNodes(["architect"])`: the per-role cap of 2 goes to the two
+  // fastest candidates there, and astra is third by ms. It takes the lane the way it
+  // runs in practice - mid-review, once the round has already spent the faster picks.
+  assert.ok(selectNodes([...ALL_ROLES]).some((n) => n.slug === "gpt6astra"))
+})
+
 // Same shape failover.test.ts:10-11 builds: a round with a lane to cover.
 const round = selectNodes(["code", "security"])
 const codeNode = round.find((n) => n.role === "code")!
@@ -202,7 +213,7 @@ test("volume loops rank the fast tier above a lower-ms member of another tier", 
     { slug: "quick", tier: "standard", ms: 10 },
     { slug: "fast-tier", tier: "fast", ms: 9000 },
   ] as any
-  assert.equal(preferFast(members)[0].slug, "fast-tier",
+  assert.equal((preferFast(members) as any)[0].slug, "fast-tier",
     "tier is a measured capability class; ms is queue noise and must not outrank it")
 })
 
@@ -373,4 +384,21 @@ test("security is reviewed by the security specialists", () => {
   assert.deepEqual(carriers, ["fable", "glm53", "kimik3"])
   assert.equal(ROSTER.find((m) => m.slug === "kimik3")?.fallback, "kimik3go",
     "the coding plan escapes to the go route when its quota runs out")
+})
+
+test("a panel is spread across vendors, not just across models", () => {
+  // Measured 2026-09-20: plain fast-first ordering returned gpt-5.6-luna, minimax-m3 and
+  // grok-4.6 - three distinct models but TWO behind `opencode-go`. That panel reads as
+  // independent and is not: one gateway incident removes a two-thirds majority.
+  const panel = skepticPool([], 3)
+  assert.equal(panel.length, 3)
+  const vendors = new Set(panel.map((m) => vendorOf(m.model)))
+  assert.equal(vendors.size, 3, `got ${panel.map((m) => m.model).join(", ")}`)
+})
+
+test("a panel larger than the vendor count still fills", () => {
+  // Three judges from two vendors still beats two judges.
+  const panel = skepticPool([], 5)
+  assert.equal(panel.length, 5)
+  assert.equal(new Set(panel.map((m) => m.slug)).size, 5, "and never by repeating a member")
 })
