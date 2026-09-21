@@ -1,3 +1,4 @@
+import type { Tracker } from "./lets.ts"
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync, readFileSync, readdirSync } from "node:fs"
@@ -5,7 +6,7 @@ import { execFileSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join, dirname } from "node:path"
 import { fileURLToPath } from "node:url"
-import { recruitFloor, integrate, inferLanded, taskSlug, renderCrewReport, type CrewResult, type CrewTask } from "./crew-org.ts"
+import { recruitFloor, integrate, inferLanded, taskSlug, renderCrewReport, type CrewResult, type CrewTask , withProgress, progressLine} from "./crew-org.ts"
 import type { HarnessAudit } from "./harness.ts"
 import { CREW_MAX_SECONDS, CREW_CLOSING_RESERVE_SECONDS } from "./crew-org.ts"
 import { MAX_RUN_SECONDS } from "./lets.ts"
@@ -974,4 +975,91 @@ test("crew:execute refuses a recorded plan whose files is a string", async () =>
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+// ------------------------------------------------------------------ per-item checkpointing
+
+const outcome = (title: string, state: string, commit?: string): any => ({
+  item: { title, detail: "", acceptance: "", files: [] },
+  state,
+  attempts: 1,
+  ...(commit ? { commit } : {}),
+})
+
+const fakeTracker = (log: string[]): Tracker => ({
+  name: "none",
+  async start() { log.push("start") },
+  step(m) { log.push(`step:${m}`) },
+  async itemDone(o) { log.push(`itemDone:${o.item.title}`) },
+  async finish() { log.push("finish") },
+})
+
+test("every finished item writes a checkpoint", () => {
+  // The bug: the checkpoint was written only when runExecute RETURNED, so a task that
+  // crashed after its second of three items left a branch with two items' worth of
+  // commits and no record of either.
+  const rec: CrewTask = { title: "t", slug: "s", wave: 1, progress: { items: [], total: 3 } }
+  let writes = 0
+  const t = withProgress(fakeTracker([]), rec, () => { writes++ })
+  return Promise.all([
+    t.itemDone(outcome("one", "done", "abc123")),
+    t.itemDone(outcome("two", "failed-check")),
+  ]).then(() => {
+    assert.equal(writes, 2, "one checkpoint per item, not one per task")
+    assert.equal(rec.progress!.items.length, 2)
+    assert.deepEqual(rec.progress!.items[0], { title: "one", state: "done", commit: "abc123" })
+    assert.equal(rec.progress!.items[1].commit, undefined, "an item with no commit must not invent one")
+  })
+})
+
+test("the wrapped tracker still receives every event", async () => {
+  // Wrapping must not cost the configured tracker (beads, Linear) its own notifications.
+  const log: string[] = []
+  const rec: CrewTask = { title: "t", slug: "s", wave: 1 }
+  const t = withProgress(fakeTracker(log), rec, () => {})
+  await t.start({ directive: "d", items: [], branch: "b" })
+  t.step("hello")
+  await t.itemDone(outcome("one", "done"))
+  await t.finish({} as any)
+  assert.deepEqual(log, ["start", "step:hello", "itemDone:one", "finish"])
+})
+
+test("a failing checkpoint does not lose the item", async () => {
+  // Progress is a record, never a gate.
+  const log: string[] = []
+  const rec: CrewTask = { title: "t", slug: "s", wave: 1 }
+  const t = withProgress(fakeTracker(log), rec, () => { throw new Error("disk full") })
+  await assert.doesNotReject(() => t.itemDone(outcome("one", "done")))
+  assert.ok(log.includes("itemDone:one"), "the configured tracker runs even when the checkpoint write fails")
+})
+
+test("progress distinguishes how far a task got", () => {
+  const two: CrewTask = {
+    title: "t", slug: "s", wave: 1,
+    progress: { items: [{ title: "a", state: "done" }, { title: "b", state: "failed-check" }], total: 3 },
+  }
+  const line = progressLine(two)
+  assert.match(line, /2 of 3/)
+  assert.match(line, /1 done/)
+  assert.match(line, /1 not/)
+  assert.match(line, /1 never attempted/, "an item that never ran is a different fact from one that failed")
+})
+
+test("a task with no progress says nothing", () => {
+  // So callers can append unconditionally.
+  assert.equal(progressLine({ title: "t", slug: "s", wave: 1 }), "")
+  assert.equal(progressLine({ title: "t", slug: "s", wave: 1, progress: { items: [], total: 3 } }), "")
+})
+
+test("an interrupted task is not landed", () => {
+  // It has commits but never finished. Treating it as landed would skip its remaining
+  // items; treating it as absent would re-run the ones already committed.
+  const tasks: CrewTask[] = [
+    { title: "finished", slug: "a", wave: 1, run: { branch: "lets/crew-a" } as any },
+    { title: "interrupted", slug: "b", wave: 1, progress: { items: [{ title: "x", state: "done" }], total: 3 } },
+  ]
+  const landed = tasks.filter((t) => t.run?.branch)
+  const interrupted = tasks.filter((t) => !t.run && t.progress?.items?.length)
+  assert.deepEqual(landed.map((t) => t.title), ["finished"])
+  assert.deepEqual(interrupted.map((t) => t.title), ["interrupted"])
 })

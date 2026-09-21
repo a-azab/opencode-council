@@ -32,6 +32,7 @@ import {
   recruitFloor, integrate, inferLanded, taskSlug, renderCrewReport,
   CREW_MAX_SECONDS, CREW_CLOSING_RESERVE_SECONDS,
   type CrewResult, type CrewTask,
+  withProgress, progressLine,
 } from "./crew-org.ts"
 import { ROSTER, type Role } from "./roster.ts"
 import {
@@ -778,6 +779,8 @@ export const CouncilPlugin = async (input: any) => ({
         if (!args?.fresh) {
           let landed: CrewTask[] = []
           let evidence = ""
+          /** tasks that had started but not finished when the previous run stopped */
+          let interrupted: CrewTask[] = []
           const prior = latestArtifact(scope.root, "crew-org-run", "state.json")
           if (prior) {
             try {
@@ -791,6 +794,14 @@ export const CouncilPlugin = async (input: any) => ({
                 // quietly miss its work while the report called it done.
                 landed = (st.tasks ?? []).filter(
                   (t: CrewTask) => t.run?.branch && branchExists(scope.root, t.run.branch),
+                )
+                // A task with progress but no `run` was in flight when the run stopped. It
+                // is NOT landed - it never finished - but it is not nothing either, and
+                // the checkpoint knows exactly how far it got. Surfacing that is the whole
+                // point of per-item checkpointing: without it this task is invisible here
+                // and resume silently re-runs items that already have commits.
+                interrupted = (st.tasks ?? []).filter(
+                  (t: CrewTask) => !t.run && t.progress?.items?.length,
                 )
               if (landed.length) evidence = `checkpoint in ${prior.dir}`
             } catch {
@@ -809,7 +820,7 @@ export const CouncilPlugin = async (input: any) => ({
             // `landed` alone, not `landed && remaining`: a run interrupted during integration,
             // verify or review has every task done and nothing remaining, and that is the
             // longest unattended stretch there is - exactly the one worth not repeating.
-            if (landed.length) {
+            if (landed.length || interrupted.length) {
               // Refuse rather than guess. Resuming silently would skip work the human never
               // agreed to skip; starting over silently is what just wasted their afternoon.
               // Both are one word, and naming them is the whole fix for "I could not continue".
@@ -819,7 +830,13 @@ export const CouncilPlugin = async (input: any) => ({
                     ? `A previous run of this plan stopped part-way. ${landed.length} of ${planned.length} task(s) finished, and their branches are still here:`
                     : `A previous run of this plan finished all ${landed.length} task(s) and then stopped - during integration, verify or review. The branches are still here:`,
                   ...landed.map((t) => `  ✓ ${t.title} — \`${t.run!.branch}\``),
-                  ...remaining.map((t: any) => `  · ${t.title} — not done`),
+                  // Between the two: started, has commits, never finished. Named
+                  // separately because resuming it and starting it over are different
+                  // decisions, and only the human can make that one.
+                  ...interrupted.map((t) => `  ⚠ ${t.title} — interrupted${progressLine(t)}`),
+                  ...remaining
+                    .filter((p: any) => !interrupted.some((t) => t.title === p.title))
+                    .map((t: any) => `  · ${t.title} — not done`),
                   "",
                   `Evidence: ${evidence}.`,
                   // An inferred branch has to carry its own warning. The checkpoint path can
@@ -954,6 +971,18 @@ export const CouncilPlugin = async (input: any) => ({
               // this tail, and two derivations that drift would make an interrupted run look
               // like one that never started.
               const slug = `crew-${runId}-${wi + 1}${ti + 1}-${taskSlug(t.title)}`
+              // The in-flight record for this task. Registered BEFORE the task runs, so an
+              // interrupted run leaves an account of a task that started, rather than
+              // nothing at all - which is what sent resume down the inferLanded path where
+              // a crashed task and a finished one look identical.
+              const inflight: CrewTask = {
+                title: t.title,
+                slug,
+                wave: wi + 1,
+                progress: { items: [], total: t.items.length },
+              }
+              tasks.push(inflight)
+              checkpoint()
               try {
                 const run = await runExecute(ctxFor(input), {
                   root: scope.root,
@@ -977,14 +1006,25 @@ export const CouncilPlugin = async (input: any) => ({
                   // One Tracker per run, never shared: guarded() refuses a second start, and a
                   // shared instance would close the issue at the first finish, reporting done
                   // over live work.
-                  tracker: trackerFor(cfg.tracker, say, {
-                    issueRef: cfg.tracker === "beads" ? activeTaskId(scope.root) : undefined,
-                    repoRoot: scope.root,
-                    mcp: cfg.mcp,
-                  }),
+                  // Wrapped, not replaced: the configured tracker still gets every event.
+                  // This records per-ITEM progress into the checkpoint, which is the unit
+                  // work actually happens in - checkpointing per task meant a task that
+                  // crashed after its second of three items left no trace of the two.
+                  tracker: withProgress(
+                    trackerFor(cfg.tracker, say, {
+                      issueRef: cfg.tracker === "beads" ? activeTaskId(scope.root) : undefined,
+                      repoRoot: scope.root,
+                      mcp: cfg.mcp,
+                    }),
+                    inflight,
+                    checkpoint,
+                  ),
                 })
+                // Replace the in-flight entry in place. Pushing a second record would make
+                // the plan look like it had more tasks than it does, in the one file a
+                // human reads to decide whether to resume.
                 const record: CrewTask = { title: t.title, slug, wave: wi + 1, run }
-                tasks.push(record)
+                tasks[tasks.indexOf(inflight)] = record
                 checkpoint()
                 return record
               } catch (e: any) {
@@ -994,8 +1034,12 @@ export const CouncilPlugin = async (input: any) => ({
                   slug,
                   wave: wi + 1,
                   skipped: `crashed: ${String(e?.message ?? e).slice(0, 200)}`,
+                  // Whatever it managed before crashing stays on the record. A crash after
+                  // two of three items is a different fact from a crash before the first,
+                  // and only this distinguishes them.
+                  progress: inflight.progress,
                 }
-                tasks.push(record)
+                tasks[tasks.indexOf(inflight)] = record
                 checkpoint()
                 return record
               }

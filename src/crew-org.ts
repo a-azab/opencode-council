@@ -11,7 +11,7 @@ import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { selectRoles, type Role } from "./roster.ts"
-import type { RunResult } from "./lets.ts"
+import type { RunResult, Tracker } from "./lets.ts"
 import { renderDelta, type HarnessAudit } from "./harness.ts"
 
 // ------------------------------------------------------------------ recruiting
@@ -271,6 +271,27 @@ export type CrewTask = {
    * leaves a branch that looks exactly like a complete one.
    */
   inferred?: boolean
+  /**
+   * Per-item progress for a task still in flight.
+   *
+   * The checkpoint used to record a task only once `runExecute` RETURNED, so a task
+   * interrupted mid-flight left a branch with real commits and no record at all. Resume
+   * then fell through to `inferLanded`, which can see the branch but cannot tell a task
+   * that finished from one that crashed after its second of three items - the exact
+   * confusion the `inferred` docblock above describes.
+   *
+   * Written after every ITEM, so an interrupted task carries its own account of how far it
+   * got. Present only while a task is in flight; once `run` lands it is the authority and
+   * this is redundant.
+   */
+  progress?: {
+    /** items whose outcome is already known, by title and state */
+    items: { title: string; state: string; commit?: string }[]
+    /** how many items the task was given, so a reader can see 2-of-5 rather than just 2 */
+    total: number
+    /** the branch the work is going onto, which is what makes the progress checkable */
+    branch?: string
+  }
 }
 
 export type CrewResult = {
@@ -496,4 +517,62 @@ export function renderCrewReport(r: CrewResult): string {
   out.push(needs.length ? needs.join("\n") : "- Review and push the integrated branch.")
 
   return out.join("\n")
+}
+
+/**
+ * Wrap a tracker so every finished ITEM updates the crew checkpoint.
+ *
+ * The unit of work is an item; the unit of record was a task. A task that crashed after
+ * its second of three items left a branch with two items' worth of commits and no record
+ * of either, so resume fell through to `inferLanded` - which sees the branch but cannot
+ * tell a finished task from a crashed one, and says so in a warning the human has to
+ * adjudicate by hand.
+ *
+ * Wrapping rather than replacing: the configured tracker (beads, Linear, stdout) still
+ * receives every event unchanged. This only adds a write to the checkpoint alongside.
+ *
+ * `itemDone` must not throw - a tracker that throws takes the run with it - so the
+ * checkpoint write is guarded here as well as in the caller's own `checkpoint`.
+ */
+export function withProgress(inner: Tracker, record: CrewTask, checkpoint: () => void): Tracker {
+  return {
+    ...inner,
+    name: inner.name,
+    start: (i) => inner.start(i),
+    step: (m) => inner.step(m),
+    finish: (r) => inner.finish(r),
+    async itemDone(outcome) {
+      try {
+        record.progress ??= { items: [], total: 0 }
+        record.progress.items.push({
+          title: outcome.item.title,
+          state: outcome.state,
+          ...(outcome.commit ? { commit: outcome.commit } : {}),
+        })
+        checkpoint()
+      } catch {
+        /* progress is a record, never a gate - losing it must not lose the item */
+      }
+      // The configured tracker runs regardless of whether the progress write worked.
+      await inner.itemDone(outcome)
+    },
+  }
+}
+
+/**
+ * What an interrupted task's own record says about it, for the resume prompt.
+ *
+ * Returns "" when there is nothing useful to say, so callers can append unconditionally.
+ */
+export function progressLine(t: CrewTask): string {
+  const p = t.progress
+  if (!p || !p.items.length) return ""
+  const done = p.items.filter((i) => i.state === "done").length
+  const total = p.total || p.items.length
+  const failed = p.items.length - done
+  return (
+    ` — got through ${p.items.length} of ${total} item(s): ${done} done` +
+    (failed ? `, ${failed} not` : "") +
+    (p.items.length < total ? `, ${total - p.items.length} never attempted` : "")
+  )
 }
