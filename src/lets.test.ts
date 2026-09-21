@@ -50,9 +50,10 @@ import {
   LETS_IMPLEMENT_MODELS,
   requiresIndependentAcceptance,
   implementPrompt,
+  ACCEPTANCE_PANEL,
 } from "./lets.ts"
 import { beadsAvailable, bdInstalled } from "./beads.ts"
-import { bySlug, canSchema, canAgentic, selectNodes, ALL_ROLES } from "./roster.ts"
+import { bySlug, canSchema, canAgentic, selectNodes, skepticPool, ALL_ROLES } from "./roster.ts"
 
 const gitOut = (cwd: string, args: string[]) =>
   execFileSync("git", args, { cwd, encoding: "utf8" })
@@ -214,6 +215,17 @@ test("selected conventions reach the worker, subordinated to the repo", () => {
   assert.match(p, /PREFER CONST/)
   assert.match(p, /THE REPO WINS/)
   assert.doesNotMatch(implementPrompt(item, CFG, "", undefined, {}), /conventions/)
+})
+
+test("acceptance is decided by a panel, not one judge", () => {
+  // One judge was a single point of failure in BOTH directions: a false accept lands
+  // work that was never delivered, a false reject burns an attempt on work that was.
+  assert.ok(ACCEPTANCE_PANEL >= 3, "a majority needs at least three votes to mean anything")
+  // And the pool must be able to supply them, or the constant is aspirational.
+  assert.ok(skepticPool([], ACCEPTANCE_PANEL).length >= 3, "the roster must carry enough skeptics")
+  // Distinct models, or three votes are one opinion counted three times.
+  const models = new Set(skepticPool([], ACCEPTANCE_PANEL).map((m) => m.model))
+  assert.equal(models.size, ACCEPTANCE_PANEL, "every judge on the panel must be a different model")
 })
 
 test("detectStack recognises this repo as node", () => {
