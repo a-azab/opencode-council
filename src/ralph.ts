@@ -50,6 +50,85 @@ export type RoundReport = {
  */
 export type LoopStatus = "complete" | "blocked" | "out-of-rounds" | "round-failed"
 
+/**
+ * One judge's answer on whether a round's `complete` claim is true.
+ *
+ * `met` is the judgement; `reason` is what it is based on. Both required, because a
+ * verdict without a reason cannot be weighed against a contradicting one — and the
+ * panel's whole job is to weigh them.
+ */
+export type RoundVerdict = { met: boolean; confidence: "high" | "medium" | "low"; reason: string; judge: string }
+
+/**
+ * What a panel of judges decided about one completion claim.
+ *
+ * `accepted: false` with zero votes is impossible by construction — see `judgeCompletion`,
+ * which distinguishes "the panel refused" from "no panel ran". Those are different facts
+ * and collapsing them would let an unjudged claim read as a verified one.
+ */
+export type PanelResult = {
+  accepted: boolean
+  votes: RoundVerdict[]
+  /** why, in one line, computed from the votes rather than asserted by any of them */
+  reason: string
+  /** true when no judge could be reached at all */
+  unjudged?: boolean
+}
+
+/**
+ * Decide a completion claim from independent verdicts.
+ *
+ * Asymmetric on purpose, and in the same direction as `decide()` in src/decide.ts: the
+ * burden is on the CLAIM, not on the doubters. A worker asserting it is finished is the
+ * interested party; a judge saying otherwise has nothing to gain.
+ *
+ *   - no votes            -> not accepted, and flagged `unjudged`. "Nobody looked" must
+ *                            never render as "verified", which is the same rule the fix
+ *                            loop and the harness gate already hold.
+ *   - any high-confidence rejection -> rejected. One judge who can point at what is
+ *                            missing outweighs a majority who did not notice; this is the
+ *                            mirror of security findings needing UNANIMOUS refutation.
+ *   - majority rejection  -> rejected.
+ *   - otherwise           -> accepted.
+ *
+ * A tie is a rejection. The cost of continuing a round that was in fact finished is one
+ * wasted round; the cost of accepting one that was not is a false completion in the
+ * record, which is the failure this whole contract exists to prevent.
+ */
+export function judgePanel(votes: RoundVerdict[]): PanelResult {
+  if (votes.length === 0)
+    return {
+      accepted: false,
+      votes,
+      reason: "no judge was available — the completion claim is unverified, not verified",
+      unjudged: true,
+    }
+
+  const against = votes.filter((v) => !v.met)
+  const highAgainst = against.filter((v) => v.confidence === "high")
+  if (highAgainst.length)
+    return {
+      accepted: false,
+      votes,
+      reason: `${highAgainst[0].judge} rejects with high confidence: ${highAgainst[0].reason}`,
+    }
+  // `* 2 >=` rather than `>`: an even split does not carry a claim.
+  if (against.length * 2 >= votes.length)
+    return {
+      accepted: false,
+      votes,
+      reason:
+        against.length === votes.length
+          ? `all ${votes.length} judges reject: ${against[0].reason}`
+          : `${against.length} of ${votes.length} judges reject: ${against[0].reason}`,
+    }
+  return {
+    accepted: true,
+    votes,
+    reason: `${votes.length - against.length} of ${votes.length} judges confirm the objective is met`,
+  }
+}
+
 export type LoopResult = {
   status: LoopStatus
   /** how many rounds actually started, not how many were budgeted */
@@ -58,6 +137,14 @@ export type LoopResult = {
   report?: RoundReport
   /** why a round was rejected, when that is how the loop ended */
   detail?: string
+  /**
+   * The panel's decision on the claim that ended the loop.
+   *
+   * Present whenever a worker said `complete` and judges were asked. Kept even when the
+   * panel ACCEPTED, so the report can name who confirmed it - an accepted claim with no
+   * record of who accepted it is indistinguishable from an unjudged one.
+   */
+  panel?: PanelResult
   /** every round's report, in order - the run's own account of itself */
   history: RoundReport[]
 }
@@ -201,6 +288,14 @@ export async function runLoop(input: {
   objective: string
   maxRounds: number
   runRound: (prompt: string, round: number) => Promise<unknown | null>
+  /**
+   * Put a `complete` claim to independent judges.
+   *
+   * Injected, like runRound, so the panel's ARITHMETIC stays testable without a network.
+   * Absent, a completion is taken at the worker's word - which is the behaviour this
+   * whole mechanism exists to replace, so callers that can judge should.
+   */
+  judge?: (report: RoundReport, round: number) => Promise<RoundVerdict[]>
   instructions?: string
   extra?: string
   maxHandoffChars?: number
@@ -212,6 +307,7 @@ export async function runLoop(input: {
   const history: RoundReport[] = []
   let previous: RoundReport | undefined
   let rejected: string | undefined
+  let lastPanel: PanelResult | undefined
 
   for (let round = 1; round <= input.maxRounds; round++) {
     // Checked before starting, never mid-round: killing a worker that is part-way through
@@ -265,7 +361,26 @@ export async function runLoop(input: {
     rejected = undefined
     history.push(v.report)
     say(round, v.report)
-    if (v.report.status === "complete") return { status: "complete", rounds: round, report: v.report, history }
+
+    if (v.report.status === "complete") {
+      // A worker reporting its own completion is the interested party. Without a panel
+      // this is exactly the self-report the rest of this plugin refuses to accept
+      // anywhere else, so when judges are available the claim must survive them.
+      if (!input.judge) return { status: "complete", rounds: round, report: v.report, history }
+      const panel = judgePanel(await input.judge(v.report, round))
+      if (panel.accepted)
+        return { status: "complete", rounds: round, report: v.report, history, panel }
+      // A rejected completion is not a failure: the objective simply is not met yet, and
+      // the panel's reason is the most specific instruction the next round can get -
+      // judges say what is MISSING, where a worker only knows what it did.
+      say(round, null, `completion rejected: ${panel.reason}`)
+      rejected = `Judges rejected your completion claim. ${panel.reason}`
+      lastPanel = panel
+      // The report still becomes the handoff. It describes real work, and only its
+      // terminal claim was refused.
+      previous = v.report
+      continue
+    }
     if (v.report.status === "blocked") return { status: "blocked", rounds: round, report: v.report, history }
     previous = v.report
   }
@@ -274,6 +389,9 @@ export async function runLoop(input: {
     status: "out-of-rounds",
     rounds: input.maxRounds,
     ...(previous ? { report: previous } : {}),
+    // Why the loop ended matters more here than anywhere: "ran out of rounds" reads very
+    // differently once you know the last round claimed completion and judges refused it.
+    ...(lastPanel ? { panel: lastPanel } : {}),
     history,
   }
 }
@@ -293,8 +411,20 @@ export function renderLoop(r: LoopResult): string {
     "round-failed": `**A round failed** after ${r.rounds} round(s).`,
   }
   const out = [head[r.status]]
-  if (r.status === "complete")
-    out.push("", "That is the worker's own account. It is not independent verification.")
+  if (r.status === "complete") {
+    // The distinction the whole panel exists to make legible. An unjudged completion is
+    // a claim; a judged one is a claim that survived scrutiny. Reporting both the same
+    // way would waste the scrutiny.
+    if (r.panel?.accepted)
+      out.push(
+        "",
+        `Confirmed independently: ${r.panel.reason}`,
+        ...r.panel.votes.map((v) => `  - ${v.judge} (${v.confidence}): ${v.reason}`),
+      )
+    else out.push("", "That is the worker's own account. It is not independent verification.")
+  }
+  if (r.status !== "complete" && r.panel && !r.panel.accepted)
+    out.push("", `A completion claim was REJECTED by the panel: ${r.panel.reason}`)
   if (r.detail) out.push("", r.detail)
   if (r.report) {
     out.push("", `Last summary: ${r.report.summary}`)
@@ -307,4 +437,76 @@ export function renderLoop(r: LoopResult): string {
     r.history.forEach((h, i) => out.push(`${i + 1}. [${h.status}] ${h.summary}`))
   }
   return out.join("\n")
+}
+
+/**
+ * A panel of independent judges for a round's completion claim.
+ *
+ * Built here rather than in the loop because the loop must stay free of model calls -
+ * its rules are arithmetic and that is what makes them testable. This is the seam that
+ * turns "a worker said it was done" into "N models that did not do the work agree it is".
+ *
+ * Every judge is drawn from the skeptic pool with the WORKER EXCLUDED, which is the same
+ * rule `/council:fix` applies when it refuses to let a model verify its own patch. Three
+ * by default: enough for a majority to mean something, few enough that a round's
+ * verification is not more expensive than the round.
+ *
+ * `ask` is injected so this file never imports the engine - the dependency would be
+ * circular and, more usefully, a test can drive the whole path without a network.
+ */
+export async function councilJudge(input: {
+  report: RoundReport
+  objective: string
+  /** what the worker actually changed - judges read evidence, not narration */
+  diff: string
+  /** slugs that must not judge: whoever did the work */
+  exclude: string[]
+  judges: { slug: string; model: string }[]
+  ask: (model: string, agent: string, text: string, schema: unknown) => Promise<{ ok: true; value: unknown } | { ok: false }>
+  schema: unknown
+}): Promise<RoundVerdict[]> {
+  const pool = input.judges.filter((j) => !input.exclude.includes(j.slug))
+  if (!pool.length) return []
+
+  const text = [
+    "A worker claims an objective is COMPLETE. Decide whether that claim is true, judged",
+    "only against the objective and the evidence in the diff.",
+    "",
+    "`met: true`  = the objective is genuinely achieved by this diff.",
+    "`met: false` = it is not, and your reason names specifically what is missing.",
+    "",
+    "The worker's own summary is a CLAIM, not evidence - it is the interested party here.",
+    "Judge the diff. Work that was described but not done is the exact failure you exist",
+    "to catch. Do not reject for style, scope, or anything the objective does not ask for.",
+    "",
+    `OBJECTIVE:\n${input.objective}`,
+    "",
+    `THE WORKER'S CLAIM:\n${input.report.summary}`,
+    "",
+    `EVIDENCE IT CITED:\n${input.report.evidence.map((e) => `  - ${e}`).join("\n") || "  (none)"}`,
+    "",
+    `=== DIFF ===\n${input.diff.slice(0, 60_000)}\n=== END ===`,
+  ].join("\n")
+
+  // Concurrent: judges must not see each other's answers. Sequential judging would let
+  // the first verdict anchor the rest, and the panel's value is that the votes are
+  // genuinely independent.
+  const answers = await Promise.all(
+    pool.map(async (j) => {
+      const r = await input.ask(j.model, "council-skeptic", text, input.schema)
+      if (!r.ok) return null
+      const v = r.value as { met?: unknown; confidence?: unknown; reason?: unknown }
+      if (typeof v?.met !== "boolean") return null
+      const confidence = v.confidence === "high" || v.confidence === "low" ? v.confidence : "medium"
+      return {
+        met: v.met,
+        confidence,
+        reason: typeof v.reason === "string" && v.reason.trim() ? v.reason.trim() : "(no reason given)",
+        judge: j.slug,
+      } satisfies RoundVerdict
+    }),
+  )
+  // A judge that failed to answer is simply absent. Counting a failure as a vote either
+  // way would let an outage decide a completion.
+  return answers.filter((a): a is RoundVerdict => a !== null)
 }

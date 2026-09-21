@@ -6,6 +6,8 @@ import {
   roundPrompt,
   renderLoop,
   handoffFor,
+  judgePanel,
+  councilJudge,
   MAX_HANDOFF_CHARS,
   type RoundReport,
 } from "./ralph.ts"
@@ -241,4 +243,198 @@ test("handoffFor truncates only when it must, and says so", () => {
   const small = handoffFor(ok())
   assert.doesNotMatch(small, /truncated/)
   assert.match(handoffFor(ok({ summary: "y".repeat(500) }), 200), /truncated/)
+})
+
+// ------------------------------------------------------------------ the panel
+
+const vote = (over: Partial<import("./ralph.ts").RoundVerdict> = {}) => ({
+  met: true,
+  confidence: "medium" as const,
+  reason: "the objective is met",
+  judge: "j1",
+  ...over,
+})
+
+test("no judge means unverified, never verified", () => {
+  // The same rule the fix loop and the harness gate already hold: "nobody looked" and
+  // "it held" are different facts, and collapsing them is how an unchecked claim starts
+  // reading like a checked one.
+  const p = judgePanel([])
+  assert.equal(p.accepted, false)
+  assert.equal(p.unjudged, true)
+  assert.match(p.reason, /unverified, not verified/)
+})
+
+test("one high-confidence rejection outweighs a majority that did not notice", () => {
+  // The mirror of security findings needing UNANIMOUS refutation to drop: a judge who
+  // can point at what is missing is carrying evidence, and the others' silence is not.
+  const p = judgePanel([
+    vote({ judge: "a" }),
+    vote({ judge: "b" }),
+    vote({ judge: "c", met: false, confidence: "high", reason: "the flag is never read" }),
+  ])
+  assert.equal(p.accepted, false)
+  assert.match(p.reason, /the flag is never read/)
+})
+
+test("a tie rejects, because the burden is on the claim", () => {
+  // One wasted round is cheaper than a false completion in the permanent record.
+  const p = judgePanel([vote({ judge: "a" }), vote({ judge: "b", met: false, confidence: "low" })])
+  assert.equal(p.accepted, false)
+})
+
+test("a clear majority accepts, and says how many", () => {
+  const p = judgePanel([vote({ judge: "a" }), vote({ judge: "b" }), vote({ judge: "c", met: false, confidence: "low" })])
+  assert.equal(p.accepted, true)
+  assert.match(p.reason, /2 of 3/)
+})
+
+test("a rejected completion continues the loop with the panel's reason", () => {
+  // The most specific instruction a next round can get: judges say what is MISSING,
+  // where a worker only knows what it did.
+  const prompts: string[] = []
+  let judged = 0
+  return runLoop({
+    objective: "o",
+    maxRounds: 4,
+    runRound: async (p) => {
+      prompts.push(p)
+      return complete()
+    },
+    judge: async () => {
+      judged++
+      return judged === 1
+        ? [vote({ met: false, confidence: "high", reason: "no test covers the new branch" })]
+        : [vote(), vote({ judge: "j2" })]
+    },
+  }).then((r) => {
+    assert.equal(r.status, "complete")
+    assert.equal(r.rounds, 2, "the rejected claim cost a round rather than ending the loop")
+    assert.match(prompts[1], /no test covers the new branch/, "the next worker is told what was missing")
+    assert.equal(r.panel?.accepted, true)
+  })
+})
+
+test("without a judge the loop still accepts a completion, and the report says so", () => {
+  // Callers that cannot reach a panel are not blocked; they simply get the weaker claim,
+  // and the rendering makes that visible.
+  return runLoop({ objective: "o", maxRounds: 2, runRound: async () => complete() }).then((r) => {
+    assert.equal(r.status, "complete")
+    assert.equal(r.panel, undefined)
+    assert.match(renderLoop(r), /not independent verification/)
+  })
+})
+
+test("a judged completion is rendered as confirmed, naming the judges", () => {
+  const out = renderLoop({
+    status: "complete",
+    rounds: 1,
+    report: complete(),
+    history: [complete()],
+    panel: { accepted: true, votes: [vote({ judge: "opus5" })], reason: "1 of 1 judges confirm the objective is met" },
+  })
+  assert.match(out, /Confirmed independently/)
+  assert.match(out, /opus5/)
+  assert.doesNotMatch(out, /not independent verification/, "a judged claim must not read like an unjudged one")
+})
+
+test("a loop that ran out of rounds shows a rejected completion claim", () => {
+  const out = renderLoop({
+    status: "out-of-rounds",
+    rounds: 3,
+    report: ok(),
+    history: [ok()],
+    panel: { accepted: false, votes: [vote({ met: false })], reason: "1 of 1 judges reject: not done" },
+  })
+  assert.match(out, /REJECTED by the panel/)
+})
+
+// ------------------------------------------------------------------ the real judge
+
+test("judges never include whoever did the work", () => {
+  // The same rule /council:fix applies when it refuses to let a model verify its own
+  // patch. A worker grading its own homework is not a second opinion.
+  const asked: string[] = []
+  return councilJudge({
+    report: complete(),
+    objective: "o",
+    diff: "d",
+    exclude: ["worker"],
+    judges: [{ slug: "worker", model: "m/worker" }, { slug: "j1", model: "m/j1" }],
+    ask: async (model) => {
+      asked.push(model)
+      return { ok: true, value: { met: true, confidence: "high", reason: "it is there" } }
+    },
+    schema: {},
+  }).then((votes) => {
+    assert.deepEqual(asked, ["m/j1"], "the worker must not judge its own claim")
+    assert.equal(votes.length, 1)
+    assert.equal(votes[0].judge, "j1")
+  })
+})
+
+test("a judge that fails to answer is absent, not a vote either way", () => {
+  // Counting an outage as agreement would let a network failure certify a completion;
+  // counting it as rejection would let one fail a good round. It is neither.
+  return councilJudge({
+    report: complete(),
+    objective: "o",
+    diff: "d",
+    exclude: [],
+    judges: [{ slug: "a", model: "m/a" }, { slug: "b", model: "m/b" }],
+    ask: async (model) =>
+      model === "m/a" ? { ok: false } : { ok: true, value: { met: false, confidence: "high", reason: "missing" } },
+    schema: {},
+  }).then((votes) => {
+    assert.equal(votes.length, 1)
+    assert.equal(votes[0].judge, "b")
+  })
+})
+
+test("a malformed verdict is dropped rather than guessed at", () => {
+  return councilJudge({
+    report: complete(),
+    objective: "o",
+    diff: "d",
+    exclude: [],
+    judges: [{ slug: "a", model: "m/a" }],
+    ask: async () => ({ ok: true, value: { confidence: "high", reason: "no met field" } }),
+    schema: {},
+  }).then((votes) => assert.deepEqual(votes, []))
+})
+
+test("an empty judge pool produces no votes, which the panel reads as unjudged", () => {
+  return councilJudge({
+    report: complete(),
+    objective: "o",
+    diff: "d",
+    exclude: ["only"],
+    judges: [{ slug: "only", model: "m/only" }],
+    ask: async () => ({ ok: true, value: { met: true, confidence: "high", reason: "r" } }),
+    schema: {},
+  }).then((votes) => {
+    assert.deepEqual(votes, [])
+    assert.equal(judgePanel(votes).unjudged, true)
+  })
+})
+
+test("the judge prompt tells the panel the worker's summary is a claim, not evidence", () => {
+  let seen = ""
+  return councilJudge({
+    report: complete({ summary: "I FINISHED EVERYTHING" }),
+    objective: "SHIP IT",
+    diff: "diff --git a/x b/x",
+    exclude: [],
+    judges: [{ slug: "a", model: "m/a" }],
+    ask: async (_m, _a, text) => {
+      seen = text
+      return { ok: true, value: { met: true, confidence: "high", reason: "r" } }
+    },
+    schema: {},
+  }).then(() => {
+    assert.match(seen, /SHIP IT/)
+    assert.match(seen, /I FINISHED EVERYTHING/)
+    assert.match(seen, /CLAIM, not evidence/)
+    assert.match(seen, /=== DIFF ===/)
+  })
 })

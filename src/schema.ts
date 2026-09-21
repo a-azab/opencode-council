@@ -238,3 +238,24 @@ export const ROUND_REPORT_SCHEMA = {
   required: ["status", "summary", "evidence", "next_steps", "blocker"],
   additionalProperties: false,
 } as const
+
+
+/**
+ * A judge's verdict on a round's completion claim (`src/ralph.ts`).
+ *
+ * Deliberately the same shape as VERDICT_SCHEMA's judgement half: `met` rather than
+ * `real` because the question is inverted - here true means the claim stands.
+ */
+export const ROUND_VERDICT_SCHEMA = {
+  type: "object",
+  properties: {
+    met: { type: "boolean", description: "true if the objective is genuinely achieved by this diff" },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+    reason: {
+      type: "string",
+      description: "what in the diff proves it, or specifically what is missing - one sentence",
+    },
+  },
+  required: ["met", "confidence", "reason"],
+  additionalProperties: false,
+} as const
