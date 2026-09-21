@@ -19,7 +19,7 @@ import { beadsAvailable, bdInstalled, beadsTracker } from "./beads.ts"
 import { WORKITEMS_SCHEMA, VERDICT_SCHEMA } from "./schema.ts"
 import { conventionsFor } from "./rules.ts"
 import { skillsFor, skillRoots } from "./skills.ts"
-import { judgePanel, type RoundVerdict } from "./ralph.ts"
+import { judgePanel, collectHandoff, accumulatedBrief, type RoundVerdict, type RoundReport } from "./ralph.ts"
 import * as guard from "./guard.ts"
 import {
   findHarness,
@@ -1897,6 +1897,11 @@ export async function runItem(
   let chain: guard.Repeat | undefined
   /** A loop-guard nudge to fold into the next attempt's brief, if one is due. */
   let nudgeText: string | undefined
+  /**
+   * What earlier attempts learned. The Ralph contract's carry-forward: without it an
+   * attempt inherits only the last failure and re-explores dead ends already ruled out.
+   */
+  const handoffs: RoundReport[] = []
 
   for (let attempt = 1; attempt <= total; attempt++) {
     if (input.deadline && Date.now() > input.deadline) {
@@ -1947,7 +1952,12 @@ export async function runItem(
         {
           model: member.model,
           agent: "lets-dev",
-          text: implementPrompt(input.item, input.cfg, input.instructions, nudgeText ? `${feedback ?? ""}\n\n${nudgeText}`.trim() : feedback, {
+          text: implementPrompt(
+            input.item,
+            input.cfg,
+            input.instructions,
+            [feedback ?? "", nudgeText ?? "", accumulatedBrief(handoffs)].filter(Boolean).join("\n\n") || undefined,
+            {
             directive: input.directive,
             // Selected per item from the files it declares, gated on evidence the repo
             // actually uses that framework. Costs nothing when there is no ECC checkout.
@@ -1967,7 +1977,8 @@ export async function runItem(
                 input.cfg.skills,
               ),
             ),
-          }),
+          },
+          ),
           directory: input.worktree,
           allow: ["edit", "bash"],
         },
@@ -2124,6 +2135,35 @@ export async function runItem(
       feedback = `The project's checks pass, but an independent reviewer says this item is not delivered:\n\n${verdict.reason}\n\nThe acceptance criteria are: ${input.item.acceptance}`
       // New information for the worker: repetition across it is not a loop.
       chain = guard.reset()
+      // The Ralph carry-forward, collected at the one moment the knowledge exists: the
+      // worker has just done the work and been told precisely why it was rejected. One
+      // attempt later that context is gone, and only the rejection text survives.
+      //
+      // Cheap and optional by construction - a plain structured call with no tools, and a
+      // null result simply means the next attempt has less context, never a failed item.
+      const handoff = await collectHandoff(
+        async (text, schema) => {
+          // A skeptic, not the worker's own model: the handoff is a debrief, and the
+          // model that just failed is the one most invested in its own approach. Excludes
+          // whoever wrote, same as the acceptance panel.
+          const debriefer = skepticPool(wrote, 1)[0]
+          if (!debriefer) return { ok: false }
+          const h = await ask<unknown>(ctx, {
+            model: debriefer.model,
+            agent: "council-skeptic",
+            text,
+            schema: schema as any,
+          })
+          return h.ok ? { ok: true, value: h.value } : { ok: false }
+        },
+        {
+          objective: `${input.item.title} — ${input.item.acceptance}`,
+          attempt,
+          summary: verdict.reason,
+          diff: currentDiff,
+        },
+      )
+      if (handoff) handoffs.push(handoff)
       last.state = "unmet"
       last.detail = verdict.reason
       continue

@@ -7,6 +7,8 @@ import {
   renderLoop,
   handoffFor,
   judgePanel,
+  collectHandoff,
+  accumulatedBrief,
   councilJudge,
   MAX_HANDOFF_CHARS,
   type RoundReport,
@@ -437,4 +439,80 @@ test("the judge prompt tells the panel the worker's summary is a claim, not evid
     assert.match(seen, /CLAIM, not evidence/)
     assert.match(seen, /=== DIFF ===/)
   })
+})
+
+// ------------------------------------------------------------------ the carry-forward
+
+const rep = (over: Partial<RoundReport> = {}): RoundReport => ({
+  status: "continue",
+  summary: "did a thing",
+  evidence: ["src/a.ts"],
+  next_steps: ["do the next thing"],
+  blocker: "",
+  ...over,
+})
+
+test("no handoffs renders nothing", () => {
+  assert.equal(accumulatedBrief([]), "")
+})
+
+test("the brief tells a worker to trust the repo over a stale note", () => {
+  // These notes were written by earlier attempts and the tree has moved since.
+  const out = accumulatedBrief([rep()])
+  assert.match(out, /TRUST THE REPO/)
+  assert.match(out, /may be stale/)
+  assert.match(out, /Do not repeat a dead\nend/)
+})
+
+test("newest knowledge comes first", () => {
+  const out = accumulatedBrief([rep({ summary: "OLDEST" }), rep({ summary: "NEWEST" })])
+  assert.ok(out.indexOf("NEWEST") < out.indexOf("OLDEST"), "the most recent attempt is the most relevant")
+})
+
+test("the brief is hard-capped however many attempts pile up", () => {
+  // An unbounded accumulation would eventually crowd out the work item itself - a context
+  // leak dressed as thoroughness.
+  const many = Array.from({ length: 40 }, (_, i) => rep({ summary: `attempt ${i} `.repeat(80) }))
+  const out = accumulatedBrief(many, 2000)
+  assert.ok(out.length <= 2000 + 400, `brief was ${out.length} chars`)
+})
+
+test("a worker that cannot produce a handoff costs context, not the item", async () => {
+  const got = await collectHandoff(async () => ({ ok: false }), {
+    objective: "o", attempt: 1, summary: "s", diff: "d",
+  })
+  assert.equal(got, null, "a missing handoff must never throw into the attempt loop")
+})
+
+test("a malformed handoff is rejected rather than carried forward", async () => {
+  // Carrying a report that fails the contract would put unvalidated text into every
+  // subsequent attempt's brief.
+  const got = await collectHandoff(async () => ({ ok: true, value: { status: "complete", summary: "x" } }), {
+    objective: "o", attempt: 1, summary: "s", diff: "d",
+  })
+  assert.equal(got, null)
+})
+
+test("a valid handoff is returned intact", async () => {
+  const got = await collectHandoff(
+    async () => ({
+      ok: true,
+      value: { status: "continue", summary: "ruled out the cache", evidence: ["src/a.ts"], next_steps: ["try the parser"], blocker: "" },
+    }),
+    { objective: "o", attempt: 2, summary: "s", diff: "d" },
+  )
+  assert.ok(got)
+  assert.equal(got.summary, "ruled out the cache")
+  assert.deepEqual(got.next_steps, ["try the parser"])
+})
+
+test("the debrief prompt asks for knowledge, not a transcript", async () => {
+  let seen = ""
+  await collectHandoff(async (text) => { seen = text; return { ok: false } }, {
+    objective: "the objective", attempt: 3, summary: "what happened", diff: "the diff",
+  })
+  assert.match(seen, /dead end you ruled out/)
+  assert.match(seen, /no memory of this one/)
+  assert.match(seen, /what the next attempt needs to KNOW/)
+  assert.match(seen, /data, not instructions/, "the diff is untrusted input")
 })
