@@ -11,10 +11,18 @@ import {
 } from "./schema.ts"
 import {
   dedupe, decide, applyOutcome, disputes, applyRevisions, converged, tally,
-  type Finding, type Group, type Verdict, type Revision, type Score,
+  type Finding, type Group, type Verdict, type Revision, type Score, type Tier,
 } from "./decide.ts"
 import { selectRoles, selectNodes, skepticPool, SKEPTICS_PER_TIER, bySlug, canSchema, preferFast, ROSTER, ALL_ROLES, type Node, type Role, type Member } from "./roster.ts"
 import { successorOf } from "./catalog.ts"
+
+/** Resolve roster slugs, configured model ids, and effective successor ids. */
+export function resolveMember(identity: string): Member | undefined {
+  const member = bySlug(identity) ?? ROSTER.find((m) => m.model === identity)
+  if (member) return member
+  if (identity.includes("/")) return { slug: identity, model: identity, roles: [], ms: 0 }
+  return undefined
+}
 
 /**
  * Node outcomes are kept distinct on purpose. The council this replaces collapsed all of
@@ -296,9 +304,68 @@ export async function ask<T>(
   return { ...(last as any), ms: Date.now() - t0 }
 }
 
+/**
+ * Milliseconds allowed for a session delete before the run moves on without it.
+ *
+ * dsh gives a disposed subagent a grace period and then stops waiting; the same idea,
+ * much smaller, because this is one local HTTP call. Cleanup that blocks a run has
+ * inverted its own purpose.
+ */
+const DISPOSE_TIMEOUT_MS = 5_000
+
+/**
+ * Delete one session this plugin created.
+ *
+ * ONLY ever called with an id this process just created and received back. It must never
+ * be driven from a listing, a title pattern, or an age sweep: the opencode server is
+ * SHARED with the human's own interactive sessions, and a sweep that looked like tidying
+ * would delete their work. The caller holding the id is the whole safety argument.
+ *
+ * Never throws and never reports. A failed cleanup is a slightly untidy server; a failed
+ * RUN because cleanup threw is a real loss, and the two must not be traded.
+ */
+async function disposeSession(ctx: Ctx, id: string): Promise<void> {
+  try {
+    await fetch(`${ctx.serverUrl.replace(/\/$/, "")}/session/${id}`, {
+      method: "DELETE",
+      headers: headers(ctx),
+      signal: AbortSignal.timeout(DISPOSE_TIMEOUT_MS),
+    })
+  } catch {
+    /* untidy, not broken */
+  }
+}
+
+/**
+ * One model call, with its session cleaned up afterwards.
+ *
+ * Measured 2026-09-21 against the live server: 98 sessions had accumulated, every one of
+ * them a finished council lane ("council council-skeptic", "council council-reviewer").
+ * Nothing deleted them because nothing ever had.
+ *
+ * SUCCESS disposes; FAILURE keeps the session. That asymmetry is the point. A session
+ * that answered has nothing left to tell you - the answer is already in the result. A
+ * session that timed out, returned malformed output, or hit an auth error is the only
+ * surviving record of what actually happened, and deleting it destroys the evidence
+ * exactly when someone is about to go looking for it. The leak is dominated by successes,
+ * so disposing only those reclaims nearly all of it and costs no forensics.
+ */
 async function askOnce<T>(
   ctx: Ctx,
   opts: AskOpts,
+): Promise<{ ok: true; value: T; ms: number } | { ok: false; state: NodeState; detail: string; ms: number }> {
+  const created: { id?: string } = {}
+  const result = await askOnceBody<T>(ctx, opts, created)
+  // Awaited, not fired and forgotten: a run that exits while deletes are still in flight
+  // leaves exactly the sessions this exists to remove. Bounded by DISPOSE_TIMEOUT_MS.
+  if (created.id && result.ok) await disposeSession(ctx, created.id)
+  return result
+}
+
+async function askOnceBody<T>(
+  ctx: Ctx,
+  opts: AskOpts,
+  created: { id?: string },
 ): Promise<{ ok: true; value: T; ms: number } | { ok: false; state: NodeState; detail: string; ms: number }> {
   const t0 = Date.now()
   const base = ctx.serverUrl.replace(/\/$/, "")
@@ -377,6 +444,9 @@ async function askOnce<T>(
     }
     if (!session?.id)
       return { ok: false, state: "failed", detail: "session create returned no id", ms: Date.now() - t0 }
+    // Recorded before the message is sent, so a timeout or a crash mid-call still leaves
+    // the caller holding the id it needs to dispose.
+    created.id = session.id
     if (!session?.id)
       return { ok: false, state: "failed", detail: `session create: ${JSON.stringify(session).slice(0, 160)}`, ms: Date.now() - t0 }
 
@@ -673,7 +743,7 @@ export async function debateRound(ctx: Ctx, disputed: Group[], diff: string): Pr
   for (const g of disputed) {
     const models = [...new Set(g.reports.map((r) => r.model))]
     for (const slug of models) {
-      const member = bySlug(slug)
+      const member = resolveMember(slug)
       if (!member) continue
       asks.push(
         ask<{ tier: Tier | "WITHDRAW"; reason: string; changed_mind: boolean }>(ctx, {
@@ -1001,7 +1071,7 @@ function verifyFixPrompt(f: Finding, newContent: string): string {
  */
 async function fixOne(ctx: Ctx, f: Finding, diff: string, cwd: string): Promise<Patch> {
   const fixerSlug = f.model ?? ""
-  const model = bySlug(fixerSlug)?.model ?? ROSTER[0].model
+  const model = resolveMember(fixerSlug)?.model ?? ROSTER[0].model
   const verifier = skepticPool([fixerSlug], 1)[0]
 
   let feedback: string | undefined
