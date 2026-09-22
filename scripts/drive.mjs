@@ -70,6 +70,10 @@ const inflight = fetch(`${BASE}/session/${session.id}/message${q}`, { method: "P
 
 const deadline = Date.now() + MAX_MIN * 60_000
 let lastPrinted = 0
+/** Parts of the final assistant message, so an empty completion can say what it got. */
+let lastParts = null
+/** The provider error on the settled turn, if any - usually the real explanation. */
+let lastError = ""
 console.log(`polling every ${POLL_S}s, ceiling ${MAX_MIN}m — the run outlives this script if it dies`)
 
 while (Date.now() < deadline) {
@@ -80,11 +84,31 @@ while (Date.now() < deadline) {
   let done = false
   try {
     const msgs = await api(`/session/${session.id}/message${q}`)
-    const last = Array.isArray(msgs) ? msgs[msgs.length - 1] : null
-    const info = last?.info ?? last
-    if (info?.role === "assistant" && info?.time?.completed) done = true
+    const list = Array.isArray(msgs) ? msgs : []
 
-    const texts = (last?.parts ?? []).filter((p) => p?.type === "text").map((p) => p.text).join("\n")
+    // Assistant text accumulates across EVERY assistant message after the last user turn,
+    // not just the final one. A tool-using turn emits several - `step-start, reasoning,
+    // tool, step-finish` then `step-start, reasoning, text, step-finish` - so reading only
+    // the last message reports "no text" on a turn that answered perfectly well.
+    let lastUser = -1
+    for (let i = list.length - 1; i >= 0; i--) {
+      if ((list[i]?.info ?? list[i])?.role === "user") { lastUser = i; break }
+    }
+    const turn = list.slice(lastUser + 1)
+
+    lastParts = turn.flatMap((m) => m?.parts ?? [])
+    for (const m of turn) {
+      const e = (m?.info ?? m)?.error
+      if (e) lastError = `${e.name ?? "error"}: ${String(e.data?.message ?? "").slice(0, 160)}`
+    }
+    const texts = lastParts.filter((p) => p?.type === "text").map((p) => p.text).join("\n")
+
+    // Settled when the newest assistant message carries a completion time. Requiring text
+    // as well was tried and is wrong: a model CAN legitimately finish with nothing, and
+    // that combination then polls to the ceiling instead of reporting the empty answer.
+    const tail = turn[turn.length - 1]
+    const tailInfo = tail?.info ?? tail
+    if (tailInfo?.role === "assistant" && tailInfo?.time?.completed) done = true
     if (texts.length > lastPrinted) {
       process.stdout.write(texts.slice(lastPrinted))
       lastPrinted = texts.length
@@ -95,7 +119,26 @@ while (Date.now() < deadline) {
   }
 
   if (done) {
-    console.log("\n--- assistant turn complete ---")
+    // A turn that completes with nothing to show is NOT the same as one that worked, and
+    // printing the same line for both is how a silent failure reads as a success.
+    // Measured 2026-09-22: a council fan-out whose lanes all failed fast returned an
+    // assistant message with zero parts, and the driver reported only "complete".
+    if (!lastPrinted) {
+      const types = (lastParts ?? []).map((p) => p?.type).filter(Boolean)
+      // The provider's own error is the answer most of the time, and it is carried on the
+      // message rather than in its parts. Measured 2026-09-22: a 5-hour quota limit (429)
+      // rendered as a bare "no text", sending me to look at the driver for a problem that
+      // was a usage cap with a stated reset time.
+      const err = lastError
+      console.log(
+        `\n--- assistant turn complete, but produced NO TEXT (parts: ${types.join(", ") || "none"}) ---` +
+          (err ? `\n    provider said: ${err}` : "") +
+          `\n    Check the run's own artifacts — council-artifacts/<newest>/run.log is written` +
+          `\n    as the run goes and survives this script either way.`,
+      )
+    } else {
+      console.log("\n--- assistant turn complete ---")
+    }
     break
   }
 }
