@@ -11,12 +11,12 @@ const SRC = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "engine.t
 // unchanged at 98, and a failing call left it at 99. What tests can protect from here is
 // the reasoning being edited away later, which is the part that would silently regress.
 
-test("a session is disposed only on success", () => {
-  // The asymmetry is the whole design. A session that answered has nothing left to tell
-  // you; one that timed out or returned malformed output is the only surviving record of
-  // what happened, and deleting it destroys the evidence exactly when someone is about to
-  // go looking for it.
-  assert.match(SRC, /if \(created\.id && result\.ok\) await disposeSession/)
+test("a session is disposed on success, and on a failure that teaches nothing", () => {
+  // The asymmetry is the design: a session that answered has nothing left to tell you,
+  // while one that timed out or hit an auth error is the only surviving record of what
+  // happened. Refined 2026-09-22 after measuring that "keep every failure" leaks
+  // permanently - see the schema-malformed test below.
+  assert.match(SRC, /if \(created\.id && \(result\.ok \|\| !worthKeeping\(result\.state, opts\)\)\) await disposeSession/)
 })
 
 test("the delete is awaited, not fired and forgotten", () => {
@@ -58,4 +58,33 @@ test("nothing deletes by listing, title or age", () => {
   assert.equal(deletes.length, 1, "exactly one delete path")
   assert.doesNotMatch(SRC, /GET[\s\S]{0,200}session[\s\S]{0,200}DELETE/)
   assert.doesNotMatch(SRC, /\.filter\([^)]*title[^)]*\)[\s\S]{0,200}DELETE/)
+})
+
+// ------------------------------------------------------------------ bounded retention
+
+test("a schema-malformed failure does not keep its session", () => {
+  // Measured 2026-09-22: a council probe disposed 43 sessions with HTTP 200 - cleanup
+  // working exactly as designed - and still left 33 behind, 29 of which had produced
+  // output tokens. Those were models that answered and could not emit schema-valid
+  // structured output: a PERMANENT property of three of eleven models, so every run
+  // leaked one session per such model for ever.
+  assert.match(SRC, /if \(state === "malformed" && opts\.schema\) return false/)
+})
+
+test("failures whose cause lives only in the transcript are kept", () => {
+  // An HTTP error's body, a credential problem, or how far a model got before a deadline
+  // are not recorded anywhere else.
+  const fn = SRC.slice(SRC.indexOf("const DISPOSABLE_FAILURES"))
+  const decl = fn.slice(0, fn.indexOf("\n\n"))
+  for (const kept of ["failed", "autherror", "timeout"])
+    assert.doesNotMatch(decl, new RegExp(`"${kept}"`), `${kept} must not be disposable`)
+})
+
+test("an unrecognised failure state is kept, not deleted", () => {
+  // Losing evidence is the expensive direction of this decision, so the default retains.
+  assert.match(SRC, /!DISPOSABLE_FAILURES\.has\(state\)/)
+})
+
+test("success still disposes regardless of state rules", () => {
+  assert.match(SRC, /result\.ok \|\| !worthKeeping/)
 })

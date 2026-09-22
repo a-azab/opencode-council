@@ -350,6 +350,39 @@ async function disposeSession(ctx: Ctx, id: string): Promise<void> {
  * exactly when someone is about to go looking for it. The leak is dominated by successes,
  * so disposing only those reclaims nearly all of it and costs no forensics.
  */
+/**
+ * Failure states whose session is worth keeping, and the ones that are not.
+ *
+ * "Keep every failure" was too broad, and measured 2026-09-22 it leaked steadily: a
+ * council probe disposed 43 sessions with HTTP 200 - cleanup working exactly as designed -
+ * and still left 33 behind, 29 of which had produced output tokens.
+ *
+ * Those 29 were `malformed`: the model answered, spent tokens, and could not emit
+ * schema-valid structured output. That is not an incident, it is a PERMANENT property of
+ * those models - three of eleven fail a one-field schema - so every council run leaks one
+ * session per such model, for ever, and the capability cache already records the fact in a
+ * form a human can actually read.
+ *
+ * What is worth keeping is a failure whose cause lives in the session transcript and
+ * nowhere else:
+ *   - `failed`     an HTTP or provider error whose body is the only account of it
+ *   - `autherror`  a credential problem someone will need to see to fix
+ *   - `timeout`    where how far the model got before the deadline is the diagnosis
+ *
+ * Retained by default: an unrecognised future state is kept rather than deleted, because
+ * losing evidence is the expensive direction of this decision.
+ */
+const DISPOSABLE_FAILURES = new Set<NodeState>(["malformed"])
+
+/** Whether a failed call's session should survive for diagnosis. */
+function worthKeeping(state: NodeState, opts: AskOpts): boolean {
+  // A malformed answer to a SCHEMA request is the known, permanent, high-volume case. The
+  // same state without a schema means the model returned nothing usable at all, which is
+  // unusual enough to be worth looking at.
+  if (state === "malformed" && opts.schema) return false
+  return !DISPOSABLE_FAILURES.has(state) || !opts.schema
+}
+
 async function askOnce<T>(
   ctx: Ctx,
   opts: AskOpts,
@@ -358,7 +391,7 @@ async function askOnce<T>(
   const result = await askOnceBody<T>(ctx, opts, created)
   // Awaited, not fired and forgotten: a run that exits while deletes are still in flight
   // leaves exactly the sessions this exists to remove. Bounded by DISPOSE_TIMEOUT_MS.
-  if (created.id && result.ok) await disposeSession(ctx, created.id)
+  if (created.id && (result.ok || !worthKeeping(result.state, opts))) await disposeSession(ctx, created.id)
   return result
 }
 
