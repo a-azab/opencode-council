@@ -1503,7 +1503,16 @@ export function addPathspecs(worktree: string): string[] {
     })
     return [] // exit 0 = ignored = .gitignore has it; naming it would make git refuse
   } catch {
-    return [NOT_WORK] // exit 1 = not ignored = our symlink or a vendored tree; exclude it
+    // exit 1 = not ignored (our symlink, or a vendored tree) — the exclude does real work.
+    // exit 128 = check-ignore itself failed, and then we do NOT know. Passing the exclude
+    // on a guess is what crashed a live crew run on 2026-09-22: git exits 128 with "the
+    // following paths are ignored" the moment the pathspec names an ignored path, and the
+    // whole task was lost after its worker had already written the file.
+    //
+    // Omitting it is the safe side of that unknown. The cost is that a genuinely
+    // unignored node_modules gets staged; `git add` of a symlink stages the link, not the
+    // tree, so the downside is one extra entry rather than 40,000.
+    return existsSync(join(worktree, ".gitignore")) ? [] : [NOT_WORK]
   }
 }
 
@@ -2121,7 +2130,24 @@ export async function runItem(
     // anything; the real `git add -A` further down upgrades the intent entries.
     // Secret globs are excluded here as everywhere else: intent-to-add would otherwise
     // pull a worker-created .env's CONTENTS into the prompt sent to the judge.
-    git(input.worktree, ["add", "--intent-to-add", "--", ".", ...addPathspecs(input.worktree), ...SECRETS.map((g) => `:!${g}`)])
+    // Staging for the judge is a VIEW of the work, not the work. It must never be able to
+    // destroy an item whose file is already written: a live crew run on 2026-09-22 lost a
+    // whole task to `git add` exiting 128 over a pathspec, after the worker had finished.
+    // A degraded diff costs the judge some context; a throw here costs everything.
+    try {
+      git(input.worktree, ["add", "--intent-to-add", "--", ".", ...addPathspecs(input.worktree), ...SECRETS.map((g) => `:!${g}`)])
+    } catch (e: any) {
+      say(`  note: could not stage new files for review (${String(e?.message ?? e).split("\n")[0].slice(0, 120)})`)
+      // Second chance with no pathspecs at all. The secret globs are the one thing worth
+      // retrying WITH, since intent-to-add would otherwise pull a worker-created .env's
+      // contents into the judge's prompt - but if even that fails, the diff of tracked
+      // files is still a real diff and the item continues on it.
+      try {
+        git(input.worktree, ["add", "--intent-to-add", "--", ".", ...SECRETS.map((g) => `:!${g}`)])
+      } catch {
+        /* tracked-file diff only - degraded, not fatal */
+      }
+    }
     const verdict = await checkAcceptance(ctx, {
       item: input.item,
       diff: git(input.worktree, ["diff", "HEAD"]),

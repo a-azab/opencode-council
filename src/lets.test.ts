@@ -1368,3 +1368,62 @@ test("the implementer's call is budgeted for agentic work and falls through on t
     "at least two models must fit in a run's wall clock, or the chain is decoration",
   )
 })
+
+// ------------------------------------------------------------------ the 2026-09-22 crash
+
+test("a gitignored node_modules never gets a pathspec that makes git refuse", () => {
+  // Reproduced from a live crew run: git exits 128 with "the following paths are ignored"
+  // the moment `:(exclude)node_modules` names an ignored path, and the whole task was lost
+  // after its worker had already written the file.
+  const dir = mkdtempSync(join(tmpdir(), "psp-"))
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: dir })
+    execFileSync("git", ["config", "user.email", "t@t"], { cwd: dir })
+    execFileSync("git", ["config", "user.name", "t"], { cwd: dir })
+    writeFileSync(join(dir, ".gitignore"), "node_modules\n")
+    mkdirSync(join(dir, "node_modules"), { recursive: true })
+    writeFileSync(join(dir, "node_modules", "x.js"), "//")
+    writeFileSync(join(dir, "a.txt"), "hi")
+    execFileSync("git", ["add", "-A"], { cwd: dir })
+    execFileSync("git", ["commit", "-qm", "init"], { cwd: dir })
+    writeFileSync(join(dir, "new.txt"), "new")
+
+    const specs = addPathspecs(dir)
+    assert.deepEqual(specs, [], "an ignored node_modules must not be named")
+    // The real call must not throw.
+    assert.doesNotThrow(() =>
+      execFileSync("git", ["add", "--intent-to-add", "--", ".", ...specs, ...SECRETS.map((g) => `:!${g}`)], {
+        cwd: dir,
+        stdio: ["pipe", "pipe", "pipe"],
+      }),
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("an unignored node_modules still gets excluded", () => {
+  // The pathspec exists for a reason: without .gitignore, a symlinked or vendored
+  // node_modules would otherwise be staged.
+  const dir = mkdtempSync(join(tmpdir(), "psp2-"))
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: dir })
+    assert.deepEqual(addPathspecs(dir), [":(exclude)node_modules"])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("a .gitignore that does not mention node_modules is not guessed at", () => {
+  // check-ignore exits non-zero both for "not ignored" and for its own failure. With a
+  // .gitignore present we do not know which, and passing the exclude on a guess is what
+  // crashed the run - so omit it. One extra staged symlink beats a lost task.
+  const dir = mkdtempSync(join(tmpdir(), "psp3-"))
+  try {
+    execFileSync("git", ["init", "-q"], { cwd: dir })
+    writeFileSync(join(dir, ".gitignore"), "dist\n")
+    assert.deepEqual(addPathspecs(dir), [], "with a .gitignore present, omit rather than guess")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
