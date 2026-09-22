@@ -1427,3 +1427,20 @@ test("a .gitignore that does not mention node_modules is not guessed at", () => 
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("an unjudged pass never claims to have been judged", () => {
+  // The acceptance panel found this itself on 2026-09-22, judging a README that described
+  // checkAcceptance and judgePanel as one rule. They diverge deliberately: judgePanel
+  // refuses a zero-vote claim (one more round is cheap), while checkAcceptance fails OPEN
+  // because zero votes there means the provider is unreachable, and a provider outage must
+  // not read as "the code is wrong".
+  //
+  // The compensation is that it must never claim a judge it did not have. That is the
+  // property worth a test - the fail-open is a decision, but an unjudged item rendering as
+  // "accepted by fable" is the lie renderRun exists to prevent.
+  const src = readFileSync(new URL("./lets.ts", import.meta.url), "utf8")
+  const fn = src.slice(src.indexOf("async function checkAcceptance"))
+  const zeroVotes = fn.slice(fn.indexOf("if (!votes.length)"), fn.indexOf("const panel = judgePanel"))
+  assert.doesNotMatch(zeroVotes, /judge:/, "a zero-vote return must not name a judge")
+  assert.match(zeroVotes, /requiresIndependentAcceptance/, "sensitive work still fails closed")
+})

@@ -1735,6 +1735,21 @@ something as undefined merely because its definition is not in this diff.
   // must NOT name a judge. Reporting one made an unjudged item render as "accepted by
   // fable", the precise lie renderRun exists to prevent.
   if (!votes.length) {
+    // DELIBERATELY different from judgePanel, which refuses a zero-vote claim outright.
+    // Found by the acceptance panel itself on 2026-09-22, judging a README that described
+    // the two as one rule: gpt56luna rejected with high confidence and cited this line.
+    //
+    // The difference is what the absence MEANS in each place. In judgePanel a report was
+    // put to judges and none came back, inside a loop that can simply run another round -
+    // refusing costs one round. Here, zero votes means the model PROVIDER is unreachable,
+    // and refusing would fail every item in the run for a reason that has nothing to do
+    // with the work. A provider outage must not read as "the code is wrong".
+    //
+    // So this fails open, and the compensation is that it never claims to have judged: no
+    // `judge` field is returned, `judged` stays false, and renderRun prints the item
+    // without an acceptance line. Sensitive work (requiresIndependentAcceptance) is the
+    // exception and fails closed, because for those items an unreviewed pass is the worse
+    // outcome.
     const who = judges.map((j) => j.slug).join(", ")
     return requiresIndependentAcceptance(input.item)
       ? { met: false, reason: `independent acceptance is required for sensitive work: no judge ran (${who})` }
