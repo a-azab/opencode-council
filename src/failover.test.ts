@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { substitutesFor, benchable, MAX_SUBSTITUTIONS, type Bench } from "./engine.ts"
+import { substitutesFor, benchable, MAX_SUBSTITUTIONS, resolveMember, type Bench } from "./engine.ts"
 import { selectNodes, ALL_ROLES, ROSTER, bySlug } from "./roster.ts"
 
 // Measured 2026-08-21, full-panel review of lets: 24 of 56 lanes reported. `code` had
@@ -88,6 +88,14 @@ test("model-level failures bench; call-level ones do not", () => {
 test("substitution is bounded", () => {
   // Without a cap one dead lane could walk the entire roster on every node.
   assert.ok(MAX_SUBSTITUTIONS >= 1 && MAX_SUBSTITUTIONS <= 5, `implausible cap: ${MAX_SUBSTITUTIONS}`)
+})
+
+test("successor model ids resolve as real members", () => {
+  const successor = "opencode-go/grok-4.6"
+  const member = resolveMember(successor)
+  assert.ok(member, "a successor model must remain addressable after failover")
+  assert.equal(member?.model, successor)
+  assert.equal(resolveMember("definitely-not-a-model"), undefined)
 })
 
 test("a specialist's lane is covered by the model named for it, not by whoever is idle", () => {

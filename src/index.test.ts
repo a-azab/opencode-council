@@ -1,11 +1,12 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync } from "node:fs"
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import plugin from "./index.ts"
+import { validateAdrPath } from "./index.ts"
 
 // This file exists because of a real failure: deleting `work` mode with index-based string
 // slicing merged `council`'s args into `lets` and removed the `council` tool outright - and
@@ -20,6 +21,19 @@ async function load() {
   await p.config(config)
   return { tool: p.tool as Record<string, any>, config }
 }
+
+test("ADR paths must exist inside the repository", () => {
+  const dir = mkdtempSync(join(tmpdir(), "adr-path-"))
+  try {
+    writeFileSync(join(dir, "ADR.md"), "# Decision\n")
+    assert.equal(validateAdrPath(dir, "ADR.md").ok, true)
+    assert.equal(validateAdrPath(dir, "missing.md").ok, false)
+    assert.equal(validateAdrPath(dir, "../outside.md").ok, false)
+    assert.equal(validateAdrPath(dir, "/etc/passwd").ok, false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
 
 test("all three tools are registered", async () => {
   const { tool } = await load()
