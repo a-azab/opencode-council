@@ -114,8 +114,24 @@ while (Date.now() < deadline) {
       lastPrinted = texts.length
     }
   } catch (e) {
-    // A poll that fails is not a run that failed. Say so and keep polling.
-    console.error(`  (poll error: ${String(e?.message ?? e).slice(0, 100)})`)
+    const msg = String(e?.message ?? e)
+    // opencode 1.18.31 accepts a `format` on the message POST and then cannot serialize
+    // that message back: GET /session/<id>/message returns 400 "Expected
+    // OutputFormatJsonSchema". Verified 2026-09-22 - no schema reads fine, every schema
+    // variant 400s, and `?limit=1` works only because it stops before the assistant
+    // message. Polling can never see this turn finish, so say so once and stop, rather
+    // than run silently to the ceiling and look like a hang.
+    if (msg.includes("OutputFormatJsonSchema")) {
+      console.log(
+        `\n--- cannot poll this session ---\n` +
+          `    opencode ${"1.18.31"} cannot read back a message whose request carried a JSON schema,\n` +
+          `    so completion is undetectable from here. THE RUN IS STILL GOING - watch its own\n` +
+          `    artifacts instead: council-artifacts/<newest>/run.log`,
+      )
+      break
+    }
+    // Any other poll failure is not a run failure. Say so and keep polling.
+    console.error(`  (poll error: ${msg.slice(0, 100)})`)
   }
 
   if (done) {
