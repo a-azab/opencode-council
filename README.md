@@ -296,6 +296,63 @@ never ran are listed as `not-attempted` with the reason — a plan that stopped 
 says **"NOT independently judged — checks only"**. That is enforced by tests, because the
 one lie that would matter is the report that hides what happened.
 
+### Reliability mechanisms
+
+Four mechanisms keep an unattended run honest: when one judge would be wrong, when attempts
+stop differing, when what an attempt learned would otherwise be lost, and when a call fails
+mid-item.
+
+**The acceptance panel.** One judge is a single point of failure in both directions, so
+acceptance is decided by `ACCEPTANCE_PANEL = 3` skeptics (`src/lets.ts`) — distinct models,
+taken one per vendor while the roster allows and topped up in roster order when it cannot
+(`skepticPool`, `src/roster.ts`), excluding whoever wrote the code — asked **concurrently**.
+The verdict is arithmetic, not a summary: any **high-confidence rejection** rejects, on its
+own; otherwise a majority rejects, and **a tie rejects too** (`against * 2 >= votes`). The
+burden sits on the claim, because the worker asserting it is finished is the interested
+party.
+
+When **no judge can be reached** (pool empty, or all calls failed), `checkAcceptance`
+decides before the arithmetic runs, and splits on the item: sensitive work is **rejected
+outright**, ordinary work **passes on the checks alone** rather than blocking the run on a
+judge outage. What it may never do is claim a judge — an item that passed this
+way records no judge and carries only the reason in its report — never a judge's name.
+Sensitivity is one case-insensitive regex over the item's title, acceptance criteria
+and file list joined together, matching substrings anywhere in them. Its terms run from
+`security`, `auth` and `credential` through `payment`, `migration`, `terraform` and `pii`.
+That is a sample, not the set: `requiresIndependentAcceptance` in `src/lets.ts` holds the
+regex, and it is the definition.
+
+**The loop guard.** A loop is not an error: nothing throws and no check fails, the worker
+simply stops making progress while looking productive. So detection is structural. An
+attempt that changed files is folded into a chain (`src/guard.ts`) under the identity
+`diff:` + `sha256` of the payload's canonical form — a deep key-sort before stringify, so
+that ordering cannot disguise a repeat, which for a diff means the diff text itself — and
+**consecutive** identical identities accumulate: at `NUDGE_AT = 2` the worker is told
+exactly what it repeated, with a bounded preview and an instruction to state its failed
+assumption before acting again; at `STOP_AT = 3` the item ends as `no-change` carrying the
+reason. A different diff resets the count to 1 — and so does new information reaching the
+worker, because re-applying the same fix after a judge explains something is not a loop.
+
+**Carry-forward.** A rejected attempt is the one moment the knowledge exists: the worker has
+just done the work and been told precisely why it was refused. One attempt later only the
+rejection text survives, so attempts repeat each other's investigations. Instead, a
+**skeptic** — not the worker's own model, which is the one invested in its approach —
+debriefs the attempt into a structured note: the dead end and what ruled it out, a fact
+about the repo that had to be discovered, what to do next. Later attempts inherit the notes
+**newest-first**, capped at `MAX_HANDOFF_CHARS = 16_384` (`accumulatedBrief`, `src/ralph.ts`)
+so accumulation cannot crowd out the work item itself. It is optional by construction: a note
+that cannot be produced returns `null` and costs the next attempt context, never the item.
+
+**Session cleanup.** Every model call opens a session on the opencode server, and until
+recently nothing closed one — 98 had piled up by 2026-09-21, all finished council lanes.
+Now a **successful** call deletes its session (`askOnce`, `src/engine.ts`), awaited rather
+than fired-and-forgotten so a run cannot exit with the deletes still in flight. A **failed**
+one is kept on purpose: a call that timed out, returned malformed output, or hit an auth
+error leaves that session as the only surviving record of what happened, and deleting it
+destroys the evidence exactly when someone is about to look for it. Cleanup only ever
+deletes an id it created, and a cleanup that fails is swallowed — an untidy server is not
+worth failing a run over.
+
 ### The harness scorecard — `verify`'s second half
 
 `verify` answers *"did I break anything?"*. That is the right question and it is blind to
