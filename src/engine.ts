@@ -374,11 +374,24 @@ async function disposeSession(ctx: Ctx, id: string): Promise<void> {
  */
 const DISPOSABLE_FAILURES = new Set<NodeState>(["malformed"])
 
-/** Whether a failed call's session should survive for diagnosis. */
-function worthKeeping(state: NodeState, opts: AskOpts): boolean {
-  // A malformed answer to a SCHEMA request is the known, permanent, high-volume case. The
-  // same state without a schema means the model returned nothing usable at all, which is
-  // unusual enough to be worth looking at.
+/**
+ * Whether a failed call's session should survive for diagnosis.
+ *
+ * The question is not how bad the failure was, it is whether the SESSION holds anything a
+ * reader could not get from the result. Two measured cases say no:
+ *
+ *   - `malformed` with a schema: the model answered and could not produce schema-valid
+ *     output. Permanent for three of eleven models, so it leaks one session per model per
+ *     run, and the capability cache already records the fact more legibly.
+ *   - a failure that never reached the model at all: 30 lanes measured 2026-09-22 with
+ *     `input: 0, output: 0` and 107ms between created and updated. There is no transcript
+ *     in an empty session; keeping it preserves nothing and costs a row for ever.
+ *
+ * `reachedModel` is what separates the second case from a genuine provider incident, where
+ * the request WAS made and the response body is the only account of what came back.
+ */
+function worthKeeping(state: NodeState, opts: AskOpts, reachedModel: boolean): boolean {
+  if (!reachedModel) return false
   if (state === "malformed" && opts.schema) return false
   return !DISPOSABLE_FAILURES.has(state) || !opts.schema
 }
@@ -387,18 +400,19 @@ async function askOnce<T>(
   ctx: Ctx,
   opts: AskOpts,
 ): Promise<{ ok: true; value: T; ms: number } | { ok: false; state: NodeState; detail: string; ms: number }> {
-  const created: { id?: string } = {}
+  const created: { id?: string; reachedModel?: boolean } = {}
   const result = await askOnceBody<T>(ctx, opts, created)
   // Awaited, not fired and forgotten: a run that exits while deletes are still in flight
   // leaves exactly the sessions this exists to remove. Bounded by DISPOSE_TIMEOUT_MS.
-  if (created.id && (result.ok || !worthKeeping(result.state, opts))) await disposeSession(ctx, created.id)
+  if (created.id && (result.ok || !worthKeeping(result.state, opts, created.reachedModel === true)))
+    await disposeSession(ctx, created.id)
   return result
 }
 
 async function askOnceBody<T>(
   ctx: Ctx,
   opts: AskOpts,
-  created: { id?: string },
+  created: { id?: string; reachedModel?: boolean },
 ): Promise<{ ok: true; value: T; ms: number } | { ok: false; state: NodeState; detail: string; ms: number }> {
   const t0 = Date.now()
   const base = ctx.serverUrl.replace(/\/$/, "")
@@ -498,6 +512,9 @@ async function askOnceBody<T>(
         ...(opts.schema ? { format: { type: "json_schema", schema: opts.schema } } : {}),
       }),
     })
+    // The message POST came back, so the request reached the provider and whatever it said
+    // lives in this session. Everything before this point failed without a transcript.
+    created.reachedModel = true
     const ms = Date.now() - t0
     // Parse defensively: an error response often has no body at all. A 401 from an
     // authenticated server returns zero bytes, and calling .json() on that throws

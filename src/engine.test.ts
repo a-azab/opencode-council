@@ -16,7 +16,7 @@ test("a session is disposed on success, and on a failure that teaches nothing", 
   // while one that timed out or hit an auth error is the only surviving record of what
   // happened. Refined 2026-09-22 after measuring that "keep every failure" leaks
   // permanently - see the schema-malformed test below.
-  assert.match(SRC, /if \(created\.id && \(result\.ok \|\| !worthKeeping\(result\.state, opts\)\)\) await disposeSession/)
+  assert.match(SRC, /result\.ok \|\| !worthKeeping\(result\.state, opts, created\.reachedModel === true\)/)
 })
 
 test("the delete is awaited, not fired and forgotten", () => {
@@ -87,4 +87,21 @@ test("an unrecognised failure state is kept, not deleted", () => {
 
 test("success still disposes regardless of state rules", () => {
   assert.match(SRC, /result\.ok \|\| !worthKeeping/)
+})
+
+test("a session that never reached the model holds no transcript to keep", () => {
+  // Measured 2026-09-22 with the previous rule live: 30 council lanes leaked with
+  // `input: 0, output: 0` and 107ms between created and updated. They failed before any
+  // model call - a session-create error or an immediate provider refusal - so there is
+  // nothing in the session, and keeping it preserves nothing while costing a row for ever.
+  assert.match(SRC, /if \(!reachedModel\) return false/)
+})
+
+test("reachedModel is set only after the message POST returns", () => {
+  // Before that point a failure has no transcript. Setting it at session-create would
+  // make every empty session look diagnosable again.
+  const idx = SRC.indexOf("created.reachedModel = true")
+  const post = SRC.indexOf("/message${qs}`")
+  assert.ok(idx > 0 && post > 0)
+  assert.ok(idx > post, "the flag must be set after the call, not before it")
 })
