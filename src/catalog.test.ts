@@ -231,3 +231,23 @@ test("an entry with no timestamp is kept, not discarded", () => {
     assert.equal(openCache(path).get("x/y", "schema")?.ok, true)
   } finally { rmSync(dir, { recursive: true, force: true }) }
 })
+
+test("probe() sends a timeout to the slow record, not to the capability verdict", () => {
+  // The gap this closes: the test above proves recordSlow() writes no verdict, and the
+  // resolvePins test proves a slow candidate is skipped - but nothing pinned the seam
+  // BETWEEN them, so probe() could route a timeout to cache.record() and both still pass.
+  // That mutation is exactly the bug this item exists to prevent: a 60s ceiling written
+  // down as ok:false, indistinguishable on disk from a model that answered wrongly.
+  const src = readFileSync(new URL("./catalog.ts", import.meta.url), "utf8")
+  const branch = src.slice(src.indexOf('} else if ((r as any).state === "timeout")'))
+  assert.match(
+    branch.slice(0, 120),
+    /cache\.recordSlow\(model\)/,
+    "a timed-out probe must be remembered as latency, never recorded as a capability result",
+  )
+  assert.doesNotMatch(
+    branch.slice(0, 120),
+    /cache\.record\(model,\s*kind/,
+    "recording a timeout as a capability verdict is the bug, not the fix",
+  )
+})
