@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import { dirname, join, basename, relative, resolve } from "node:path"
 import { execFileSync } from "node:child_process"
 import { z } from "zod"
-import { runReview, runFix, runPlan, runIndependent, runTask, councilArgs, autoUpdate } from "./engine.ts"
+import { runReview, runFix, runPlan, runIndependent, runTask, councilArgs, autoUpdate, type NodeState } from "./engine.ts"
 import { localMcpServers } from "./mcp.ts"
 import { activeTaskId } from "./beads.ts"
 import { issueIdentifierIn } from "./linear.ts"
@@ -36,7 +36,7 @@ import {
 } from "./crew-org.ts"
 import { ROSTER, type Role } from "./roster.ts"
 import {
-  catalog, probe, probeBudget, upgradeCandidates, resolvePins, openCache,
+  catalog, probe, probeBudget, upgradeCandidates, resolvePins, openCache, measuresCapability,
   type Result, type Adoption,
 } from "./catalog.ts"
 import {
@@ -206,10 +206,14 @@ function ctxFor(input: any) {
   return {
     serverUrl: String(input?.serverUrl ?? "http://127.0.0.1:4096"),
     auth: user && pass ? "Basic " + Buffer.from(`${user}:${pass}`).toString("base64") : undefined,
-    // A model that fails deterministically contradicts whatever the cache believes about it.
-    // Without this an adoption made on one good probe would survive the model's death, and
-    // every later run would pay a wasted call before substituting.
-    onModelFailure: (model: string) => CAPABILITY.contradict(model, "schema"),
+    // A model that fails deterministically contradicts whatever the cache believes about
+    // it. Only a `malformed` answer is evidence about CAPABILITY, though: a provider 500,
+    // an expired token or a quota window says nothing about whether the model can emit a
+    // schema, and forgetting a good measurement on that basis costs a wasted probe on the
+    // next run for a reason that had already stopped being true.
+    onModelFailure: (model: string, state: NodeState) => {
+      if (measuresCapability(state)) CAPABILITY.contradict(model, "schema")
+    },
   }
 }
 

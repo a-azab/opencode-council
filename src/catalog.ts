@@ -9,7 +9,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
-import { ask, DEFAULT_RETRY, type Ctx } from "./engine.ts"
+import { ask, DEFAULT_RETRY, type Ctx, type NodeState } from "./engine.ts"
 
 export type Kind = "schema" | "agentic"
 export type Result = { ok: boolean; ms: number }
@@ -236,7 +236,22 @@ export function openCache(path: string = DEFAULT_PATH) {
   }
 
   return {
-    get: (model: string, kind: Kind): Entry | undefined => data[model]?.[kind],
+    /**
+     * A measurement, or nothing if it has aged out.
+     *
+     * Expiry lives on the READ, not on a sweep: nothing in this process runs on a timer,
+     * and a sweep would only delete entries for models that happened to come up again.
+     * Asking at the point of use means every caller gets the same answer without anyone
+     * having to remember to clean up.
+     */
+    get: (model: string, kind: Kind): Entry | undefined => {
+      const e = data[model]?.[kind]
+      if (!e) return undefined
+      // An entry written before `at` existed has no age to judge - treat it as current
+      // rather than silently discarding a real measurement.
+      if (typeof e.at !== "number") return e
+      return Date.now() - e.at > ttlFor(e.ok) ? undefined : e
+    },
 
     /** Both outcomes are worth keeping: remembering a failure is what makes a dead model
      *  cost one probe for the whole machine rather than one per run. */
@@ -277,6 +292,34 @@ const PROBE_SCHEMA = {
 } as const
 
 /**
+ * Whether a failed call measured the model's CAPABILITY, or just caught a bad moment.
+ *
+ * Only `malformed` is a capability fact: the model answered and could not produce
+ * schema-valid output. Everything else is a statement about the world at one instant - a
+ * provider 500, an expired token, a quota window, a slow minute - and recording those as
+ * capability retires a working model for a reason that has already stopped being true.
+ *
+ * Measured 2026-09-23, hours apart: `opencode/big-pickle` refused with "free tier can only
+ * be used from within OpenCode" and then answered normally; `zai-coding-plan/glm-5.2` was
+ * 429 for a five-hour quota window and then answered normally. Both would have been
+ * permanently retired by the previous rule, which recorded any `failed` as incapable.
+ */
+export const measuresCapability = (state: NodeState): boolean => state === "malformed"
+
+/**
+ * How long a measurement is believed, by what it costs to be wrong.
+ *
+ * Asymmetric on purpose. A stale "works" costs one wasted call and then corrects itself -
+ * the failure contradicts the entry and the next run re-probes. A stale "dead" costs the
+ * model forever: nothing re-probes a model the cache has written off, so a single bad
+ * minute removes it from every future run with no path back. The expensive direction gets
+ * the short fuse.
+ */
+export const SUCCESS_TTL_MS = 7 * 24 * 60 * 60 * 1000
+export const FAILURE_TTL_MS = 24 * 60 * 60 * 1000
+export const ttlFor = (ok: boolean): number => (ok ? SUCCESS_TTL_MS : FAILURE_TTL_MS)
+
+/**
  * Measure one capability of one model and remember the answer.
  *
  * `schema` is the only kind a single cheap call can settle: structured output is a forced
@@ -297,6 +340,9 @@ export async function probe(
   const known = cache.get(model, kind)
   if (known || kind !== "schema") return known
   const r = await ask<{ ok: boolean }>(ctx, { model, text: "Reply with ok: true.", schema: PROBE_SCHEMA })
-  cache.record(model, kind, { ok: r.ok, ms: r.ms })
+  // A probe that TIMED OUT measured the clock, not the model. The 60s probe ceiling was
+  // being written down as `ok: false` with ms: 60283 - indistinguishable, once on disk,
+  // from a model that answered and got the schema wrong.
+  if (r.ok || measuresCapability((r as any).state)) cache.record(model, kind, { ok: r.ok, ms: r.ms })
   return cache.get(model, kind)
 }

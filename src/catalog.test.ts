@@ -1,10 +1,10 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { openCache, probeBudget, parseCatalog, successorOf, successorsOf, resolvePins } from "./catalog.ts"
+import { openCache, probeBudget, parseCatalog, successorOf, successorsOf, resolvePins, measuresCapability, ttlFor, FAILURE_TTL_MS, SUCCESS_TTL_MS } from "./catalog.ts"
 import { renderModelsProposal } from "./report.ts"
 
 test("the catalog flattens providers into provider/model ids", () => {
@@ -149,4 +149,49 @@ test("a probe never inherits the caller's timeout", () => {
   const fn = src.slice(src.indexOf("export async function resolvePins"), src.indexOf("export function openCache"))
   assert.match(fn, /const probeCtx: Ctx = \{ \.\.\.ctx, timeoutMs: 60_000/, "probes are bounded independently")
   assert.match(fn, /probe\(probeCtx, candidate/, "and the bounded ctx is the one actually used")
+})
+
+test("only a malformed answer is evidence about capability", () => {
+  // Measured 2026-09-23, hours apart: opencode/big-pickle refused with "free tier can only
+  // be used from within OpenCode" and then answered normally; zai-coding-plan/glm-5.2 was
+  // 429 for a five-hour quota window and then answered normally. The old rule recorded any
+  // `failed` as incapable, which retires a working model for a reason that has expired.
+  assert.equal(measuresCapability("malformed"), true, "answered, and got the schema wrong")
+  for (const s of ["failed", "timeout", "ratelimited", "autherror"] as const)
+    assert.equal(measuresCapability(s), false, `${s} describes the moment, not the model`)
+})
+
+test("a remembered failure expires sooner than a remembered success", () => {
+  // Asymmetric because the costs are: a stale "works" self-corrects on the next call, a
+  // stale "dead" is permanent - nothing re-probes a model the cache has written off.
+  assert.ok(ttlFor(false) < ttlFor(true), "the expensive direction gets the short fuse")
+  assert.equal(ttlFor(false), FAILURE_TTL_MS)
+  assert.equal(ttlFor(true), SUCCESS_TTL_MS)
+})
+
+test("an aged-out failure is forgotten, so a model gets another chance", () => {
+  const dir = mkdtempSync(join(tmpdir(), "cap-"))
+  try {
+    const path = join(dir, "capability.json")
+    const c = openCache(path)
+    c.record("x/y", "schema", { ok: false, ms: 900 })
+    assert.equal(c.get("x/y", "schema")?.ok, false, "fresh: still believed")
+
+    // Age it past the failure TTL by rewriting `at` on disk - the same thing a day does.
+    const raw = JSON.parse(readFileSync(path, "utf8"))
+    raw["x/y"].schema.at = Date.now() - FAILURE_TTL_MS - 1000
+    writeFileSync(path, JSON.stringify(raw))
+    assert.equal(openCache(path).get("x/y", "schema"), undefined, "expired: re-probe it")
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test("an entry with no timestamp is kept, not discarded", () => {
+  // Entries written before `at` existed have no age to judge. Treating them as expired
+  // would throw away every real measurement on the first run after the upgrade.
+  const dir = mkdtempSync(join(tmpdir(), "cap-"))
+  try {
+    const path = join(dir, "capability.json")
+    writeFileSync(path, JSON.stringify({ "x/y": { schema: { ok: true, ms: 100 } } }))
+    assert.equal(openCache(path).get("x/y", "schema")?.ok, true)
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })
