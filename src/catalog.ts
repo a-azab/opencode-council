@@ -199,6 +199,11 @@ export async function resolvePins(
         settled = true
         break
       }
+      // A recent timeout means we already paid the 60s ceiling on this candidate. Skip it
+      // without touching the probe budget - there is nothing new to learn until the slow
+      // observation expires. Not a verdict on the model: it falls through to the next
+      // candidate exactly as an unmeasured one would, it just does not cost a probe.
+      if (cache.isSlow(candidate)) continue
       // Unmeasured. Spend a probe if there is one left, otherwise leave the pin alone and
       // say so - silently keeping the old model is right, silently claiming it was checked
       // is not.
@@ -222,16 +227,20 @@ export async function resolvePins(
 
 export function openCache(path: string = DEFAULT_PATH) {
   let data: Record<string, Partial<Record<Kind, Entry>>> = {}
+  let slow: Record<string, number> = {}
   try {
-    data = JSON.parse(readFileSync(path, "utf8")) ?? {}
+    const { _slow: s, ...rest } = (JSON.parse(readFileSync(path, "utf8")) ?? {}) as Record<string, unknown>
+    data = rest as Record<string, Partial<Record<Kind, Entry>>>
+    slow = (s as Record<string, number>) ?? {}
   } catch {
     data = {}
+    slow = {}
   }
 
   const save = () => {
     try {
       mkdirSync(dirname(path), { recursive: true })
-      writeFileSync(path, JSON.stringify(data, null, 2))
+      writeFileSync(path, JSON.stringify({ ...data, _slow: slow }, null, 2))
     } catch {}
   }
 
@@ -268,6 +277,20 @@ export function openCache(path: string = DEFAULT_PATH) {
     contradict(model: string, kind: Kind) {
       if (data[model]) delete data[model][kind]
       save()
+    },
+
+    /** Remember that this model did not finish a trivial probe in time. Separate from
+     *  capability: a slow model is not incapable, it just should not eat the probe budget again
+     *  until the observation expires. */
+    recordSlow(model: string) {
+      slow[model] = Date.now()
+      save()
+    },
+
+    /** True if there is a recent slow observation that has not yet expired. */
+    isSlow(model: string): boolean {
+      const t = slow[model]
+      return t !== undefined && Date.now() - t <= SLOW_TTL_MS
     },
   }
 }
@@ -317,6 +340,7 @@ export const measuresCapability = (state: NodeState): boolean => state === "malf
  */
 export const SUCCESS_TTL_MS = 7 * 24 * 60 * 60 * 1000
 export const FAILURE_TTL_MS = 24 * 60 * 60 * 1000
+export const SLOW_TTL_MS = 24 * 60 * 60 * 1000
 export const ttlFor = (ok: boolean): number => (ok ? SUCCESS_TTL_MS : FAILURE_TTL_MS)
 
 /**
@@ -343,6 +367,10 @@ export async function probe(
   // A probe that TIMED OUT measured the clock, not the model. The 60s probe ceiling was
   // being written down as `ok: false` with ms: 60283 - indistinguishable, once on disk,
   // from a model that answered and got the schema wrong.
-  if (r.ok || measuresCapability((r as any).state)) cache.record(model, kind, { ok: r.ok, ms: r.ms })
+  if (r.ok || measuresCapability((r as any).state)) {
+    cache.record(model, kind, { ok: r.ok, ms: r.ms })
+  } else if ((r as any).state === "timeout") {
+    cache.recordSlow(model)
+  }
   return cache.get(model, kind)
 }

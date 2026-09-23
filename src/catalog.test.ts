@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { openCache, probeBudget, parseCatalog, successorOf, successorsOf, resolvePins, measuresCapability, ttlFor, FAILURE_TTL_MS, SUCCESS_TTL_MS } from "./catalog.ts"
+import { openCache, probeBudget, parseCatalog, successorOf, successorsOf, resolvePins, measuresCapability, ttlFor, FAILURE_TTL_MS, SUCCESS_TTL_MS, SLOW_TTL_MS } from "./catalog.ts"
 import { renderModelsProposal } from "./report.ts"
 
 test("the catalog flattens providers into provider/model ids", () => {
@@ -139,6 +139,42 @@ test("an unmeasured candidate with no probe budget leaves the pin alone, and say
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test("a slow probe is remembered as latency, never as incapability", async () => {
+  // Measured on this machine: opencode-go/mimo-v2.6-pro hit the 60s probe ceiling, yet
+  // answers a real schema call correctly in 28s. Too slow for a trivial probe is a fact
+  // about the clock; writing it down as ok:false would retire a model that works.
+  const dir = mkdtempSync(join(tmpdir(), "slow-"))
+  try {
+    const path = join(dir, "cap.json")
+    const cache = openCache(path)
+    const offered = ["p/m-1.0", "p/m-1.1", "p/m-2.0"]
+    const ctx = { serverUrl: "http://127.0.0.1:1" } // never reached: budget 0 is the proof
+
+    cache.recordSlow("p/m-2.0")
+    cache.record("p/m-1.1", "schema", { ok: true, ms: 50 })
+
+    // The slow record must not read back as a capability verdict of any kind.
+    assert.equal(cache.get("p/m-2.0", "schema"), undefined, "too slow is not incapable")
+
+    // And it is skipped without spending a probe: with NO budget at all the search still
+    // reaches the next candidate down. Were the slow candidate re-probed instead, budget 0
+    // would stop the search on it and report the pin unchecked.
+    const r = await resolvePins(ctx as any, ["p/m-1.0"], offered, { cache, budget: 0 })
+    assert.equal(r.map.get("p/m-1.0"), "p/m-1.1", "the slow candidate cost nothing")
+    assert.deepEqual(r.unchecked, [], "skipped, not deferred")
+
+    // Surviving the reopen is the entire point - otherwise the next run re-pays the 60s.
+    assert.equal(openCache(path).isSlow("p/m-2.0"), true)
+
+    // Aged past the window by rewriting the timestamp on disk, the same thing a day does:
+    // slow once is not slow forever, so it becomes worth one more probe.
+    const raw = JSON.parse(readFileSync(path, "utf8"))
+    raw._slow["p/m-2.0"] = Date.now() - SLOW_TTL_MS - 1000
+    writeFileSync(path, JSON.stringify(raw))
+    assert.equal(openCache(path).isSlow("p/m-2.0"), false, "expired: worth one more probe")
+  } finally { rmSync(dir, { recursive: true, force: true }) }
 })
 
 test("a probe never inherits the caller's timeout", () => {
