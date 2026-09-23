@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { openCache, probeBudget, parseCatalog, successorOf, successorsOf, resolvePins, measuresCapability, ttlFor, FAILURE_TTL_MS, SUCCESS_TTL_MS } from "./catalog.ts"
+import { openCache, probeBudget, parseCatalog, successorOf, successorsOf, resolvePins, measuresCapability, ttlFor, FAILURE_TTL_MS, SUCCESS_TTL_MS, SLOW_TTL_MS } from "./catalog.ts"
 import { renderModelsProposal } from "./report.ts"
 
 test("the catalog flattens providers into provider/model ids", () => {
@@ -141,6 +141,42 @@ test("an unmeasured candidate with no probe budget leaves the pin alone, and say
   }
 })
 
+test("a slow probe is remembered as latency, never as incapability", async () => {
+  // Measured on this machine: opencode-go/mimo-v2.6-pro hit the 60s probe ceiling, yet
+  // answers a real schema call correctly in 28s. Too slow for a trivial probe is a fact
+  // about the clock; writing it down as ok:false would retire a model that works.
+  const dir = mkdtempSync(join(tmpdir(), "slow-"))
+  try {
+    const path = join(dir, "cap.json")
+    const cache = openCache(path)
+    const offered = ["p/m-1.0", "p/m-1.1", "p/m-2.0"]
+    const ctx = { serverUrl: "http://127.0.0.1:1" } // never reached: budget 0 is the proof
+
+    cache.recordSlow("p/m-2.0")
+    cache.record("p/m-1.1", "schema", { ok: true, ms: 50 })
+
+    // The slow record must not read back as a capability verdict of any kind.
+    assert.equal(cache.get("p/m-2.0", "schema"), undefined, "too slow is not incapable")
+
+    // And it is skipped without spending a probe: with NO budget at all the search still
+    // reaches the next candidate down. Were the slow candidate re-probed instead, budget 0
+    // would stop the search on it and report the pin unchecked.
+    const r = await resolvePins(ctx as any, ["p/m-1.0"], offered, { cache, budget: 0 })
+    assert.equal(r.map.get("p/m-1.0"), "p/m-1.1", "the slow candidate cost nothing")
+    assert.deepEqual(r.unchecked, [], "skipped, not deferred")
+
+    // Surviving the reopen is the entire point - otherwise the next run re-pays the 60s.
+    assert.equal(openCache(path).isSlow("p/m-2.0"), true)
+
+    // Aged past the window by rewriting the timestamp on disk, the same thing a day does:
+    // slow once is not slow forever, so it becomes worth one more probe.
+    const raw = JSON.parse(readFileSync(path, "utf8"))
+    raw._slow["p/m-2.0"] = Date.now() - SLOW_TTL_MS - 1000
+    writeFileSync(path, JSON.stringify(raw))
+    assert.equal(openCache(path).isSlow("p/m-2.0"), false, "expired: worth one more probe")
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
 test("a probe never inherits the caller's timeout", () => {
   // resolvePins runs on the first model call of the process, and that call may be the
   // implementer's - whose ctx carries IMPLEMENT_TIMEOUT_MS (10 min). A dead candidate
@@ -194,4 +230,24 @@ test("an entry with no timestamp is kept, not discarded", () => {
     writeFileSync(path, JSON.stringify({ "x/y": { schema: { ok: true, ms: 100 } } }))
     assert.equal(openCache(path).get("x/y", "schema")?.ok, true)
   } finally { rmSync(dir, { recursive: true, force: true }) }
+})
+
+test("probe() sends a timeout to the slow record, not to the capability verdict", () => {
+  // The gap this closes: the test above proves recordSlow() writes no verdict, and the
+  // resolvePins test proves a slow candidate is skipped - but nothing pinned the seam
+  // BETWEEN them, so probe() could route a timeout to cache.record() and both still pass.
+  // That mutation is exactly the bug this item exists to prevent: a 60s ceiling written
+  // down as ok:false, indistinguishable on disk from a model that answered wrongly.
+  const src = readFileSync(new URL("./catalog.ts", import.meta.url), "utf8")
+  const branch = src.slice(src.indexOf('} else if ((r as any).state === "timeout")'))
+  assert.match(
+    branch.slice(0, 120),
+    /cache\.recordSlow\(model\)/,
+    "a timed-out probe must be remembered as latency, never recorded as a capability result",
+  )
+  assert.doesNotMatch(
+    branch.slice(0, 120),
+    /cache\.record\(model,\s*kind/,
+    "recording a timeout as a capability verdict is the bug, not the fix",
+  )
 })
