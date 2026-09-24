@@ -1,0 +1,70 @@
+{
+  "id": "acceptance-panel-unjudged",
+  "title": "A panel with zero votes returns unjudged, never accepted",
+  "subject": {
+    "file": "src/ralph.ts",
+    "function": "judgePanel",
+    "signature": "judgePanel(votes: RoundVerdict[]): PanelResult"
+  },
+  "invariant": "When no judge could be reached, judgePanel returns accepted:false with unjudged:true. 'Nobody looked' and 'the panel confirmed it' are different facts and must stay distinguishable in the returned PanelResult.",
+  "why": "The burden is on the claim, not on the doubters. A worker asserting it is finished is the interested party; a judge saying otherwise has nothing to gain. If an empty vote list fell through to the accept branch, a run where every judge model was unreachable would record a false completion — the exact failure the completion contract exists to prevent. The unjudged flag is what lets callers treat 'unverified' differently from 'verified': checkAcceptance in src/lets.ts reads it to fail sensitive items (requiresIndependentAcceptance) that a non-sensitive item would be allowed to pass.",
+  "cases": [
+    {
+      "name": "zero votes is unjudged, not accepted",
+      "given": { "votes": [] },
+      "expect": {
+        "accepted": false,
+        "unjudged": true,
+        "votes": [],
+        "reason_contains": "unverified, not verified"
+      },
+      "must_not": "accepted:true via a vacuous majority — an empty list has zero votes against, so any 'no rejections means accepted' rule silently passes it"
+    },
+    {
+      "name": "a real panel that agrees is accepted and is NOT flagged unjudged",
+      "given": {
+        "votes": [
+          { "met": true, "confidence": "high", "reason": "acceptance criteria all demonstrated in the diff", "judge": "a" },
+          { "met": true, "confidence": "medium", "reason": "matches the stated objective", "judge": "b" }
+        ]
+      },
+      "expect": {
+        "accepted": true,
+        "unjudged": "absent",
+        "reason_contains": "2 of 2 judges confirm"
+      },
+      "must_not": "setting unjudged on a panel that did run, which would make the flag useless for telling the two states apart"
+    },
+    {
+      "name": "one high-confidence rejection outweighs a majority in favour",
+      "given": {
+        "votes": [
+          { "met": true, "confidence": "medium", "reason": "looks complete", "judge": "a" },
+          { "met": true, "confidence": "medium", "reason": "looks complete", "judge": "b" },
+          { "met": false, "confidence": "high", "reason": "the migration step is missing entirely", "judge": "c" }
+        ]
+      },
+      "expect": {
+        "accepted": false,
+        "unjudged": "absent",
+        "reason_contains": "c rejects with high confidence"
+      },
+      "must_not": "counting votes 2-1 and accepting — one judge who can point at what is missing outweighs a majority who did not notice"
+    },
+    {
+      "name": "an even split does not carry the claim",
+      "given": {
+        "votes": [
+          { "met": true, "confidence": "medium", "reason": "done", "judge": "a" },
+          { "met": false, "confidence": "low", "reason": "tests were not run", "judge": "b" }
+        ]
+      },
+      "expect": {
+        "accepted": false,
+        "reason_contains": "1 of 2 judges reject"
+      },
+      "must_not": "treating a tie as consensus. The comparison is `against.length * 2 >= votes.length`, deliberately >= and not >: the cost of continuing a round that was already finished is one wasted round, the cost of accepting one that was not is a false completion in the permanent record"
+    }
+  ],
+  "regression_signature": "Any refactor that folds the votes.length === 0 branch into the majority arithmetic, or that drops `unjudged` from PanelResult. Both make an unreachable panel indistinguishable from a unanimous one."
+}

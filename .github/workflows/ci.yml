@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+# A second push to the same branch makes the earlier run irrelevant.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: typecheck + tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          # The plugin runs under Node 24 (strip-only TypeScript, node --test).
+          node-version: '24'
+
+      # `npm install`, not `npm ci`: this repo does not guarantee a lockfile that
+      # is in sync with package.json, and `npm ci` hard-fails on that mismatch.
+      - name: Install dependencies
+        run: npm install
+
+      # Full type checking. Not `syntaxcheck` (tsc --noCheck), which only parses.
+      - name: Typecheck
+        run: npm run typecheck
+
+      # node --test over src/*.test.ts — the project's real test entrypoint.
+      - name: Test
+        run: npm test

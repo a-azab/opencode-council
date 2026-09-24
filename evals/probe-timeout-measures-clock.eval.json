@@ -1,0 +1,50 @@
+{
+  "id": "probe-timeout-measures-clock",
+  "title": "A probe that timed out measured the clock, not the model",
+  "subject": {
+    "file": "src/catalog.ts",
+    "function": "probe",
+    "signature": "probe(ctx: Ctx, model: string, kind: Kind = \"schema\", cache = openCache()): Promise<Entry | undefined>"
+  },
+  "invariant": "probe writes a durable catalog entry via cache.record only when the call succeeded (r.ok) or when measuresCapability(state) is true. A timeout takes the separate cache.recordSlow path and is never recorded as a schema result. Anything else that failed is not written down at all.",
+  "why": "The 60s probe ceiling was being written to disk as `{ ok: false, ms: 60283 }` — once stored, indistinguishable from a model that answered and got the schema wrong. Two different facts collapsing into one row is how a working model gets retired for being slow once. The probe runs under its own bounded context (timeoutMs 60_000, maxAttempts 1, retryTimeout false) precisely so the ceiling is a known quantity rather than an inherited one; recording the ceiling as a capability would make that bound self-defeating.",
+  "cases": [
+    {
+      "name": "a successful probe is recorded",
+      "given": { "ask_result": { "ok": true, "ms": 820 } },
+      "expect": { "cache.record": { "ok": true, "ms": 820 }, "cache.recordSlow": "not called" },
+      "must_not": "discarding a good measurement and re-probing on every run"
+    },
+    {
+      "name": "a malformed answer is recorded as a capability fact",
+      "given": { "ask_result": { "ok": false, "state": "malformed", "ms": 940 } },
+      "expect": { "cache.record": { "ok": false, "ms": 940 }, "cache.recordSlow": "not called" },
+      "must_not": "re-probing a model forever when the call itself already settled the question"
+    },
+    {
+      "name": "a timeout is recorded as slow, never as a schema verdict",
+      "given": { "ask_result": { "ok": false, "state": "timeout", "ms": 60283 } },
+      "expect": { "cache.record": "not called", "cache.recordSlow": { "model": "<the probed model>" } },
+      "must_not": "cache.record({ ok: false, ms: 60283 }) — a row that reads, forever, as 'this model cannot produce schema output' when all that happened is that 60 seconds elapsed"
+    },
+    {
+      "name": "a provider failure is not written down at all",
+      "given": { "ask_result": { "ok": false, "state": "failed", "ms": 300 } },
+      "expect": { "cache.record": "not called", "cache.recordSlow": "not called" },
+      "must_not": "persisting provider weather as a model property"
+    },
+    {
+      "name": "a cached answer short-circuits before any model call",
+      "given": { "cache_hit": { "ok": true, "ms": 700, "at": 1758600000000 } },
+      "expect": { "ask": "not called", "returns": "the cached entry" },
+      "must_not": "spending a live model call to re-derive something already known — each probe is a full call, and the day half the providers are down is when probing is most tempting and least useful"
+    },
+    {
+      "name": "only schema is probed; agentic reads the cache and stays unknown otherwise",
+      "given": { "kind": "agentic", "cache_hit": null },
+      "expect": { "ask": "not called", "returns": "undefined" },
+      "must_not": "inferring agentic capability from the schema result — musespark and deepseek pass agentic while failing schema, so neither is evidence of the other"
+    }
+  ],
+  "regression_signature": "The `else if (state === \"timeout\") cache.recordSlow(model)` branch merged back into the record() call, or the record() guard widened past `r.ok || measuresCapability(state)`. Either one puts the probe's own ceiling into the catalog as a model capability."
+}

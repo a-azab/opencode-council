@@ -1,0 +1,10 @@
+# CODEOWNERS — routes review requests on every pull request.
+#
+# Syntax: <path pattern> <owner>. The LAST matching pattern wins, so the
+# catch-all sits first and any narrower rule added below it takes precedence.
+#
+# This repo has a single maintainer, so one catch-all covers everything.
+# When the project grows more maintainers, add narrower rules underneath
+# (for example: `/src/council/ @someone-else`).
+
+* @azab

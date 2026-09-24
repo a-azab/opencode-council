@@ -7,3 +7,12 @@ council-artifacts/
 # Local session state: snapshots and the task pointer are per-machine recovery notes,
 # not shared history. Un-ignore deliberately if your team wants them in the repo.
 .lets/
+
+# Secrets. This plugin drives provider APIs, so a stray key here is a live credential,
+# not a config typo. Ignore the whole .env family rather than named files: the leak is
+# always the variant nobody thought to list (.env.local, .env.production.local).
+.env
+.env.*
+!.env.example
+*.pem
+*.key

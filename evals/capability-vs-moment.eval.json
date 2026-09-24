@@ -1,0 +1,49 @@
+{
+  "id": "capability-vs-moment",
+  "title": "A provider 500 is a fact about the world, not about the model",
+  "subject": {
+    "file": "src/catalog.ts",
+    "function": "measuresCapability",
+    "signature": "measuresCapability(state: NodeState): boolean"
+  },
+  "invariant": "Only the 'malformed' state is a capability fact. Every other failure state — failed, timeout, ratelimited, autherror — describes one instant in the world and must return false, so it is never written to the catalog as evidence the model cannot produce schema output.",
+  "why": "Measured 2026-09-23, hours apart: opencode/big-pickle refused with 'free tier can only be used from within OpenCode' and then answered normally; zai-coding-plan/glm-5.2 was 429 for a five-hour quota window and then answered normally. The previous rule recorded any `failed` as incapable, and would have permanently retired both. The retirement is one-way: nothing re-probes a model the cache has written off, so a single bad minute removes it from every future run with no path back. 'malformed' is different in kind — the model answered, and the answer did not satisfy the schema. That is the model, and it is the only one of the states where the call itself is the measurement.",
+  "cases": [
+    {
+      "name": "malformed is the one capability fact",
+      "given": { "state": "malformed" },
+      "expect": { "returns": true },
+      "must_not": "treating a schema violation as a transient blip and re-probing forever — the model answered, and got it wrong"
+    },
+    {
+      "name": "a provider 500 is not a capability fact",
+      "given": { "state": "failed" },
+      "expect": { "returns": false },
+      "must_not": "recording ok:false in the catalog for a model that was working an hour earlier and will work an hour later"
+    },
+    {
+      "name": "a timeout is not a capability fact",
+      "given": { "state": "timeout" },
+      "expect": { "returns": false },
+      "must_not": "writing the 60s probe ceiling down as a model that cannot do schema output"
+    },
+    {
+      "name": "a quota window is not a capability fact",
+      "given": { "state": "ratelimited" },
+      "expect": { "returns": false },
+      "must_not": "retiring a model for the duration of someone's billing period, permanently"
+    },
+    {
+      "name": "an expired token is not a capability fact",
+      "given": { "state": "autherror" },
+      "expect": { "returns": false },
+      "must_not": "blaming the model for the operator's credentials"
+    }
+  ],
+  "related_invariant": {
+    "subject": { "file": "src/catalog.ts", "constants": ["SUCCESS_TTL_MS", "FAILURE_TTL_MS", "ttlFor"] },
+    "rule": "SUCCESS_TTL_MS is 7 days, FAILURE_TTL_MS is 1 day. The asymmetry is deliberate and must survive refactors: a stale 'works' costs one wasted call and then self-corrects, because the failure contradicts the entry and the next run re-probes. A stale 'dead' costs the model forever. The expensive direction gets the short fuse.",
+    "must_not": "equalising the two TTLs for tidiness"
+  },
+  "regression_signature": "measuresCapability widened to `state !== \"ok\"` or to include \"failed\"/\"timeout\"; or FAILURE_TTL_MS raised to meet SUCCESS_TTL_MS. Either change silently converts transient provider weather into permanent model retirement."
+}

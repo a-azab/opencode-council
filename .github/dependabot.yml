@@ -1,0 +1,30 @@
+# Automated dependency updates.
+#
+# The runtime surface here is small (zod at runtime; typescript and @types/node
+# for development), so weekly batched PRs are enough noise to stay current
+# without flooding review.
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: deps
+      prefix-development: deps(dev)
+    groups:
+      # Toolchain bumps land together: they are verified by the same CI run.
+      dev-dependencies:
+        dependency-type: development
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: ci

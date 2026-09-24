@@ -1,0 +1,76 @@
+{
+  "id": "judge-evidence-attachment",
+  "title": "A judge asked to prove a claim about a file absent from the diff must be shown that file",
+  "subject": {
+    "file": "src/lets.ts",
+    "function": "evidencePaths",
+    "signature": "evidencePaths(acceptance: string, diff: string, worktree: string): string[]"
+  },
+  "invariant": "evidencePaths returns the files an item's acceptance criteria name that the diff does not contain, restricted to paths that exist, resolve inside the worktree, and are regular files. Those files are attached to the judge prompt so an unanswerable question becomes an answerable one. Paths already visible in the diff, paths that do not exist, and anything escaping the worktree are excluded.",
+  "why": "Measured 2026-09-22: a 57-line README item was rejected five times by five different judges. Its criterion was 'no claim contradicts src/' — and a docs diff contains no src/, so every judge correctly reported it could not see the evidence and voted against. Reviewing by hand, the first four rejections were fair and the fifth was not; the item was right and the judge was blind. A conscientious judge asked to prove something from material it was never given votes no, which means the harness was burning attempts on correct work. Attaching the named files fixes the question, not the judge.",
+  "cases": [
+    {
+      "name": "a file named in the criteria but absent from the diff is attached",
+      "given": {
+        "acceptance": "every claim matches src/lets.ts and src/ralph.ts",
+        "diff": "<a docs-only diff touching neither file>",
+        "worktree": "<repo root>"
+      },
+      "expect": { "returns_contains": ["src/lets.ts", "src/ralph.ts"] },
+      "must_not": "returning [] and leaving the judge to vote on material it was never shown"
+    },
+    {
+      "name": "a file the diff already shows is not attached",
+      "given": {
+        "acceptance": "src/lets.ts must export it",
+        "diff": "<a diff containing b/src/lets.ts>",
+        "worktree": "<repo root>"
+      },
+      "expect": { "returns": [] },
+      "must_not": "duplicating content the judge can already read in the diff, spending the MAX_EVIDENCE_CHARS budget on it"
+    },
+    {
+      "name": "a named file that does not exist is NOT attached",
+      "given": {
+        "acceptance": "src/does-not-exist.ts is updated",
+        "diff": "",
+        "worktree": "<repo root>"
+      },
+      "expect": { "returns": [] },
+      "must_not": "inventing or stubbing the file. A criterion naming a file that is not there is a real failure, and the judge should still reject on it"
+    },
+    {
+      "name": "a bare directory is not a path",
+      "given": {
+        "acceptance": "no claim contradicts src/",
+        "diff": "",
+        "worktree": "<repo root>"
+      },
+      "expect": { "returns": [] },
+      "must_not": "attaching a whole tree. The token pattern deliberately requires a slash AND an extension — a directory dump is not evidence, it is noise that crowds out the diff"
+    },
+    {
+      "name": "no worktree means nothing is attached",
+      "given": { "worktree": null },
+      "expect": { "attached": [], "evidence_block": "" },
+      "must_not": "failing the item. Absent a worktree the judge is no worse off than before the mechanism existed"
+    },
+    {
+      "name": "duplicates collapse and paths cannot escape the worktree",
+      "given": {
+        "acceptance": "src/lets.ts and ./src/lets.ts and ../../etc/passwd",
+        "diff": "",
+        "worktree": "<repo root>"
+      },
+      "expect": { "returns": ["src/lets.ts"] },
+      "must_not": "attaching the same file twice, or reading anything outside the worktree into a model prompt"
+    }
+  ],
+  "budget_invariant": {
+    "constant": "MAX_EVIDENCE_CHARS = 24_000",
+    "rule": "Attached evidence is capped across all files. A file too large to attach whole is reduced by outline() to exported declarations and doc headings only — signatures and comment headings, never bodies.",
+    "why": "Measured 2026-09-23: src/lets.ts is 132KB, five times the whole evidence budget, so the honest 'NOT SHOWN' it got was useless to a judge asked whether a README contradicts it. Its declarations are 4KB and answer the question actually being asked.",
+    "must_not": "a summary that keeps some logic and drops the rest — that invites a judge to reason about code it cannot see, which is the failure this mechanism exists to prevent"
+  },
+  "regression_signature": "The token pattern loosened to accept bare directories, the statSync existence check removed so named-but-absent files get attached as empty, or the worktree prefix check dropped. The first two turn evidence into noise; the third reads arbitrary files into a model prompt."
+}
