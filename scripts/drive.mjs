@@ -76,6 +76,9 @@ let lastParts = null
 let lastError = ""
 console.log(`polling every ${POLL_S}s, ceiling ${MAX_MIN}m — the run outlives this script if it dies`)
 
+// Hoisted: the ceiling check below must tell a turn that FINISHED from one that merely
+// ran out of watching time, or it aborts a healthy session it should have left alone.
+let finished = false
 while (Date.now() < deadline) {
   await sleep(POLL_S * 1000)
 
@@ -108,7 +111,7 @@ while (Date.now() < deadline) {
     // that combination then polls to the ceiling instead of reporting the empty answer.
     const tail = turn[turn.length - 1]
     const tailInfo = tail?.info ?? tail
-    if (tailInfo?.role === "assistant" && tailInfo?.time?.completed) done = true
+    if (tailInfo?.role === "assistant" && tailInfo?.time?.completed) done = finished = true
     if (texts.length > lastPrinted) {
       process.stdout.write(texts.slice(lastPrinted))
       lastPrinted = texts.length
@@ -161,4 +164,31 @@ while (Date.now() < deadline) {
 
 const settled = await Promise.race([inflight, sleep(1000).then(() => null)])
 if (settled && !settled.ok) console.log(`(the POST connection ended as ${settled.text} — expected on long runs)`)
-if (Date.now() >= deadline) console.log(`\n--- drive ceiling ${MAX_MIN}m reached; the run may still be going ---`)
+
+// Hitting the ceiling means we stopped WATCHING, not that the work stopped. The session
+// keeps its turn open server-side, and a turn waiting on something that never comes - a
+// permission prompt with nobody to answer it, in a headless session - waits forever.
+//
+// Measured 2026-09-23: three sessions sat with a `bash` tool in state `running` for over
+// an hour, all on the same command, because the driver exited at its ceiling and nothing
+// ever told the session to stop. Killing the driver does NOT reach them: it is a viewer,
+// and this banner says as much on every run.
+//
+// So the driver ends what it started. Only on the ceiling path: a turn that completed on
+// its own is finished already, and aborting a healthy session would throw away the run
+// this script exists to watch.
+if (!finished) {
+  console.log(`\n--- drive ceiling ${MAX_MIN}m reached ---`)
+  try {
+    const r = await fetch(`${BASE}/session/${session.id}/abort${q}`, { method: "POST", headers: H })
+    console.log(
+      r.ok
+        ? `    aborted the session's open turn (HTTP ${r.status}) so it cannot sit waiting forever.\n` +
+            `    The work it already did is committed and its artifacts are on disk.`
+        : `    COULD NOT abort the open turn (HTTP ${r.status}) — check it by hand:\n` +
+            `    curl -X POST "${BASE}/session/${session.id}/abort" -u <user>:<pass>`,
+    )
+  } catch (e) {
+    console.log(`    COULD NOT abort the open turn (${String(e?.message ?? e).slice(0, 80)}) — check it by hand.`)
+  }
+}
