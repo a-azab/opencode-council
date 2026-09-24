@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url"
 import { dirname, join, basename, relative, resolve } from "node:path"
 import { execFileSync } from "node:child_process"
 import { z } from "zod"
-import { runReview, runFix, runPlan, runIndependent, runTask, councilArgs, autoUpdate, type NodeState } from "./engine.ts"
+import { runReview, runFix, runPlan, runIndependent, runTask, ask, councilArgs, autoUpdate, type NodeState } from "./engine.ts"
 import { localMcpServers } from "./mcp.ts"
 import { activeTaskId } from "./beads.ts"
 import { issueIdentifierIn } from "./linear.ts"
@@ -34,8 +34,10 @@ import {
   type CrewResult, type CrewTask,
   withProgress, progressLine,
 } from "./crew-org.ts"
-import { ROSTER, type Role } from "./roster.ts"
+import { ROSTER, skepticPool, type Role } from "./roster.ts"
 import { refusalFor, readGuardSettings, isPluginSession } from "./hooks.ts"
+import { runLoop, renderLoop, councilJudge, ROUND_SCHEMA } from "./ralph.ts"
+import { ROUND_VERDICT_SCHEMA } from "./schema.ts"
 import {
   catalog, probe, probeBudget, upgradeCandidates, resolvePins, openCache, measuresCapability,
   type Result, type Adoption,
@@ -227,6 +229,35 @@ function ctxFor(input: any) {
  */
 function artifactRoot(repoRoot: string): string {
   return join(repoRoot, "council-artifacts")
+}
+
+/**
+ * Judges on a loop round's completion claim. Mirrors lets' ACCEPTANCE_PANEL: three is
+ * enough for a majority to mean something and cheap enough that verifying a round costs
+ * less than the round did.
+ */
+const ACCEPTANCE_PANEL_SIZE = 3
+
+/**
+ * Wall clock for a whole loop. Rounds hold `edit` and `bash`, so an unbounded loop is an
+ * unbounded agent on the user's machine - the ceiling is the difference between a long
+ * run and one nobody can stop.
+ */
+const LOOP_MAX_SECONDS = 45 * 60
+
+/**
+ * The working tree's diff, for judges.
+ *
+ * Never throws: a judge panel that cannot read a diff must vote on an empty one and say so,
+ * which is a verdict. A thrown error here would instead take down the loop that produced
+ * real work, turning "I could not see the evidence" into "the run failed".
+ */
+function safeDiff(root: string): string {
+  try {
+    return execFileSync("git", ["-C", root, "diff", "HEAD"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+  } catch {
+    return ""
+  }
 }
 
 function artifactDir(repoRoot: string, kind: string): string {
@@ -1200,13 +1231,14 @@ export const CouncilPlugin = async (input: any) => ({
         "scored best with its dissent attached. Use /council:check for a fast inline pass instead.",
       args: {
         mode: z
-          .enum(["review", "fix", "plan", "independent", "task", "models"])
+          .enum(["review", "fix", "plan", "independent", "task", "models", "loop"])
           .default("review")
           .describe(
             "review = the graph; fix = verified patches; plan = proposal vote; " +
               "task = one answer, cross-scored, dissent kept; " +
               "independent = every model answers alone, unmerged; " +
-              "models = what this server offers that the roster does not pin, measured and proposed, never adopted. " +
+              "models = what this server offers that the roster does not pin, measured and proposed, never adopted; " +
+              "loop = bounded rounds of real work, each round's completion claim put to independent judges. " +
               "To BUILD something, use the `lets` tool.",
           ),
         base: z.string().default("HEAD").describe("git ref to diff against (review/fix only)"),
@@ -1215,13 +1247,18 @@ export const CouncilPlugin = async (input: any) => ({
           .string()
           .default("")
           .describe("supporting material the models should read as data (task, independent)"),
+        rounds: z
+          .number()
+          .default(3)
+          .describe("loop only: how many rounds at most (1-8). A round that claims complete still faces judges."),
       },
       async execute(
         args: {
-          mode?: "review" | "fix" | "plan" | "independent" | "task" | "models"
+          mode?: "review" | "fix" | "plan" | "independent" | "task" | "models" | "loop"
           base?: string
           goal?: string
           context?: string
+          rounds?: number
         },
         context: any,
       ) {
@@ -1277,6 +1314,82 @@ export const CouncilPlugin = async (input: any) => ({
               : "",
             ``,
             `Full answer: ${path}`,
+          ]
+            .filter(Boolean)
+            .join("\n")
+        }
+
+        // A loop is not a diff either. It resolves here with the other non-review modes.
+        if (args?.mode === "loop") {
+          const goal = (args.goal ?? "").trim()
+          if (!goal) return "No goal given. `loop` needs one — that is what the rounds work toward."
+
+          // The round worker holds edit and bash, so every session it opens is registered
+          // and the runtime guard applies to it. A loop is the longest-running thing this
+          // plugin starts; an unguarded one is the worst place to discover that.
+          const worker = ROSTER.find((m) => m.roles.includes("architect")) ?? ROSTER[0]
+          const judges = skepticPool([worker.slug], ACCEPTANCE_PANEL_SIZE)
+
+          const maxRounds = Math.min(Math.max(args.rounds ?? 3, 1), 8)
+          const result = await runLoop({
+            objective: goal,
+            maxRounds,
+            instructions: args.context,
+            // No round may start after this. A round in flight is never cut off - killing
+            // a worker mid-edit leaves a tree the next round has to diagnose.
+            deadline: Date.now() + LOOP_MAX_SECONDS * 1000,
+            // Streamed, not collected: a loop can run for 45 minutes and a caller watching
+            // a silent tool cannot tell a working round from a hung one.
+            onRound: (round, report, reason) =>
+              context?.log?.(`  round ${round}/${maxRounds}: ${report ? report.status : `no report (${reason ?? "unknown"})`}`),
+            runRound: async (prompt) => {
+              const r = await ask<unknown>(ctx, {
+                model: worker.model,
+                agent: "build",
+                text: prompt,
+                schema: ROUND_SCHEMA,
+                directory: cwd,
+                allow: ["edit", "bash"],
+              })
+              // null is "no usable answer" and the loop treats it as a failed round. An
+              // error object would be validated as a report and rejected for the wrong
+              // reason, which reads in the log as a model that answered badly rather than
+              // one that did not answer.
+              return r.ok ? r.value : null
+            },
+            // Without this a worker's own "complete" ends the loop on its own say-so -
+            // the self-report this plugin refuses to accept anywhere else.
+            judge: async (report) =>
+              councilJudge({
+                report,
+                objective: goal,
+                diff: safeDiff(cwd),
+                exclude: [worker.slug],
+                judges: judges.map((j) => ({ slug: j.slug, model: j.model })),
+                ask: (model, agent, text, schema) =>
+                  ask<unknown>(ctx, { model, agent, text, schema }).then((r) =>
+                    r.ok ? { ok: true as const, value: r.value } : { ok: false as const },
+                  ),
+                schema: ROUND_VERDICT_SCHEMA,
+              }),
+          })
+
+          const dir = artifactDir(cwd, "loop")
+          const path = join(dir, "loop.md")
+          writeFileSync(path, renderLoop(result))
+          writeFileSync(join(dir, "loop.json"), JSON.stringify(result, null, 2))
+          return [
+            `${result.status} after ${result.rounds} round(s) · worker ${worker.slug} · ${judges.length} judge(s)`,
+            // Said here as well as in the artifact: the difference between a claim and a
+            // claim that survived judges is the whole point of running a panel, and a
+            // caller who reads only this line would otherwise never learn which they got.
+            result.status === "complete"
+              ? result.panel?.accepted
+                ? `confirmed independently: ${result.panel.reason}`
+                : "the worker's own account — NOT independently verified"
+              : "",
+            ``,
+            `Full loop: ${path}`,
           ]
             .filter(Boolean)
             .join("\n")

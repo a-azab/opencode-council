@@ -1,6 +1,6 @@
 import { test } from "node:test"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync } from "node:fs"
 import { execFileSync } from "node:child_process"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -259,4 +259,43 @@ test("init refuses mcp wiring whose server is not configured", async () => {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test("the council tool offers loop, and a loop without a goal is refused", async () => {
+  // The wiring test the dead code never had. runLoop, renderLoop and councilJudge were
+  // built, tested and documented for weeks with zero production callers - the loop
+  // contract shipped while the loop itself was unreachable. This asserts the mode is
+  // actually reachable from the tool surface, which is the property that was missing.
+  const p = await plugin({ directory: process.cwd() })
+  const council = (p.tool as Record<string, any>).council
+  assert.ok(council, "the council tool exists")
+
+  // Asserted by PARSING rather than by reading zod's internals: `_def` is zod v3's shape
+  // and this is zod v4 (`.def`), so a structural assertion here breaks on a dependency
+  // bump while the tool still works perfectly. What callers care about is whether the
+  // schema accepts the value.
+  assert.equal(council.args.mode.parse("loop"), "loop", "loop is an accepted mode")
+  assert.throws(() => council.args.mode.parse("nonsense"), "the enum still rejects unknown modes")
+
+  const out = await council.execute({ mode: "loop", goal: "   " }, { directory: process.cwd() })
+  assert.match(out, /needs one/, "a loop with no goal is refused before any model is called")
+})
+
+test("the loop's round worker is granted edit and bash, and its judges are not", async () => {
+  // Read from source: the loop is the longest-running thing this plugin starts, and the
+  // asymmetry is the point. The worker changes the tree; a judge that could change the
+  // tree could edit its way to agreeing with itself.
+  const src = readFileSync(new URL("./index.ts", import.meta.url), "utf8")
+  const start = src.indexOf('if (args?.mode === "loop")')
+  const end = src.indexOf('if (args?.mode === "models")', start)
+  assert.ok(start > 0 && end > start, "the loop block precedes the models block")
+  const loop = src.slice(start, end)
+  assert.ok(loop.length > 200, "found the loop mode block")
+
+  assert.match(loop, /allow: \["edit", "bash"\]/, "the round worker can actually do work")
+  assert.match(loop, /exclude: \[worker\.slug\]/, "the worker never judges its own completion")
+  assert.match(loop, /deadline:/, "an unbounded loop is an unbounded agent on the user's machine")
+
+  const judgeCall = loop.slice(loop.indexOf("judge: async"))
+  assert.ok(!/allow:/.test(judgeCall), "judges are read-only: no allow list on the judging ask")
 })

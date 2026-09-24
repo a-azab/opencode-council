@@ -231,10 +231,6 @@ export type AskOpts = {
  */
 let PINS: Map<string, string> = new Map()
 
-export function setPins(m: Map<string, string>): void {
-  PINS = m
-}
-
 /**
  * How the overlay gets built, injected rather than imported.
  *
