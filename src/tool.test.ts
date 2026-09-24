@@ -298,4 +298,16 @@ test("the loop's round worker is granted edit and bash, and its judges are not",
 
   const judgeCall = loop.slice(loop.indexOf("judge: async"))
   assert.ok(!/allow:/.test(judgeCall), "judges are read-only: no allow list on the judging ask")
+
+  // The failure reason must be RECORDED, not merely declared. Caught by mutation: deleting
+  // the assignment left every test green and typecheck clean, because `lastFailure` would
+  // still be passed - just permanently undefined - and the loop would silently go back to
+  // reporting "no usable answer" for every kind of nothing. That is the exact production
+  // bug this wiring exists to fix, so the seam needs its own assertion.
+  assert.match(loop, /lastFailure: \(\) => lastRoundFailure/, "the loop is given the reason getter")
+  assert.match(
+    loop,
+    /lastRoundFailure = r\.ok \? undefined : /,
+    "and the ask's failure is actually recorded into it, cleared on success",
+  )
 })

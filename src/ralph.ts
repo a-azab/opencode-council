@@ -314,6 +314,14 @@ export async function runLoop(input: {
    * production loop, 2026-09-24.
    */
   judgeCount?: number
+  /**
+   * Why the last round produced nothing, if the caller knows.
+   *
+   * runRound returns `null` for every kind of nothing: rate-limited, timed out, refused,
+   * unparseable. The loop deliberately cannot see inside that call - that is what keeps it
+   * testable without a network - so the reason has to come from the caller, which holds it.
+   */
+  lastFailure?: () => string | undefined
   instructions?: string
   extra?: string
   maxHandoffChars?: number
@@ -356,12 +364,20 @@ export async function runLoop(input: {
 
     const raw = await input.runRound(prompt, round)
     if (raw === null || raw === undefined) {
-      say(round, null, "no answer")
+      // WHY it produced nothing, when the caller can say. Measured in production
+      // 2026-09-24: a loop ended with the artifact reading only "a round produced no
+      // usable answer", which is every failure at once - rate-limited, timed out,
+      // refused, or answered with unparseable JSON. Those need opposite responses, and
+      // the one that had happened (a transient provider failure) was indistinguishable
+      // from a bug in this plugin. The loop cannot know the reason itself; the caller
+      // holds it, so it is asked rather than guessed.
+      const why = input.lastFailure?.()
+      say(round, null, why ?? "no answer")
       return {
         status: "round-failed",
         rounds: round,
         ...(previous ? { report: previous } : {}),
-        detail: "a round produced no usable answer",
+        detail: why ? `a round produced no usable answer: ${why}` : "a round produced no usable answer",
         history,
       }
     }

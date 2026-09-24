@@ -1330,6 +1330,7 @@ export const CouncilPlugin = async (input: any) => ({
           const worker = ROSTER.find((m) => m.roles.includes("architect")) ?? ROSTER[0]
           const judges = skepticPool([worker.slug], ACCEPTANCE_PANEL_SIZE)
 
+          let lastRoundFailure: string | undefined
           const maxRounds = Math.min(Math.max(args.rounds ?? 3, 1), 8)
           const result = await runLoop({
             objective: goal,
@@ -1342,6 +1343,10 @@ export const CouncilPlugin = async (input: any) => ({
             // a silent tool cannot tell a working round from a hung one.
             onRound: (round, report, reason) =>
               context?.log?.(`  round ${round}/${maxRounds}: ${report ? report.status : `no report (${reason ?? "unknown"})`}`),
+            // Remembered so a failed round can say WHY. `ask` reports the state and
+            // detail; runRound's contract is a nullable value, so the reason would be
+            // dropped on the floor between them.
+            lastFailure: () => lastRoundFailure,
             runRound: async (prompt) => {
               const r = await ask<unknown>(ctx, {
                 model: worker.model,
@@ -1351,6 +1356,7 @@ export const CouncilPlugin = async (input: any) => ({
                 directory: cwd,
                 allow: ["edit", "bash"],
               })
+              lastRoundFailure = r.ok ? undefined : `${r.state}: ${String(r.detail).slice(0, 200)}`
               // null is "no usable answer" and the loop treats it as a failed round. An
               // error object would be validated as a report and rejected for the wrong
               // reason, which reads in the log as a model that answered badly rather than

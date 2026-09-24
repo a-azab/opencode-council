@@ -539,3 +539,24 @@ test("a panel that lost judges to an outage says so, rather than reading as unan
   const against: RoundVerdict[] = [{ met: false, confidence: "low", reason: "not done", judge: "minimax" }]
   assert.match(judgePanel(against, 3).reason, /did not answer/)
 })
+
+test("a failed round says why, when the caller knows why", async () => {
+  // Measured in production 2026-09-24: a loop ended and its artifact read, in full,
+  // "a round produced no usable answer". That sentence covers rate-limited, timed out,
+  // refused and unparseable-JSON alike - failures needing opposite responses - so the
+  // transient provider error that had actually happened was indistinguishable from a
+  // bug in this plugin. The loop cannot see inside runRound by design; the caller can.
+  const withReason = await runLoop({
+    objective: "x",
+    maxRounds: 2,
+    runRound: async () => null,
+    lastFailure: () => "ratelimit: 429 from the provider",
+  })
+  assert.equal(withReason.status, "round-failed")
+  assert.match(withReason.detail ?? "", /ratelimit: 429/, "the reason reaches the artifact")
+
+  // A caller that cannot say keeps the old wording rather than inventing a cause.
+  const without = await runLoop({ objective: "x", maxRounds: 2, runRound: async () => null })
+  assert.equal(without.status, "round-failed")
+  assert.equal(without.detail, "a round produced no usable answer")
+})
