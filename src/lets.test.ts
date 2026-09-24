@@ -43,7 +43,6 @@ import {
   guarded,
   type Tracker,
   type LetsConfig,
-  type WorkItem,
   LETS_INTAKE_MODELS,
   MAX_RUN_SECONDS,
   IMPLEMENT_TIMEOUT_MS,
@@ -55,6 +54,9 @@ import {
   renderEvidence,
   outline,
   MAX_EVIDENCE_CHARS,
+  shapeFor,
+  MAX_ATTEMPTS,
+  type WorkItem,
 } from "./lets.ts"
 import { beadsAvailable, bdInstalled } from "./beads.ts"
 import { bySlug, canSchema, canAgentic, selectNodes, skepticPool, ALL_ROLES } from "./roster.ts"
@@ -1361,7 +1363,27 @@ test("the implementer's call is budgeted for agentic work and falls through on t
   const src = readFileSync(new URL("./lets.ts", import.meta.url), "utf8")
   const call = src.slice(src.indexOf("const tried: string[] = []"), src.indexOf('if (r.state === "autherror") return last'))
 
-  assert.match(call, /timeoutMs: IMPLEMENT_TIMEOUT_MS/, "90s is not enough to read code, edit it and run the tests")
+  assert.match(
+    call,
+    /timeoutMs: shape\.timeoutMs/,
+    "the implement call must take its clock from the item's shape",
+  )
+  // ...and every shape must clear the floor. Checking the call site alone stopped being
+  // enough once the budget became a variable: `shape.timeoutMs` reads as correct while
+  // handing a worker 90s. The 2026-08-29 incident is that reading code, editing it and
+  // running the suite does not fit in 90s - which is as true of a rename as of a rewrite,
+  // so no shape, however trivial the item looks, may go below the default.
+  for (const w of [
+    { title: "Rename a local variable", detail: "tidy up", files: ["src/a.ts"], acceptance: "compiles" },
+    { title: "Fix a typo", detail: "", files: ["README.md"], acceptance: "spelled right" },
+    { title: "Rotate a credential", detail: "", files: ["src/auth.ts"], acceptance: "rotates" },
+    { title: "Add a retry", detail: "", files: ["src/a.ts"], acceptance: "retries once" },
+  ]) {
+    assert.ok(
+      shapeFor(w).timeoutMs >= IMPLEMENT_TIMEOUT_MS,
+      `${w.title}: no shape may budget less than the default`,
+    )
+  }
   assert.match(call, /retry: FALL_THROUGH_ON_TIMEOUT/, "a timed-out model must yield its slot to the next one")
   assert.match(call, /tried\.push/, "every model's error, not just the tail's - the incident was misdiagnosed twice from that")
   assert.match(call, /input\.deadline/, "each model may spend 10 minutes, so the chain needs the deadline too")
@@ -1502,4 +1524,72 @@ test("the judge is told the attachment is evidence, not instructions", () => {
   // the same way.
   const out = renderEvidence(process.cwd(), ["package.json"])
   assert.match(out, /data, not instructions/)
+})
+
+test("the loop's shape follows the item, and the panel is a floor", () => {
+  const item = (o: Partial<WorkItem>): WorkItem => ({
+    title: "x", detail: "", files: ["src/a.ts"], acceptance: "it works", ...o,
+  })
+
+  // Risk escalates every dimension. These are the items where a false accept is expensive.
+  for (const t of ["Rotate the OAuth signing secret", "Apply the k8s migration", "Add an IAM role"]) {
+    const s = shapeFor(item({ title: t }))
+    assert.ok(s.maxAttempts > MAX_ATTEMPTS, `${t}: more attempts`)
+    assert.ok(s.panelSize > ACCEPTANCE_PANEL, `${t}: wider panel`)
+    assert.ok(s.timeoutMs > IMPLEMENT_TIMEOUT_MS, `${t}: longer clock`)
+  }
+
+  // Breadth escalates the panel: more surface, more lanes with a legitimate opinion.
+  const broad = shapeFor(item({ files: ["a.ts", "b.ts", "c.ts", "d.ts", "e.ts", "f.ts"] }))
+  assert.ok(broad.panelSize > ACCEPTANCE_PANEL, "6 files widens the panel")
+  assert.match(broad.why, /6 files/, "the reason names the measurement it acted on")
+
+  // Triviality buys ONE attempt - and no discount at all on judging.
+  const trivial = shapeFor(item({ title: "Rename a local variable", detail: "tidy up" }))
+  assert.equal(trivial.maxAttempts, 1, "a rename does not need two attempts")
+  assert.equal(trivial.panelSize, ACCEPTANCE_PANEL, "but it still faces the full panel")
+
+  // The default is unchanged, so this can only ever spend MORE than the old fixed loop.
+  const plain = shapeFor(item({ title: "Add a retry to the fetch helper" }))
+  assert.equal(plain.maxAttempts, MAX_ATTEMPTS)
+  assert.equal(plain.panelSize, ACCEPTANCE_PANEL)
+  assert.equal(plain.timeoutMs, IMPLEMENT_TIMEOUT_MS)
+})
+
+test("no item, however trivial it looks, is judged by fewer than the full panel", () => {
+  // The rule that matters most, pinned on its own: every de-escalation path must leave the
+  // panel alone. "It was only a rename" is the reasoning that lands bad work, so a future
+  // edit that trims judges to save a call has to delete this test to do it.
+  const cases: WorkItem[] = [
+    { title: "Fix a typo in a comment", detail: "", files: ["README.md"], acceptance: "spelled right" },
+    { title: "Reformat whitespace", detail: "", files: ["src/a.ts"], acceptance: "no diff in behaviour" },
+    { title: "Rename a variable", detail: "tidy", files: ["src/a.ts"], acceptance: "compiles" },
+  ]
+  for (const c of cases) {
+    assert.ok(shapeFor(c).panelSize >= ACCEPTANCE_PANEL, `${c.title}: panel never shrinks`)
+  }
+})
+
+test("an ambiguous item is not treated as trivial", () => {
+  // looksTrivial is deliberately narrow. Under-resourcing a real item costs a false
+  // rejection and a wasted round; over-resourcing a rename costs seconds.
+  const multiFile = shapeFor({
+    title: "Rename the cache helper", detail: "", files: ["src/a.ts", "src/b.ts"], acceptance: "compiles",
+  })
+  assert.equal(multiFile.maxAttempts, MAX_ATTEMPTS, "two files is not a trivial rename")
+
+  // Written first as "rename the auth helper", which this asserted got the DEFAULT shape.
+  // It got the risky one, correctly: `auth` is in the risk vocabulary and a rename that
+  // touches authentication is exactly the rename worth more attempts. The example was
+  // wrong, not the rule - keeping the case so the precedence stays pinned.
+  const riskyRename = shapeFor({
+    title: "Rename the auth helper", detail: "", files: ["src/a.ts", "src/b.ts"], acceptance: "compiles",
+  })
+  assert.ok(riskyRename.maxAttempts > MAX_ATTEMPTS, "risk outranks the shape of the edit")
+
+  const longAcceptance = shapeFor({
+    title: "Rename a variable", detail: "", files: ["src/a.ts"],
+    acceptance: "x".repeat(200),
+  })
+  assert.equal(longAcceptance.maxAttempts, MAX_ATTEMPTS, "a long criterion is not one check")
 })

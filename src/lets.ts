@@ -1656,6 +1656,97 @@ export const MAX_RUN_SECONDS = 60 * 60
 export const MAX_EVIDENCE_CHARS = 24_000
 
 /**
+ * The loop's dimensions for one item.
+ *
+ * `why` is not decoration. A run that quietly gives one item four attempts and another two
+ * is indistinguishable from a bug unless the log says which it chose and on what grounds.
+ */
+export type LoopShape = {
+  maxAttempts: number
+  panelSize: number
+  timeoutMs: number
+  why: string
+}
+
+/**
+ * Trivial items, by the only evidence available before any model runs.
+ *
+ * Deliberately narrow: one file, no risk vocabulary, and an acceptance criterion short
+ * enough that it plainly describes one check. Anything ambiguous is NOT trivial - the cost
+ * of under-resourcing a real item is a false rejection and a wasted round, while the cost
+ * of over-resourcing a rename is a few seconds.
+ */
+function looksTrivial(item: WorkItem): boolean {
+  if (item.files.length !== 1) return false
+  if (requiresIndependentAcceptance(item)) return false
+  if (item.acceptance.length > 160) return false
+  return /\b(rename|typo|comment|whitespace|format|reword|spelling)\b/i.test(`${item.title} ${item.detail}`)
+}
+
+/**
+ * Pick the loop's shape from what the item actually is.
+ *
+ * Before this, every item got an identical loop: 2 attempts, a 3-judge panel, 10 minutes -
+ * the same for a one-line rename and a database migration. That symmetry is wrong in both
+ * directions at once, thin where the work is dangerous and wasteful where it is trivial.
+ *
+ * Three rules, in priority order:
+ *
+ *   1. RISK ESCALATES. `requiresIndependentAcceptance` already decides which items fail
+ *      closed when unjudged; the same signal buys more attempts, more judges and more
+ *      clock, because those are the items where a false accept is expensive.
+ *   2. BREADTH ESCALATES. An item touching many files has more surface to get wrong and
+ *      more lanes with a legitimate opinion, so the panel grows with the blast radius.
+ *   3. TRIVIALITY DE-ESCALATES, BUT NEVER THE PANEL. A rename can have one attempt. It
+ *      still faces three judges: `ACCEPTANCE_PANEL` is a floor, never reduced, because an
+ *      item judged by nobody is exactly how bad work lands, and "it was only a rename" is
+ *      the reasoning that lets it.
+ *
+ * The defaults are the floor in every dimension except attempts, so this can only ever
+ * spend more than the old fixed loop on work that warrants it.
+ */
+export function shapeFor(item: WorkItem, changedLanes = 0): LoopShape {
+  const risky = requiresIndependentAcceptance(item)
+  const broad = item.files.length >= 5 || changedLanes >= 4
+
+  if (risky) {
+    return {
+      maxAttempts: MAX_ATTEMPTS + 2,
+      panelSize: ACCEPTANCE_PANEL + 2,
+      timeoutMs: IMPLEMENT_TIMEOUT_MS * 2,
+      why: "security/infrastructure surface: more attempts, wider panel, longer clock",
+    }
+  }
+  if (broad) {
+    return {
+      maxAttempts: MAX_ATTEMPTS + 1,
+      panelSize: ACCEPTANCE_PANEL + 1,
+      timeoutMs: Math.round(IMPLEMENT_TIMEOUT_MS * 1.5),
+      why: `broad change (${item.files.length} files): wider panel, longer clock`,
+    }
+  }
+  if (looksTrivial(item)) {
+    return {
+      maxAttempts: 1,
+      // NOT reduced. See rule 3.
+      panelSize: ACCEPTANCE_PANEL,
+      // NOT reduced either, and an existing test caught the attempt: the 2026-08-29
+      // incident is that a worker which must read code, edit it and run the suite cannot
+      // do it in 90s, and that is true of a rename too. Triviality buys fewer attempts,
+      // never a shorter clock - a timeout is not a verdict, it is an absence of one.
+      timeoutMs: IMPLEMENT_TIMEOUT_MS,
+      why: "single-file cosmetic change: one attempt, full panel",
+    }
+  }
+  return {
+    maxAttempts: MAX_ATTEMPTS,
+    panelSize: ACCEPTANCE_PANEL,
+    timeoutMs: IMPLEMENT_TIMEOUT_MS,
+    why: "default shape",
+  }
+}
+
+/**
  * Paths the acceptance criteria name that the diff does not touch.
  *
  * The gap this closes, measured 2026-09-22: a 57-line README item was rejected five times
@@ -2020,10 +2111,15 @@ export async function runItem(
     harnessBaseline?: HarnessAudit | null
   },
 ): Promise<ItemOutcome> {
-  const maxAttempts = input.maxAttempts ?? MAX_ATTEMPTS
+  const shape = shapeFor(input.item, selectRoles(input.item.files).length)
+  const maxAttempts = input.maxAttempts ?? shape.maxAttempts
   const maxEscalations = input.maxEscalations ?? MAX_ESCALATIONS
   const total = maxAttempts + maxEscalations
   const say = input.onStep ?? (() => {})
+  // Announced only when it differs, so the common case stays quiet and an unusual shape is
+  // never silent: a run that gives one item four attempts and the next two is otherwise
+  // indistinguishable from a bug.
+  if (shape.why !== "default shape") say(`  shape: ${shape.why}`)
   let feedback: string | undefined
   let last: ItemOutcome = { item: input.item, state: "model-failed", attempts: 0 }
   const wrote: string[] = []
@@ -2086,7 +2182,7 @@ export async function runItem(
         // An agentic session needs a budget an attempt fits in, and a timeout here means
         // this model did not fit it - so spend the next slot on a DIFFERENT model rather
         // than on the same one again at the same price for the same outcome.
-        { ...ctx, timeoutMs: IMPLEMENT_TIMEOUT_MS, retry: FALL_THROUGH_ON_TIMEOUT },
+        { ...ctx, timeoutMs: shape.timeoutMs, retry: FALL_THROUGH_ON_TIMEOUT },
         {
           model: member.model,
           agent: "lets-dev",
@@ -2282,6 +2378,7 @@ export async function runItem(
       diff: git(input.worktree, ["diff", "HEAD"]),
       exclude: wrote,
       landed: input.landed ?? [],
+      panelSize: shape.panelSize,
       worktree: input.worktree,
     })
     last.judge = verdict.judge
