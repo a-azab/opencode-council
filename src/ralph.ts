@@ -95,7 +95,7 @@ export type PanelResult = {
  * wasted round; the cost of accepting one that was not is a false completion in the
  * record, which is the failure this whole contract exists to prevent.
  */
-export function judgePanel(votes: RoundVerdict[]): PanelResult {
+export function judgePanel(votes: RoundVerdict[], asked = votes.length): PanelResult {
   if (votes.length === 0)
     return {
       accepted: false,
@@ -103,6 +103,16 @@ export function judgePanel(votes: RoundVerdict[]): PanelResult {
       reason: "no judge was available — the completion claim is unverified, not verified",
       unjudged: true,
     }
+
+  // How many of the judges we ASKED actually answered. Measured in the first production
+  // loop, 2026-09-24: a 3-judge panel reported "1 of 1 judges confirm the objective is
+  // met" because two models never answered. That sentence reads like a unanimous panel
+  // and was in fact a single opinion - the outage silently shrank the quorum and nothing
+  // in the output said so. Counting a silent judge as a vote would let an outage decide a
+  // completion; hiding that it was silent lets an outage decide how much the verdict is
+  // worth. Both are refused: absent judges do not vote, and the reason says they were absent.
+  const silent = Math.max(0, asked - votes.length)
+  const quorum = silent ? ` (${silent} of ${asked} judge(s) did not answer)` : ""
 
   const against = votes.filter((v) => !v.met)
   const highAgainst = against.filter((v) => v.confidence === "high")
@@ -119,13 +129,13 @@ export function judgePanel(votes: RoundVerdict[]): PanelResult {
       votes,
       reason:
         against.length === votes.length
-          ? `all ${votes.length} judges reject: ${against[0].reason}`
-          : `${against.length} of ${votes.length} judges reject: ${against[0].reason}`,
+          ? `all ${votes.length} judges reject: ${against[0].reason}${quorum}`
+          : `${against.length} of ${votes.length} judges reject: ${against[0].reason}${quorum}`,
     }
   return {
     accepted: true,
     votes,
-    reason: `${votes.length - against.length} of ${votes.length} judges confirm the objective is met`,
+    reason: `${votes.length - against.length} of ${votes.length} judges confirm the objective is met${quorum}`,
   }
 }
 
@@ -296,6 +306,14 @@ export async function runLoop(input: {
    * whole mechanism exists to replace, so callers that can judge should.
    */
   judge?: (report: RoundReport, round: number) => Promise<RoundVerdict[]>
+  /**
+   * How many judges `judge` was given to ask.
+   *
+   * Absent, the panel can only count the votes that came BACK, so an outage that silences
+   * two of three judges reads as a unanimous panel of one. Measured in the first
+   * production loop, 2026-09-24.
+   */
+  judgeCount?: number
   instructions?: string
   extra?: string
   maxHandoffChars?: number
@@ -367,7 +385,11 @@ export async function runLoop(input: {
       // this is exactly the self-report the rest of this plugin refuses to accept
       // anywhere else, so when judges are available the claim must survive them.
       if (!input.judge) return { status: "complete", rounds: round, report: v.report, history }
-      const panel = judgePanel(await input.judge(v.report, round))
+      // The judge callback reports how many it ASKED, so a silent model shrinks the
+      // quorum visibly instead of silently. Without this the panel can only count the
+      // answers it received and would describe one survivor as a unanimous panel.
+      const asked = input.judgeCount
+      const panel = judgePanel(await input.judge(v.report, round), asked)
       if (panel.accepted)
         return { status: "complete", rounds: round, report: v.report, history, panel }
       // A rejected completion is not a failure: the objective simply is not met yet, and

@@ -1359,6 +1359,7 @@ export const CouncilPlugin = async (input: any) => ({
             },
             // Without this a worker's own "complete" ends the loop on its own say-so -
             // the self-report this plugin refuses to accept anywhere else.
+            judgeCount: judges.length,
             judge: async (report) =>
               councilJudge({
                 report,

@@ -12,6 +12,7 @@ import {
   councilJudge,
   MAX_HANDOFF_CHARS,
   type RoundReport,
+  type RoundVerdict,
 } from "./ralph.ts"
 
 const ok = (over: Partial<RoundReport> = {}): RoundReport => ({
@@ -515,4 +516,26 @@ test("the debrief prompt asks for knowledge, not a transcript", async () => {
   assert.match(seen, /no memory of this one/)
   assert.match(seen, /what the next attempt needs to KNOW/)
   assert.match(seen, /data, not instructions/, "the diff is untrusted input")
+})
+
+test("a panel that lost judges to an outage says so, rather than reading as unanimous", () => {
+  // Measured in the first production loop, 2026-09-24: a 3-judge panel printed
+  // "1 of 1 judges confirm the objective is met" because two models never answered.
+  // That sentence describes a unanimous panel. It was one opinion. Absent judges must
+  // not vote - counting them either way lets an outage decide a completion - but the
+  // verdict must also not hide how thin it became.
+  const one: RoundVerdict[] = [{ met: true, confidence: "high", reason: "looks right", judge: "fable" }]
+
+  const shrunk = judgePanel(one, 3)
+  assert.equal(shrunk.accepted, true, "one genuine confirmation still carries")
+  assert.match(shrunk.reason, /did not answer/, "but the missing judges are named in the reason")
+  assert.match(shrunk.reason, /2 of 3/, "and counted exactly")
+
+  const full = judgePanel(one, 1)
+  assert.equal(full.accepted, true)
+  assert.ok(!/did not answer/.test(full.reason), "a panel of one that was only ever one says nothing extra")
+
+  // Rejections carry the same caveat: a thin panel is thin whichever way it votes.
+  const against: RoundVerdict[] = [{ met: false, confidence: "low", reason: "not done", judge: "minimax" }]
+  assert.match(judgePanel(against, 3).reason, /did not answer/)
 })
