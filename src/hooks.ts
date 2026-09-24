@@ -11,7 +11,8 @@
 // trust it cannot carry. Confinement (`external_directory: deny`) answers *where* and the
 // server enforces it; this answers *what*, for the specific destructive actions that
 // defeat the run's own gates.
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 /** A refusal: what was caught, and why it is refused. */
@@ -136,11 +137,65 @@ export function readGuardSettings(repoRoot: string): GuardSettings {
  * they never opted into.
  *
  * So the plugin records the sessions it creates, and the guard applies to exactly those.
+ *
+ * ON DISK, not in a module-level Set. Measured 2026-09-24: a Set here is per-PROCESS, and
+ * the two halves of this mechanism do not always share one. When `lets` runs inside the
+ * opencode server they do; when anything drives `ask()` from another process - a script, a
+ * test harness, a second server - the registration lands in one process and the hook reads
+ * an empty Set in another, so `isPluginSession` is always false and the guard never fires.
+ * A gate that silently does nothing is worse than no gate, because the ADR, the tests and
+ * the commit message all say it is protecting you.
+ *
+ * The file lives in the OS temp dir because this is ephemeral coordination state between
+ * two halves of one machine, not something a repo should carry or a user should clean up.
  */
-const spawned = new Set<string>()
+const REGISTRY = join(tmpdir(), "opencode-council-sessions.json")
 
-export const rememberSession = (id: string): void => void spawned.add(id)
-export const forgetSession = (id: string): void => void spawned.delete(id)
-export const isPluginSession = (id: string): boolean => spawned.has(id)
+/** How long a registration is believed. A crashed run must not guard an id forever. */
+export const REGISTRY_TTL_MS = 6 * 60 * 60 * 1000
+
+function readRegistry(): Record<string, number> {
+  try {
+    const raw = JSON.parse(readFileSync(REGISTRY, "utf8"))
+    return raw && typeof raw === "object" ? raw : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeRegistry(data: Record<string, number>): void {
+  try {
+    writeFileSync(REGISTRY, JSON.stringify(data))
+  } catch {
+    /* coordination is best-effort: a read-only tmp must not take the run down */
+  }
+}
+
+export function rememberSession(id: string): void {
+  if (!id) return
+  const data = readRegistry()
+  const cutoff = Date.now() - REGISTRY_TTL_MS
+  // Expiry on write, so a crashed run's ids drain without anything running on a timer.
+  for (const [k, at] of Object.entries(data)) if (typeof at !== "number" || at < cutoff) delete data[k]
+  data[id] = Date.now()
+  writeRegistry(data)
+}
+
+export function forgetSession(id: string): void {
+  if (!id) return
+  const data = readRegistry()
+  if (!(id in data)) return
+  delete data[id]
+  writeRegistry(data)
+}
+
+export function isPluginSession(id: string): boolean {
+  if (!id) return false
+  const at = readRegistry()[id]
+  return typeof at === "number" && Date.now() - at <= REGISTRY_TTL_MS
+}
+
 /** Test seam only. */
-export const spawnedCount = (): number => spawned.size
+export const spawnedCount = (): number => Object.keys(readRegistry()).length
+/** Test seam only: drop every registration. */
+export const clearSessions = (): void => writeRegistry({})

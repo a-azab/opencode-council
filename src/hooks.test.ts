@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { execFileSync } from "node:child_process"
 import {
   refusalFor,
   readGuardSettings,
@@ -10,6 +11,7 @@ import {
   forgetSession,
   isPluginSession,
   REFUSED,
+  clearSessions,
 } from "./hooks.ts"
 
 test("the gate refuses the commands that defeat this harness's own gates", () => {
@@ -53,6 +55,25 @@ test("editing the CI workflow is refused", () => {
   // Detected on the path, not the command, so it catches the editor tool as well as bash.
   assert.ok(refusalFor(".github/workflows/ci.yml"))
   assert.equal(refusalFor("src/engine.ts"), null)
+})
+
+test("session registration survives a process boundary", () => {
+  // The bug this pins, measured live 2026-09-24: with a module-level Set, the half that
+  // REGISTERS a session and the half that READS it are not always the same process. lets
+  // driven from a script registers in the script; the hook runs inside the opencode server
+  // and saw an empty Set, so isPluginSession was always false and the guard never fired -
+  // while the ADR, these tests and the commit message all said it was protecting you.
+  // A gate that silently does nothing is worse than no gate.
+  clearSessions()
+  rememberSession("ses_crossproc")
+  const seen = execFileSync(process.execPath, [
+    "--input-type=module",
+    "-e",
+    `const m = await import(${JSON.stringify(new URL("./hooks.ts", import.meta.url).href)});` +
+      `process.stdout.write(String(m.isPluginSession("ses_crossproc")))`,
+  ], { encoding: "utf8" })
+  assert.equal(seen, "true", "a separate process must see the registration")
+  forgetSession("ses_crossproc")
 })
 
 test("the guard applies only to sessions this plugin spawned", () => {
