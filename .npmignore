@@ -1,0 +1,28 @@
+# What `files` in package.json lets in, this keeps out.
+#
+# MEASURED 2026-09-24 (npm 10.3, node 24): a root `.npmignore` IS NOT CONSULTED while
+# package.json carries a `files` allowlist — this file on its own changed the pack by
+# exactly zero (98 files in, 98 out, all 23 test modules still shipping). The rule that
+# actually bites today is the `"!src/*.test.ts"` negation inside `files`, which took the
+# pack from 96 files / 1.2MB to 75 files / 821kB.
+#
+# So this file is a backstop, not the mechanism: it is the same policy for the day someone
+# drops or loosens `files` — a one-line edit that would otherwise silently re-ship the
+# whole suite to every consumer. Keep the two in agreement; if you change one, change both.
+#
+# Why the tests must not ship at all: they need `node --test` and devDependencies a
+# consumer never installs, so a suite that landed inside someone's node_modules could only
+# ever fail there. They are not the product.
+*.test.ts
+
+# Test fixtures, for when the suite grows some. None exist today; listed now because the
+# failure mode is silent — a fixture directory added later just quietly ships.
+__fixtures__/
+fixtures/
+__snapshots__/
+*.fixture.*
+
+# `.claude/` is packed deliberately: `settings.json` is the policy file src/hooks.ts reads
+# at runtime, and a guard a consumer cannot read is a guard they cannot inspect or turn
+# off. A personal local override is not part of that policy.
+.claude/settings.local.json

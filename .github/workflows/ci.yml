@@ -16,9 +16,32 @@ concurrency:
 
 jobs:
   check:
-    name: typecheck + tests
+    name: typecheck + tests (node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    strategy:
+      # Both legs always run. A failure on the floor version and a failure on the
+      # recommended version are different diagnoses, and fail-fast would cancel the
+      # second before it could tell them apart.
+      fail-fast: false
+      matrix:
+        # The README claims node >= 23.6, because the TypeScript is run unbuilt through
+        # node's strip-only type stripping. That claim was previously untested: CI only
+        # ever proved node 24, so the stated minimum was an assertion, not a result.
+        #
+        # '23.6.0' is pinned exactly rather than '23.6' or '23.x'. A range resolves to the
+        # newest match (23.6.1 today, and it would drift further), which stops exercising
+        # the specific version the README promises. Pinning the claimed floor is the whole
+        # point of including it.
+        #
+        # Note for anyone editing this: 23 is an odd/current major, so it is NOT in the
+        # actions/node-versions manifest that setup-node prefers (checked 2026-09-24: that
+        # manifest carries 26, 24, 22, 20, 18, 16, 14, 13, 12, 10, 8, 6 and no odd majors
+        # above 13). setup-node handles the miss by falling back to a direct download from
+        # nodejs.org/dist, where v23.6.0 does publish a linux-x64 build. Verified locally
+        # on that exact tarball: typecheck clean, 532/532 tests pass.
+        node-version: ['23.6.0', '24']
 
     steps:
       - name: Check out the repository
@@ -27,8 +50,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          # The plugin runs under Node 24 (strip-only TypeScript, node --test).
-          node-version: '24'
+          node-version: ${{ matrix.node-version }}
 
       # `npm install`, not `npm ci`: this repo does not guarantee a lockfile that
       # is in sync with package.json, and `npm ci` hard-fails on that mismatch.
@@ -42,3 +64,31 @@ jobs:
       # node --test over src/*.test.ts — the project's real test entrypoint.
       - name: Test
         run: npm test
+
+  harness:
+    name: harness score gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # Deliberately NOT in the matrix above. The score is a property of the repository,
+    # not of the interpreter reading it, so running it per-node would produce identical
+    # numbers and two chances to flake.
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # No `npm install`: the gate is dependency-free node ESM, and installing to run it
+      # would make a supply-chain problem able to take out the quality gate.
+      #
+      # The gate scores the repo with ECC's harness-audit.js and fails below the
+      # `harness-floor` recorded in AGENTS.md. The scorer lives outside this repository,
+      # so on a hosted runner it is normally absent: the gate then prints `unavailable`
+      # and exits 0 rather than reporting a pass it did not earn. See the comment block
+      # in the script for why that path is fail-open and why it is still loud.
+      - name: Harness score gate
+        run: node scripts/harness-gate.mjs

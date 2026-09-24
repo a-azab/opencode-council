@@ -17,7 +17,7 @@ import {
   planContext,
   auditLine,
   runAudit,
-  ECC_DEFAULT,
+  probeRoots,
   type HarnessAudit,
 } from "./harness.ts"
 
@@ -62,7 +62,65 @@ test("an explicit `none` declines the scorer and stops the probe", () => {
   // The same distinction `tracker` draws. Probing after an explicit decline would
   // re-impose a gate the human deliberately turned off, and they would have no way to
   // keep it off short of deleting ECC.
-  assert.equal(findHarness("none", { ECC_HOME: ECC_DEFAULT }), null)
+  assert.equal(findHarness("none", { ECC_HOME: "/root/code/AI/ECC" }), null)
+})
+
+test("`none` wins over every candidate, including ones that exist on disk", () => {
+  // Absent is not `none`. A missing `harness:` key means nobody was asked and probing is
+  // fair; `none` is a human answer, and it must hold even when a perfectly good scorer is
+  // sitting at the configured path, in $ECC_HOME, and at the front of the probe list.
+  const dir = mkdtempSync(join(tmpdir(), "ecc-none-"))
+  try {
+    mkdirSync(join(dir, "scripts"), { recursive: true })
+    writeFileSync(join(dir, "scripts", "harness-audit.js"), "")
+    const env = { ECC_HOME: dir, ECC_ROOT: dir, XDG_DATA_HOME: dir, HOME: dir }
+    assert.equal(findHarness("none", env), null)
+    // and the same env without the decline does find it, so the null above is the
+    // decision and not an empty machine.
+    assert.equal(findHarness(undefined, env)?.root, dir)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("the last-resort probe is an ordered list, with this machine's path last", () => {
+  // The order is explicit override, then XDG, then the layout ECC's own installer writes,
+  // then a checkout under $HOME. `/root/code/AI/ECC` was the single hardcoded constant
+  // this list replaced; it stays, and stays LAST, so the machine that recorded the 39/39
+  // floor still resolves without that one developer's path shadowing anybody else's.
+  assert.deepEqual(probeRoots({ ECC_ROOT: "/explicit", XDG_DATA_HOME: "/xdg", HOME: "/home/dev" }), [
+    "/explicit",
+    "/xdg/ecc",
+    "/home/dev/.claude/plugins/ecc",
+    "/home/dev/code/AI/ECC",
+    "/root/code/AI/ECC",
+  ])
+  // An unset variable drops out rather than probing "/ecc" or "undefined/ecc".
+  assert.deepEqual(probeRoots({ HOME: "/home/dev" }), [
+    "/home/dev/.claude/plugins/ecc",
+    "/home/dev/code/AI/ECC",
+    "/root/code/AI/ECC",
+  ])
+})
+
+test("an earlier probe candidate beats a later one when both exist", () => {
+  // probeRoots only states the order; this asserts findHarness walks it in that order
+  // rather than taking whichever it happened to stat first.
+  const first = mkdtempSync(join(tmpdir(), "ecc-first-"))
+  const later = mkdtempSync(join(tmpdir(), "ecc-later-"))
+  try {
+    for (const d of [first, later]) {
+      mkdirSync(join(d, "scripts"), { recursive: true })
+      writeFileSync(join(d, "scripts", "harness-audit.js"), "")
+    }
+    const found = findHarness(undefined, { ECC_ROOT: first, XDG_DATA_HOME: later, HOME: "/nonexistent-home" })
+    assert.equal(found?.root, first)
+    // Still a probe, not config or env: nothing was configured and $ECC_HOME was unset.
+    assert.equal(found?.from, "probe")
+  } finally {
+    rmSync(first, { recursive: true, force: true })
+    rmSync(later, { recursive: true, force: true })
+  }
 })
 
 test("a configured path that has no scorer falls through rather than being trusted", () => {

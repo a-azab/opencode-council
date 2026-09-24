@@ -5,6 +5,24 @@
   "type": "module",
   "main": "src/index.ts",
   "license": "MIT",
+  "keywords": [
+    "opencode",
+    "plugin",
+    "multi-model",
+    "code-review",
+    "agents",
+    "orchestration"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/a-azab/opencode-council.git"
+  },
+  "bugs": {
+    "url": "https://github.com/a-azab/opencode-council/issues"
+  },
+  "engines": {
+    "node": ">=23.6"
+  },
   "scripts": {
     "test": "node --test src/*.test.ts",
     "typecheck": "tsc --noEmit",
@@ -13,9 +31,11 @@
   },
   "files": [
     "src",
+    "!src/*.test.ts",
     "agent",
     "command",
     "skills",
+    ".claude",
     "README.md",
     "PLAN.md"
   ],

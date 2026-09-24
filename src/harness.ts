@@ -15,10 +15,35 @@
 // this is arithmetic, and a model's opinion of a repo's health is not evidence.
 import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
+import { homedir } from "node:os"
 import { join } from "node:path"
 
-/** ECC checkout probed when nothing is configured. */
-export const ECC_DEFAULT = "/root/code/AI/ECC"
+/**
+ * Where an ECC checkout is looked for when nothing is configured and nothing is in
+ * `$ECC_HOME`, in order.
+ *
+ * This was a single constant, `/root/code/AI/ECC` — one developer's absolute path compiled
+ * into a published artifact, which resolves on exactly one machine and silently degrades
+ * every other install to "no scorer found". The list is the same idea done conventionally:
+ * an explicit override, then the XDG data dir, then the plugin layout ECC's own installer
+ * writes, then a checkout under the user's home.
+ *
+ * `/root/code/AI/ECC` stays LAST so this machine still resolves — it is the path
+ * `AGENTS.md` records and the one the 39/39 floor was measured against.
+ *
+ * Every entry is a FALLBACK and never a requirement. Nothing here is created, nothing is
+ * demanded, and finding none of them is the ordinary "no harness" outcome the caller
+ * already degrades to.
+ */
+export const probeRoots = (env: NodeJS.ProcessEnv = process.env): string[] => {
+  const home = env.HOME || homedir()
+  const roots: string[] = []
+  if (env.ECC_ROOT) roots.push(env.ECC_ROOT)
+  if (env.XDG_DATA_HOME) roots.push(join(env.XDG_DATA_HOME, "ecc"))
+  if (home) roots.push(join(home, ".claude", "plugins", "ecc"), join(home, "code", "AI", "ECC"))
+  roots.push("/root/code/AI/ECC")
+  return roots
+}
 
 /** Wall clock for one audit. It is filesystem checks, not model calls - seconds, not minutes. */
 export const AUDIT_TIMEOUT_MS = 60_000
@@ -31,11 +56,13 @@ export type HarnessLocation = { root: string; script: string; from: HarnessSourc
 
 /**
  * Where the scorer lives, in order of decreasing explicitness: what the repo recorded,
- * then the environment, then the one known checkout.
+ * then the environment, then the conventional checkout locations.
  *
  * `harness: none` in the lets block is a decision and returns null - the same distinction
  * `tracker` draws between "never asked" and "the human said no". Probing after an explicit
- * `none` would re-impose a gate someone deliberately declined.
+ * `none` would re-impose a gate someone deliberately declined. Note this is checked before
+ * a single `existsSync`: an absent key means "never asked" and may probe, an explicit
+ * `none` means a human answered and nothing is looked at.
  */
 export function findHarness(
   configured?: string,
@@ -45,7 +72,7 @@ export function findHarness(
   const candidates: { root: string; from: HarnessSource }[] = []
   if (configured) candidates.push({ root: configured, from: "config" })
   if (env.ECC_HOME) candidates.push({ root: env.ECC_HOME, from: "env" })
-  candidates.push({ root: ECC_DEFAULT, from: "probe" })
+  for (const root of probeRoots(env)) candidates.push({ root, from: "probe" })
   for (const c of candidates) {
     const script = join(c.root, AUDIT_SCRIPT)
     if (existsSync(script)) return { root: c.root, script, from: c.from }
