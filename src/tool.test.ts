@@ -245,7 +245,16 @@ test("init refuses mcp wiring whose server is not configured", async () => {
       { mode: "init", write: true, verify: "npm test", base: "main", lanes: "reviewer", tracker: "mcp", mcpServer: "ghost" },
       { directory: dir },
     )
-    assert.match(out, /not a local entry/)
+    // Two different refusals, and which one you get depends on the MACHINE: where some
+    // mcpServers entry exists, `mcp` is an available tracker and the named server is
+    // rejected ("not a local entry"); on a machine with none configured - a CI runner -
+    // the tracker itself is unavailable first. Caught by the first real CI run, 2026-09-24:
+    // this passed locally for weeks and failed on a clean checkout.
+    //
+    // The assertion is what both have in common and what the test is actually about:
+    // nothing is wired, and the message names `mcp` so the user can act on it.
+    assert.match(out, /not a local entry|Unknown or unavailable tracker/)
+    assert.match(out, /ghost|mcp/, "the refusal must name what was refused")
     assert.ok(!existsSync(join(dir, "AGENTS.md")), "nothing written for a rejected tracker")
   } finally {
     rmSync(dir, { recursive: true, force: true })
