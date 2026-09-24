@@ -35,6 +35,7 @@ import {
   withProgress, progressLine,
 } from "./crew-org.ts"
 import { ROSTER, type Role } from "./roster.ts"
+import { refusalFor, readGuardSettings, isPluginSession } from "./hooks.ts"
 import {
   catalog, probe, probeBudget, upgradeCandidates, resolvePins, openCache, measuresCapability,
   type Result, type Adoption,
@@ -297,6 +298,39 @@ const withFiles = (tasks: any[]): any[] =>
   })
 
 export const CouncilPlugin = async (input: any) => ({
+  /**
+   * The preventive gate the hooks ADR proposed and nothing had built.
+   *
+   * Measured 2026-09-20 against opencode 1.18.31: this event runs BEFORE the tool, a throw
+   * blocks it, the refusal reaches the model as a readable tool result, and it applies to
+   * sessions spawned over HTTP - which is how `lets` drives its implementer.
+   *
+   * Scoped to sessions this plugin spawned. The event carries a sessionID and nothing else,
+   * so without that check this plugin would silently refuse the user's own commands in
+   * their own session on the same shared server, under a policy they never opted into.
+   */
+  "tool.execute.before": async (hookInput: any, hookOutput: any) => {
+    if (!isPluginSession(String(hookInput?.sessionID ?? ""))) return
+    const settings = readGuardSettings(String(input?.directory ?? process.cwd()))
+    if (!settings.enabled) return
+
+    // bash carries its command; edit/write carry a path. Both can defeat a gate.
+    const subject =
+      hookInput?.tool === "bash"
+        ? String(hookOutput?.args?.command ?? "")
+        : String(hookOutput?.args?.filePath ?? hookOutput?.args?.path ?? "")
+    if (!subject) return
+
+    const refusal = refusalFor(subject, settings.refuse)
+    if (!refusal) return
+    // The message IS the interface: a refusal the worker cannot read is a silent stall,
+    // and the ADR measured that this text comes back to the model verbatim.
+    throw new Error(
+      `BLOCKED_BY_COUNCIL_GUARD: ${refusal.pattern} - ${refusal.reason} ` +
+        `(policy: ${settings.source}; set hooks.guard.enabled=false in .claude/settings.json to disable)`,
+    )
+  },
+
   tool: {
     lets: {
       description:

@@ -14,6 +14,7 @@ import {
   type Finding, type Group, type Verdict, type Revision, type Score, type Tier,
 } from "./decide.ts"
 import { selectRoles, selectNodes, skepticPool, SKEPTICS_PER_TIER, bySlug, canSchema, preferFast, ROSTER, ALL_ROLES, type Node, type Role, type Member } from "./roster.ts"
+import { rememberSession, forgetSession } from "./hooks.ts"
 import { successorOf } from "./catalog.ts"
 
 /** Resolve roster slugs, configured model ids, and effective successor ids. */
@@ -325,6 +326,9 @@ const DISPOSE_TIMEOUT_MS = 5_000
  * RUN because cleanup threw is a real loss, and the two must not be traded.
  */
 async function disposeSession(ctx: Ctx, id: string): Promise<void> {
+  // Dropped from the guard's set whether or not the DELETE lands: the session is finished
+  // either way, and an id that outlives its session would grow this set without bound.
+  forgetSession(id)
   try {
     await fetch(`${ctx.serverUrl.replace(/\/$/, "")}/session/${id}`, {
       method: "DELETE",
@@ -494,6 +498,10 @@ async function askOnceBody<T>(
     // Recorded before the message is sent, so a timeout or a crash mid-call still leaves
     // the caller holding the id it needs to dispose.
     created.id = session.id
+    // The guard applies to sessions this plugin spawned, never to the user's own on the
+    // same shared server. `tool.execute.before` gets a sessionID and nothing else, so this
+    // record is the only way to tell them apart.
+    rememberSession(session.id)
     if (!session?.id)
       return { ok: false, state: "failed", detail: `session create: ${JSON.stringify(session).slice(0, 160)}`, ms: Date.now() - t0 }
 

@@ -1,0 +1,39 @@
+{
+  "$comment": [
+    "Project-local harness settings for opencode-council.",
+    "",
+    "The `hooks.guard` section is READ AT RUNTIME by src/hooks.ts and enforced by this",
+    "plugin's own `tool.execute.before`, which refuses the listed commands for sessions the",
+    "plugin spawned - the lets implementer, the one model here holding edit and bash.",
+    "It does not apply to your own session on the same server.",
+    "",
+    "Set enabled=false to turn the gate off without deleting the policy that documents it.",
+    "Each `refuse` entry is a regex source plus the reason the worker is told; an entry that",
+    "does not compile is skipped rather than taking the others down with it.",
+    "",
+    "Design and the measurements behind it:",
+    "docs/adr/2026-09-20-runtime-hooks-for-the-implementer.md",
+    "",
+    "`event` names the Claude Code hook phase this guard is equivalent to. ECC's OpenCode",
+    "adapter maps PreToolUse -> tool.execute.before, which is the event this plugin",
+    "registers, so a reader coming from either toolchain finds the same policy under the",
+    "name their own harness uses."
+  ],
+  "hooks": {
+    "guard": {
+      "event": "PreToolUse",
+      "enabled": true,
+      "refuse": [
+        {
+          "pattern": "\\bnpm\\s+(test|run\\s+(test|check|typecheck))\\b[^\\n]*--\\s*(--bail|--only)",
+          "reason": "narrowing the test run hides failures the full suite would have caught. Run the whole suite; if a test is wrong, say so."
+        },
+        {
+          "pattern": "\\bgit\\s+config\\b[^\\n]*\\bcore\\.hooksPath\\b",
+          "reason": "repointing core.hooksPath disables this repo's git hooks for every later command in the worktree."
+        }
+      ]
+    }
+  },
+  "$schema-note": "Keys outside `hooks.guard` are ignored by this plugin and left for Claude Code / ECC tooling that reads the same file."
+}
