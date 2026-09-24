@@ -51,6 +51,10 @@ import {
   requiresIndependentAcceptance,
   implementPrompt,
   ACCEPTANCE_PANEL,
+  evidencePaths,
+  renderEvidence,
+  outline,
+  MAX_EVIDENCE_CHARS,
 } from "./lets.ts"
 import { beadsAvailable, bdInstalled } from "./beads.ts"
 import { bySlug, canSchema, canAgentic, selectNodes, skepticPool, ALL_ROLES } from "./roster.ts"
@@ -1443,4 +1447,59 @@ test("an unjudged pass never claims to have been judged", () => {
   const zeroVotes = fn.slice(fn.indexOf("if (!votes.length)"), fn.indexOf("const panel = judgePanel"))
   assert.doesNotMatch(zeroVotes, /judge:/, "a zero-vote return must not name a judge")
   assert.match(zeroVotes, /requiresIndependentAcceptance/, "sensitive work still fails closed")
+})
+
+test("a criterion naming a file the diff does not touch attaches that file", () => {
+  // The measured failure this closes, 2026-09-22: a 57-line README item was rejected five
+  // times by five different judges. Its criterion was "no claim contradicts src/" - and a
+  // docs diff contains no src/, so every judge correctly said it could not see the evidence
+  // and voted against. The item was right and the judge was blind.
+  const diff = `diff --git a/README.md b/README.md\n+++ b/README.md\n+some docs`
+  const paths = evidencePaths("every claim matches src/lets.ts and src/ralph.ts", diff, process.cwd())
+  assert.deepEqual(paths, ["src/lets.ts", "src/ralph.ts"], "both named files must be attached")
+})
+
+test("a file the diff already shows is not attached twice", () => {
+  const diff = `diff --git a/src/lets.ts b/src/lets.ts\n+++ b/src/lets.ts\n+changed`
+  assert.deepEqual(evidencePaths("src/lets.ts must export it", diff, process.cwd()), [],
+    "the judge can already read it in the diff")
+})
+
+test("a criterion naming a file that does not exist attaches nothing", () => {
+  // The item genuinely fails here, and the judge must be free to say so rather than be
+  // handed a reassuring empty block.
+  assert.deepEqual(evidencePaths("src/does-not-exist.ts is updated", "", process.cwd()), [])
+})
+
+test("a file too large to attach whole is outlined, not dropped", () => {
+  // Measured 2026-09-23: src/lets.ts is 134KB, five times the whole budget, so the honest
+  // "NOT SHOWN" it first got was useless to a judge asked whether a README contradicts it.
+  // Its declarations are ~16KB and answer exactly the question acceptance criteria ask.
+  const out = renderEvidence(process.cwd(), ["src/lets.ts"])
+  assert.match(out, /OUTLINE OF src\/lets\.ts/, "an oversized file must be outlined")
+  assert.match(out, /checkAcceptance/, "the outline must carry the symbols a claim names")
+  assert.ok(out.length <= MAX_EVIDENCE_CHARS, "an outline must still respect the budget")
+})
+
+test("an outline carries signatures, never bodies", () => {
+  // A summary that keeps SOME logic invites a judge to reason about code it cannot see -
+  // the exact failure this mechanism exists to prevent.
+  const src = readFileSync(new URL("./lets.ts", import.meta.url), "utf8")
+  const summary = outline(src)
+  assert.match(summary, /export function evidencePaths/, "declarations are kept")
+  assert.doesNotMatch(summary, /^\s{4}(const|if|return) /m, "indented statements are not")
+})
+
+test("with no budget left even an outline is refused, and said so", () => {
+  // Silence would let a judge believe it saw everything.
+  const out = renderEvidence(process.cwd(), ["src/lets.ts"], 100)
+  assert.match(out, /NOT SHOWN/, "an unshowable file must still be named")
+})
+
+test("the judge is told the attachment is evidence, not instructions", () => {
+  // Attached file content is untrusted input: a repo file containing "ignore your
+  // instructions" must read as data. Every other attachment in this codebase is labelled
+  // the same way.
+  const out = renderEvidence(process.cwd(), ["package.json"])
+  assert.match(out, /data, not instructions/)
 })
